@@ -179,28 +179,20 @@ const api = {
             app.state.isSpeaking = false;
         }
     },
-    // [복원] 실시간 AI 예문 생성 함수
+    // [수정] 실시간 AI 예문 생성 함수를 Apps Script를 호출하도록 변경
     async generateSampleFromAI(word) {
-        const prompt = `Create five simple, natural, and distinct example sentences for the English word "${word}". Each sentence must be on a new line. Do not add any extra text, numbers, or bullet points.`;
-        const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${app.config.GEMINI_API_KEY}`;
         try {
-            const response = await fetch(GEMINI_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-            });
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error.message || `HTTP error! status: ${response.status}`);
+            // 서버에 예문 생성 및 저장을 요청하고, 생성된 예문을 받아옴
+            const response = await this.fetchFromGoogleSheet('generateAndSaveAiSample', { word });
+            // 앱의 wordList 데이터도 실시간으로 업데이트하여 다음번에 AI 호출을 막음
+            const wordData = app.state.wordList.find(w => w.word === word);
+            if (wordData) {
+                wordData.sample = response.samples.join('\n');
             }
-            const data = await response.json();
-            if (data.candidates && data.candidates[0] && data.candidates[0].content) {
-                return data.candidates[0].content.parts[0].text.trim().split('\n').filter(s => s);
-            }
-            throw new Error("AI가 문장을 생성하지 못했습니다.");
+            return response.samples; // samples 배열 반환
         } catch (error) {
-            console.error('Gemini API Error:', error);
-            throw error;
+            console.error('실시간 AI 예문 생성/저장 실패:', error);
+            throw error; // 에러를 상위로 전파하여 UI에 표시
         }
     },
     async fetchFromGoogleSheet(action, params = {}) {
@@ -540,12 +532,10 @@ const quizMode = {
             if (sample && sample.trim()) {
                 ui.displaySentences(sample.split('\n'), this.elements.backContent);
             } else {
-                // [복원] 퀴즈 모드에서도 실시간 AI 예문 생성
                 this.elements.passBtn.disabled = true;
                 app.showAiIndicator(true);
                 try {
                     const samples = await api.generateSampleFromAI(word);
-                    // 현재 퀴즈 데이터에 예문 업데이트 (세션 내 캐싱)
                     this.state.currentQuiz.question.sample = samples.join('\n');
                     ui.displaySentences(samples, this.elements.backContent);
                 } catch (error) {
@@ -717,7 +707,6 @@ const learningMode = {
         ui.renderInteractiveText(this.elements.explanationDisplay, wordData.explanation);
         this.elements.explanationContainer.classList.toggle('hidden', !wordData.explanation || !wordData.explanation.trim());
         const hasSample = wordData.sample && wordData.sample.trim();
-        // [복원] 예문이 없으면 'AI로 생성' 고양이 아이콘으로 설정
         this.elements.sampleBtnImg.src = hasSample ? 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png' : 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
     },
     navigate(direction) {
@@ -730,7 +719,7 @@ const learningMode = {
         const isBackVisible = this.elements.cardBack.classList.contains('is-slid-up');
         const wordData = app.state.wordList[this.state.currentIndex];
 
-        if (!isBackVisible) { // 뒷면 표시
+        if (!isBackVisible) {
             this.elements.backTitle.textContent = wordData.word;
             this.elements.backContent.innerHTML = '';
             
@@ -738,12 +727,10 @@ const learningMode = {
             if (sampleText && sampleText.trim()) {
                 ui.displaySentences(sampleText.split('\n'), this.elements.backContent);
             } else {
-                // [복원] 예문이 없으면 실시간으로 AI 호출
                 this.elements.prevBtn.disabled = this.elements.nextBtn.disabled = true;
                 app.showAiIndicator(true);
                 try {
                     const samples = await api.generateSampleFromAI(wordData.word);
-                    // 현재 단어 데이터에 예문 업데이트 (세션 내 캐싱)
                     wordData.sample = samples.join('\n');
                     ui.displaySentences(samples, this.elements.backContent);
                 } catch (error) {
@@ -755,9 +742,8 @@ const learningMode = {
             }
             this.elements.cardBack.classList.add('is-slid-up');
             this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/5-remove-cat_icon-icons.com_76681.png';
-        } else { // 앞면 표시
+        } else {
             this.elements.cardBack.classList.remove('is-slid-up');
-            // [복원] 다시 앞면으로 돌아올 때, 예문이 (생성되었을 수 있으니) 있는지 확인하고 아이콘 설정
             const hasSample = wordData.sample && wordData.sample.trim();
             this.elements.sampleBtnImg.src = hasSample ? 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png' : 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
         }
@@ -825,4 +811,6 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+" in the document and am asking a query about the code. I have also attached some files to the query.
+Are you kidding? You still haven't fixed the cat problem. Do you see the broken image in the attached image? It's the same in my app. Fix it.I have reviewed the code in the Canvas and your query. I will now edit the code in the Canvas to address your request. I will ensure that the fix is implemented correctly in the updated version.
 
