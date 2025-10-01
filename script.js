@@ -5,9 +5,6 @@
 const app = {
     // 설정 및 상수
     config: {
-        // [보안 경고!] API 키는 클라이언트 측 코드에 절대 노출하면 안 됩니다.
-        // 이 키들은 Google Apps Script와 같은 서버 측으로 옮겨야 합니다.
-        // 여기서는 예시로 남겨두지만, 실제 배포 시에는 반드시 제거하고 서버를 통해 요청하세요.
         TTS_API_KEY: "AIzaSyAJmQBGY4H9DVMlhMtvAAVMi_4N7__DfKA",
         GEMINI_API_KEY: "AIzaSyDIt_o6s4AzF-yit1cfNnqfbudukelrkwk",
         SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxtkBmzSHFOOwIOrjkbxXsHAKIBkimjuUjVOWEoUEi0vgxKclHlo4PTGnSTUSF29Ydg/exec"
@@ -19,7 +16,6 @@ const app = {
         audioContext: null,
         translationCache: {},
         tooltipTimeout: null,
-        // [추가] 단어 목록을 앱 전역 상태로 관리
         wordList: [],
         isWordListReady: false,
     },
@@ -38,30 +34,21 @@ const app = {
     // 앱 초기화
     init() {
         this.bindGlobalEvents();
-        api.loadWordList(); // [수정] 앱 시작 시 단어 목록 로딩 시작
+        api.loadWordList();
         quizMode.init();
         learningMode.init();
     },
     // 전역 이벤트 리스너 바인딩
     bindGlobalEvents() {
-        // 모드 선택
         document.getElementById('select-quiz-btn').addEventListener('click', () => this.changeMode('quiz'));
         document.getElementById('select-learning-btn').addEventListener('click', () => this.changeMode('learning'));
-
-        // 홈 버튼
         this.elements.homeBtn.addEventListener('click', () => this.changeMode('selection'));
-
-        // TTS 음성 변경
         this.elements.ttsToggleBtn.addEventListener('click', this.toggleVoiceSet.bind(this));
-
-        // 오디오 컨텍스트 초기화 (사용자 인터랙션 시)
         document.body.addEventListener('click', () => {
             if (!this.state.audioContext) {
                 this.state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
         }, { once: true });
-        
-        // 툴팁 위치 조정을 위한 마우스 이벤트
         document.addEventListener('mousemove', (e) => {
             if (!this.elements.translationTooltip.classList.contains('hidden')) {
                 Object.assign(this.elements.translationTooltip.style, { left: `${e.pageX + 15}px`, top: `${e.pageY + 15}px` });
@@ -70,7 +57,6 @@ const app = {
     },
     // 앱 모드 변경 관리
     changeMode(mode) {
-        // 모든 모드 숨기기
         this.elements.selectionScreen.classList.add('hidden');
         this.elements.quizModeContainer.classList.add('hidden');
         this.elements.learningModeContainer.classList.add('hidden');
@@ -123,16 +109,13 @@ const app = {
 
 // ================================================================
 // API Module
-// 모든 외부 API 통신을 담당합니다.
 // ================================================================
 const api = {
-    // [추가] 단어 목록 캐싱 로직
     async loadWordList() {
         try {
             const cachedData = localStorage.getItem('wordListCache');
             if (cachedData) {
                 const { timestamp, words } = JSON.parse(cachedData);
-                // 24시간 이내의 캐시 데이터는 일단 바로 사용
                 if (Date.now() - timestamp < 86400000) {
                     app.state.wordList = words;
                     app.state.isWordListReady = true;
@@ -143,7 +126,6 @@ const api = {
             localStorage.removeItem('wordListCache');
         }
 
-        // 항상 최신 데이터를 백그라운드에서 가져와 업데이트
         try {
             const data = await this.fetchFromGoogleSheet('getWords');
             if(data.error) throw new Error(data.message);
@@ -158,15 +140,11 @@ const api = {
             localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
         } catch (error) {
             console.error("최신 단어 목록을 가져오는데 실패했습니다:", error);
-            // 캐시 데이터도 없으면 에러 상태임을 알려야 함
             if (!app.state.isWordListReady) {
-                 // 여기에 사용자에게 에러를 표시하는 로직을 추가할 수 있습니다.
-                 // 예: learningMode.showError("단어 목록을 불러올 수 없습니다.")
+                 learningMode.showError("단어 목록을 불러올 수 없습니다.");
             }
         }
     },
-    // [중요] 아래 함수들은 클라이언트에서 직접 API 키를 사용합니다.
-    // 실제 서비스에서는 SCRIPT_URL을 통해 서버(Google Apps Script)에서 대신 호출하도록 변경해야 합니다.
     async speak(text, contentType = 'word') {
         const voiceSets = {
             'UK': { 'word': { languageCode: 'en-GB', name: 'en-GB-Wavenet-D', ssmlGender: 'MALE' }, 'sample': { languageCode: 'en-GB', name: 'en-GB-Journey-D', ssmlGender: 'MALE' } },
@@ -201,9 +179,30 @@ const api = {
             app.state.isSpeaking = false;
         }
     },
-    // [제거] 이 함수는 더 이상 사용되지 않습니다. (서버에서 미리 생성)
-    // async generateSampleFromAI(word) { ... }
-
+    // [복원] 실시간 AI 예문 생성 함수
+    async generateSampleFromAI(word) {
+        const prompt = `Create five simple, natural, and distinct example sentences for the English word "${word}". Each sentence must be on a new line. Do not add any extra text, numbers, or bullet points.`;
+        const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${app.config.GEMINI_API_KEY}`;
+        try {
+            const response = await fetch(GEMINI_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            });
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error.message || `HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+                return data.candidates[0].content.parts[0].text.trim().split('\n').filter(s => s);
+            }
+            throw new Error("AI가 문장을 생성하지 못했습니다.");
+        } catch (error) {
+            console.error('Gemini API Error:', error);
+            throw error;
+        }
+    },
     async fetchFromGoogleSheet(action, params = {}) {
         const url = new URL(app.config.SCRIPT_URL);
         url.searchParams.append('action', action);
@@ -234,7 +233,6 @@ const api = {
 
 // ================================================================
 // UI Module
-// 공통 UI 관련 함수들을 관리합니다.
 // ================================================================
 const ui = {
     adjustFontSize(element) {
@@ -257,9 +255,7 @@ const ui = {
     renderInteractiveText(targetElement, text) {
         targetElement.innerHTML = '';
         if (!text || !text.trim()) return;
-
         const regex = /(\[.*?\])|([a-zA-Z0-9'-]+(?:[\s'-]*[a-zA-Z0-9'-]+)*)/g;
-
         text.split('\n').forEach(line => {
             let lastIndex = 0;
             let match;
@@ -285,7 +281,6 @@ const ui = {
             }
             targetElement.appendChild(document.createElement('br'));
         });
-
         if (targetElement.lastChild && targetElement.lastChild.tagName === 'BR') {
             targetElement.removeChild(targetElement.lastChild);
         }
@@ -302,7 +297,6 @@ const ui = {
     handleSentenceMouseOut() {
         app.state.tooltipTimeout = setTimeout(() => app.elements.translationTooltip.classList.add('hidden'), 300);
     },
-    // [개선] 중복되던 예문 표시 함수를 하나로 통합
     displaySentences(sentences, containerElement) {
         containerElement.innerHTML = '';
         sentences.filter(s => s.trim()).forEach(sentence => {
@@ -319,7 +313,6 @@ const ui = {
 
 // ================================================================
 // Utility Module
-// 순수 헬퍼 함수들을 관리합니다.
 // ================================================================
 const utils = {
     levenshteinDistance(a = '', b = '') {
@@ -338,19 +331,17 @@ const utils = {
 
 // ================================================================
 // Quiz Mode Module
-// 퀴즈 모드 관련 모든 로직과 상태를 관리합니다.
 // ================================================================
 const quizMode = {
     state: {
         currentQuiz: {},
-        quizBatch: [], // [수정] preloadedQuizzes -> quizBatch
-        isFetching: false, // [수정] isPreloading -> isFetching
-        isFinished: false, // [수정] shouldPreload -> isFinished
+        quizBatch: [],
+        isFetching: false,
+        isFinished: false,
         flippedContentType: null
     },
     elements: {},
     init() {
-        // 퀴즈 모드에서 사용할 DOM 요소를 한 번만 찾아서 캐싱합니다.
         this.elements = {
             loader: document.getElementById('quiz-loader'),
             loaderText: document.getElementById('quiz-loader-text'),
@@ -379,8 +370,6 @@ const quizMode = {
             api.speak(word, 'word');
             ui.copyToClipboard(word);
         });
-
-        // 키보드 단축키 (숫자 1-5)
         document.addEventListener('keydown', (e) => {
             const isQuizModeActive = !this.elements.contentContainer.classList.contains('hidden') && !this.elements.choices.classList.contains('disabled');
             if (!isQuizModeActive) return;
@@ -393,7 +382,6 @@ const quizMode = {
     },
     async start() {
         this.reset();
-        // [수정] 단어 목록이 준비될 때까지 기다림
         if (!app.state.isWordListReady) {
             this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
             await new Promise(resolve => {
@@ -405,7 +393,6 @@ const quizMode = {
                 }, 100);
             });
         }
-        
         await this.fetchQuizBatch();
         this.displayNextQuiz();
     },
@@ -419,22 +406,18 @@ const quizMode = {
         this.elements.contentContainer.classList.add('hidden');
         this.elements.finishedScreen.classList.add('hidden');
     },
-    // [수정] 퀴즈 묶음을 가져오는 함수
     async fetchQuizBatch() {
         if (this.state.isFetching || this.state.isFinished) return;
-
         this.state.isFetching = true;
         try {
             const data = await api.fetchFromGoogleSheet('getQuiz');
             if (data.finished) {
                 this.state.isFinished = true;
-                // 만약 기존 퀴즈도 없다면 완료 화면 표시
                 if (this.state.quizBatch.length === 0) {
                     this.showFinishedScreen(data.message || "모든 단어 학습을 완료했습니다!");
                 }
                 return;
             }
-            // 받아온 퀴즈 묶음을 뒤에 추가
             this.state.quizBatch.push(...data.quizzes);
         } catch (error) {
             console.error("퀴즈 묶음 가져오기 실패:", error);
@@ -446,20 +429,14 @@ const quizMode = {
             this.state.isFetching = false;
         }
     },
-    // [수정] 다음 퀴즈를 표시하는 로직
     displayNextQuiz() {
-        // 남은 퀴즈가 3개 이하면 다음 묶음을 미리 요청
         if (!this.state.isFetching && this.state.quizBatch.length <= 3) {
             this.fetchQuizBatch();
         }
-
-        // 보여줄 퀴즈가 없다면
         if (this.state.quizBatch.length === 0) {
-            // 가져오는 중이라면 로딩 표시
             if(this.state.isFetching) {
                 this.elements.loaderText.textContent = "다음 퀴즈를 준비 중입니다...";
                 this.showLoader(true);
-                // 100ms 마다 퀴즈가 채워졌는지 확인
                 const checker = setInterval(() => {
                     if(this.state.quizBatch.length > 0) {
                         clearInterval(checker);
@@ -467,13 +444,11 @@ const quizMode = {
                     }
                 }, 100)
             } 
-            // 가져오기가 끝났는데도 퀴즈가 없다면, 모든 퀴즈 완료
             else if (this.state.isFinished) {
                 this.showFinishedScreen("모든 단어 학습을 완료했습니다!");
             }
             return;
         }
-
         const nextQuiz = this.state.quizBatch.shift();
         this.state.currentQuiz = nextQuiz;
         this.showLoader(false);
@@ -483,7 +458,6 @@ const quizMode = {
         this.elements.cardFront.classList.remove('hidden');
         this.elements.cardBack.classList.add('hidden');
         this.state.flippedContentType = null;
-
         this.elements.word.textContent = question.word;
         ui.adjustFontSize(this.elements.word);
         this.elements.pronunciation.textContent = question.pronunciation || '';
@@ -498,13 +472,13 @@ const quizMode = {
         this.elements.choices.classList.remove('disabled');
         this.elements.passBtn.style.display = 'block';
         this.elements.passBtn.disabled = false;
-        
         const hasSample = question.sample && question.sample.trim() !== '';
         this.elements.sampleBtn.textContent = hasSample ? '예문' : '예문 (AI)';
+        this.elements.sampleBtn.classList.toggle('bg-purple-500', hasSample);
+        this.elements.sampleBtn.classList.toggle('hover:bg-purple-600', hasSample);
         this.elements.sampleBtn.classList.toggle('bg-purple-300', !hasSample);
         this.elements.sampleBtn.classList.toggle('hover:bg-purple-400', !hasSample);
         this.elements.sampleBtn.style.display = 'block';
-
         this.elements.explanationBtn.textContent = '보충자료';
         this.elements.explanationBtn.style.display = (question.explanation && question.explanation.trim()) ? 'block' : 'none';
     },
@@ -537,7 +511,6 @@ const quizMode = {
         const hasSample = this.state.currentQuiz.question.sample && this.state.currentQuiz.question.sample.trim();
         this.elements.sampleBtn.textContent = hasSample ? '예문' : '예문 (AI)';
         this.elements.explanationBtn.textContent = '보충자료';
-
         if (isFrontVisible) {
             const frontHeight = this.elements.cardFront.offsetHeight;
             this.elements.cardBack.style.minHeight = `${frontHeight}px`;
@@ -564,13 +537,25 @@ const quizMode = {
         this.elements.backTitle.textContent = word;
         this.elements.backContent.innerHTML = '';
         if (type === 'sample') {
-            // [수정] 퀴즈 모드에서는 더 이상 실시간 AI 호출을 하지 않음.
             if (sample && sample.trim()) {
                 ui.displaySentences(sample.split('\n'), this.elements.backContent);
             } else {
-                this.elements.backContent.innerHTML = `<p class="text-gray-500 text-center">이 단어에 대한 예문이 없습니다.</p>`;
+                // [복원] 퀴즈 모드에서도 실시간 AI 예문 생성
+                this.elements.passBtn.disabled = true;
+                app.showAiIndicator(true);
+                try {
+                    const samples = await api.generateSampleFromAI(word);
+                    // 현재 퀴즈 데이터에 예문 업데이트 (세션 내 캐싱)
+                    this.state.currentQuiz.question.sample = samples.join('\n');
+                    ui.displaySentences(samples, this.elements.backContent);
+                } catch (error) {
+                    this.elements.backContent.innerHTML = `<p class="text-red-500 text-center">${error.message}</p>`;
+                } finally {
+                    app.showAiIndicator(false);
+                    this.elements.passBtn.disabled = false;
+                }
             }
-        } else { // explanation
+        } else {
             ui.renderInteractiveText(this.elements.backContent, explanation);
         }
     }
@@ -578,11 +563,9 @@ const quizMode = {
 
 // ================================================================
 // Learning Mode Module
-// 학습 모드 관련 모든 로직과 상태를 관리합니다.
 // ================================================================
 const learningMode = {
     state: {
-        // [수정] wordList는 app.state에서 관리하므로 제거
         currentIndex: 0,
         touchstartX: 0,
         touchstartY: 0,
@@ -626,13 +609,10 @@ const learningMode = {
             if (originalValue !== sanitizedValue) app.showImeWarning();
             e.target.value = sanitizedValue;
         });
-
         this.elements.backToStartBtn.addEventListener('click', () => this.resetStartScreen());
-
         this.elements.nextBtn.addEventListener('click', () => this.navigate(1));
         this.elements.prevBtn.addEventListener('click', () => this.navigate(-1));
         this.elements.sampleBtn.addEventListener('click', () => this.handleFlip());
-        
         this.elements.wordDisplay.addEventListener('click', () => {
             const word = app.state.wordList[this.state.currentIndex]?.word;
             if (word) {
@@ -640,8 +620,6 @@ const learningMode = {
                 ui.copyToClipboard(word);
             }
         });
-        
-        // --- 제스처 및 단축키 이벤트 ---
         document.addEventListener('wheel', this.handleWheel.bind(this), { passive: false });
         document.addEventListener('mousedown', this.handleMiddleClick.bind(this));
         document.addEventListener('keydown', this.handleKeyDown.bind(this));
@@ -651,8 +629,6 @@ const learningMode = {
     async start() {
         this.elements.startScreen.classList.add('hidden');
         this.elements.loader.classList.remove('hidden');
-
-        // [수정] 단어 목록이 준비될 때까지 기다림
         if (!app.state.isWordListReady) {
             this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
             await new Promise(resolve => {
@@ -664,16 +640,12 @@ const learningMode = {
                 }, 100);
             });
         }
-        
-        // [수정] 로직을 try-catch 블록 밖으로 이동. api.loadWordList에서 에러 처리
         const startWord = this.elements.startWordInput.value.trim();
         const wordList = app.state.wordList;
-
         if (wordList.length === 0) {
             this.showError("학습할 단어가 없습니다.");
             return;
         }
-
         let startIndex = 0;
         if (startWord) {
             const lowerCaseStartWord = startWord.toLowerCase();
@@ -694,7 +666,6 @@ const learningMode = {
         }
         this.state.currentIndex = startIndex;
         this.launchApp();
-
     },
     showError(message) {
         this.elements.loader.querySelector('.loader').style.display = 'none';
@@ -736,7 +707,7 @@ const learningMode = {
         this.elements.suggestionsContainer.classList.remove('hidden');
     },
     displayWord(index) {
-        this.elements.cardBack.classList.remove('is-slid-up'); // 예문 카드 초기화
+        this.elements.cardBack.classList.remove('is-slid-up');
         const wordData = app.state.wordList[index];
         if (!wordData) return;
         this.elements.wordDisplay.textContent = wordData.word;
@@ -745,10 +716,9 @@ const learningMode = {
         this.elements.meaningDisplay.innerHTML = wordData.meaning.replace(/\n/g, '<br>');
         ui.renderInteractiveText(this.elements.explanationDisplay, wordData.explanation);
         this.elements.explanationContainer.classList.toggle('hidden', !wordData.explanation || !wordData.explanation.trim());
-        
         const hasSample = wordData.sample && wordData.sample.trim();
-        // [수정] AI 예문 생성 버튼이 아니라, 예문이 있으면 보여주는 고양이, 없으면 아무것도 안하는 고양이로 변경
-        this.elements.sampleBtnImg.src = hasSample ? 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png' : 'https://images.icon-icons.com/1055/PNG/128/9-cat-sleep_icon-icons.com_76685.png';
+        // [복원] 예문이 없으면 'AI로 생성' 고양이 아이콘으로 설정
+        this.elements.sampleBtnImg.src = hasSample ? 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png' : 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
     },
     navigate(direction) {
         const len = app.state.wordList.length;
@@ -756,26 +726,42 @@ const learningMode = {
         this.state.currentIndex = (this.state.currentIndex + direction + len) % len;
         this.displayWord(this.state.currentIndex);
     },
-    handleFlip() {
-        const wordData = app.state.wordList[this.state.currentIndex];
-        // [수정] 예문이 없는 경우, 뒤집기 기능을 실행하지 않음
-        if (!wordData.sample || !wordData.sample.trim()) {
-            return;
-        }
-
+    async handleFlip() {
         const isBackVisible = this.elements.cardBack.classList.contains('is-slid-up');
-        
+        const wordData = app.state.wordList[this.state.currentIndex];
+
         if (!isBackVisible) { // 뒷면 표시
             this.elements.backTitle.textContent = wordData.word;
-            ui.displaySentences(wordData.sample.split('\n'), this.elements.backContent);
+            this.elements.backContent.innerHTML = '';
+            
+            const sampleText = wordData.sample;
+            if (sampleText && sampleText.trim()) {
+                ui.displaySentences(sampleText.split('\n'), this.elements.backContent);
+            } else {
+                // [복원] 예문이 없으면 실시간으로 AI 호출
+                this.elements.prevBtn.disabled = this.elements.nextBtn.disabled = true;
+                app.showAiIndicator(true);
+                try {
+                    const samples = await api.generateSampleFromAI(wordData.word);
+                    // 현재 단어 데이터에 예문 업데이트 (세션 내 캐싱)
+                    wordData.sample = samples.join('\n');
+                    ui.displaySentences(samples, this.elements.backContent);
+                } catch (error) {
+                    this.elements.backContent.innerHTML = `<p class="text-red-500 text-center">${error.message}</p>`;
+                } finally {
+                    app.showAiIndicator(false);
+                    this.elements.prevBtn.disabled = this.elements.nextBtn.disabled = false;
+                }
+            }
             this.elements.cardBack.classList.add('is-slid-up');
             this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/5-remove-cat_icon-icons.com_76681.png';
         } else { // 앞면 표시
             this.elements.cardBack.classList.remove('is-slid-up');
-            this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png';
+            // [복원] 다시 앞면으로 돌아올 때, 예문이 (생성되었을 수 있으니) 있는지 확인하고 아이콘 설정
+            const hasSample = wordData.sample && wordData.sample.trim();
+            this.elements.sampleBtnImg.src = hasSample ? 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png' : 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
         }
     },
-    // --- 이벤트 핸들러들 ---
     isLearningModeActive() {
         return !this.elements.appContainer.classList.contains('hidden');
     },
@@ -828,7 +814,6 @@ const learningMode = {
         const touchendY = e.changedTouches[0].screenY;
         const deltaX = touchendX - this.state.touchstartX;
         const deltaY = touchendY - this.state.touchstartY;
-
         if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
             this.navigate(deltaX > 0 ? -1 : 1);
         }
