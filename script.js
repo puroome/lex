@@ -93,11 +93,26 @@ const app = {
             btn.classList.toggle('hover:bg-red-600', this.state.currentVoiceSet === 'US');
         }, 250);
     },
-    // 로딩 인디케이터 표시/숨기기
+    // [수정] 앱 시작 오류를 화면에 표시하는 함수
+    showFatalError(message) {
+        const selectionDiv = this.elements.selectionScreen;
+        selectionDiv.innerHTML = `
+            <div class="p-8 text-center">
+                <h1 class="text-3xl font-bold text-red-600 mb-4">앱 시작 실패</h1>
+                <p class="text-gray-700 mb-6">데이터를 불러오는 중 문제가 발생했습니다. <br>네트워크 연결을 확인하고 잠시 후 페이지를 새로고침 해주세요.</p>
+                <div class="bg-red-50 text-red-700 p-4 rounded-lg text-left text-sm break-all">
+                    <p class="font-semibold">오류 정보:</p>
+                    <p>${message}</p>
+                </div>
+            </div>
+        `;
+        selectionDiv.classList.remove('hidden');
+        this.elements.quizModeContainer.classList.add('hidden');
+        this.elements.learningModeContainer.classList.add('hidden');
+    },
     showAiIndicator(show) {
         this.elements.aiIndicator.classList.toggle('hidden', !show);
     },
-    // 한글 입력 경고
     showImeWarning() {
         this.elements.imeWarning.classList.remove('hidden');
         clearTimeout(this.imeWarningTimeout);
@@ -137,11 +152,16 @@ const api = {
                 timestamp: Date.now(),
                 words: data.words,
             };
-            localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
+            try {
+                localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
+            } catch (e) {
+                console.error("localStorage 저장 실패:", e);
+            }
         } catch (error) {
-            console.error("최신 단어 목록을 가져오는데 실패했습니다:", error);
+            console.error("단어 목록 로딩 실패:", error);
+            // [수정] 초기 로딩 실패 시, 사용자에게 오류를 명확히 보여줌
             if (!app.state.isWordListReady) {
-                 learningMode.showError("단어 목록을 불러올 수 없습니다.");
+                app.showFatalError(error.message);
             }
         }
     },
@@ -179,20 +199,17 @@ const api = {
             app.state.isSpeaking = false;
         }
     },
-    // [수정] 실시간 AI 예문 생성 함수를 Apps Script를 호출하도록 변경
     async generateSampleFromAI(word) {
         try {
-            // 서버에 예문 생성 및 저장을 요청하고, 생성된 예문을 받아옴
             const response = await this.fetchFromGoogleSheet('generateAndSaveAiSample', { word });
-            // 앱의 wordList 데이터도 실시간으로 업데이트하여 다음번에 AI 호출을 막음
             const wordData = app.state.wordList.find(w => w.word === word);
             if (wordData) {
                 wordData.sample = response.samples.join('\n');
             }
-            return response.samples; // samples 배열 반환
+            return response.samples;
         } catch (error) {
             console.error('실시간 AI 예문 생성/저장 실패:', error);
-            throw error; // 에러를 상위로 전파하여 UI에 표시
+            throw error;
         }
     },
     async fetchFromGoogleSheet(action, params = {}) {
@@ -811,6 +828,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-" in the document and am asking a query about the code. I have also attached some files to the query.
-Are you kidding? You still haven't fixed the cat problem. Do you see the broken image in the attached image? It's the same in my app. Fix it.I have reviewed the code in the Canvas and your query. I will now edit the code in the Canvas to address your request. I will ensure that the fix is implemented correctly in the updated version.
 
