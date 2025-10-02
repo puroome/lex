@@ -6,7 +6,7 @@ const app = {
     // 설정 및 상수
     config: {
         TTS_API_KEY: "AIzaSyAJmQBGY4H9DVMlhMtvAAVMi_4N7__DfKA",
-        GEMINI_API_KEY: "AIzaSyDIt_o6s4AzF-yit1cfNnqfbudukelrkwk",
+        // [참고] Gemini API 키는 더 이상 여기서 사용하지 않고, Apps Script에서 직접 관리합니다.
         SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxtkBmzSHFOOwIOrjkbxXsHAKIBkimjuUjVOWEoUEi0vgxKclHlo4PTGnSTUSF29Ydg/exec"
     },
     // 앱 상태
@@ -93,7 +93,7 @@ const app = {
             btn.classList.toggle('hover:bg-red-600', this.state.currentVoiceSet === 'US');
         }, 250);
     },
-    // [수정] 앱 시작 오류를 화면에 표시하는 함수
+    // 앱 시작 오류를 화면에 표시하는 함수
     showFatalError(message) {
         const selectionDiv = this.elements.selectionScreen;
         selectionDiv.innerHTML = `
@@ -131,7 +131,7 @@ const api = {
             const cachedData = localStorage.getItem('wordListCache');
             if (cachedData) {
                 const { timestamp, words } = JSON.parse(cachedData);
-                if (Date.now() - timestamp < 86400000) {
+                if (Date.now() - timestamp < 86400000) { // 24시간
                     app.state.wordList = words;
                     app.state.isWordListReady = true;
                 }
@@ -159,7 +159,6 @@ const api = {
             }
         } catch (error) {
             console.error("단어 목록 로딩 실패:", error);
-            // [수정] 초기 로딩 실패 시, 사용자에게 오류를 명확히 보여줌
             if (!app.state.isWordListReady) {
                 app.showFatalError(error.message);
             }
@@ -393,17 +392,20 @@ const quizMode = {
         this.reset();
         if (!app.state.isWordListReady) {
             this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
-            await new Promise(resolve => {
-                const interval = setInterval(() => {
-                    if (app.state.isWordListReady) {
-                        clearInterval(interval);
-                        resolve();
-                    }
-                }, 100);
-            });
+            await this.waitForWordList();
         }
         await this.fetchQuizBatch();
         this.displayNextQuiz();
+    },
+    async waitForWordList() {
+        return new Promise(resolve => {
+            const interval = setInterval(() => {
+                if(app.state.isWordListReady) {
+                    clearInterval(interval);
+                    resolve();
+                }
+            }, 100);
+        });
     },
     reset() {
         this.state.quizBatch = [];
@@ -430,13 +432,14 @@ const quizMode = {
             this.state.quizBatch.push(...data.quizzes);
         } catch (error) {
             console.error("퀴즈 묶음 가져오기 실패:", error);
-            if (this.state.quizBatch.length === 0) {
-                 this.elements.loader.querySelector('.loader').style.display = 'none';
-                 this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">퀴즈를 가져올 수 없습니다.</p><p class="text-sm text-gray-600 mt-2 break-all">${error.message}</p>`;
-            }
+            this.showError(error.message);
         } finally {
             this.state.isFetching = false;
         }
+    },
+    showError(message) {
+        this.elements.loader.querySelector('.loader').style.display = 'none';
+        this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">퀴즈를 가져올 수 없습니다.</p><p class="text-sm text-gray-600 mt-2 break-all">${message}</p>`;
     },
     displayNextQuiz() {
         if (!this.state.isFetching && this.state.quizBatch.length <= 3) {
@@ -638,14 +641,7 @@ const learningMode = {
         this.elements.loader.classList.remove('hidden');
         if (!app.state.isWordListReady) {
             this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
-            await new Promise(resolve => {
-                const interval = setInterval(() => {
-                    if (app.state.isWordListReady) {
-                        clearInterval(interval);
-                        resolve();
-                    }
-                }, 100);
-            });
+            await this.waitForWordList();
         }
         const startWord = this.elements.startWordInput.value.trim();
         const wordList = app.state.wordList;
@@ -673,6 +669,16 @@ const learningMode = {
         }
         this.state.currentIndex = startIndex;
         this.launchApp();
+    },
+    async waitForWordList() {
+        return new Promise(resolve => {
+            const interval = setInterval(() => {
+                if(app.state.isWordListReady) {
+                    clearInterval(interval);
+                    resolve();
+                }
+            }, 100);
+        });
     },
     showError(message) {
         this.elements.loader.querySelector('.loader').style.display = 'none';
