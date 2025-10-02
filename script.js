@@ -25,6 +25,7 @@ const app = {
         translationTooltip: document.getElementById('translation-tooltip'),
         imeWarning: document.getElementById('ime-warning'),
         noSampleMessage: document.getElementById('no-sample-message'),
+        aiIndicator: document.getElementById('ai-indicator'),
     },
     init() {
         this.bindGlobalEvents();
@@ -98,6 +99,9 @@ const app = {
             this.elements.imeWarning.classList.add('hidden');
         }, 2000);
     },
+    showAiIndicator(show) {
+        this.elements.aiIndicator.classList.toggle('hidden', !show);
+    },
     showNoSampleMessage() {
         const msgEl = this.elements.noSampleMessage;
         msgEl.classList.remove('hidden', 'opacity-0');
@@ -160,5 +164,668 @@ const api = {
             const response = await fetch(TTS_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ input: { text: processedText }, voice: voiceConfig, audioConfig: {
+                body: JSON.stringify({ input: { text: processedText }, voice: voiceConfig, audioConfig: { audioEncoding: 'MP3' } })
+            });
+            if (!response.ok) throw new Error(`TTS API Error: ${(await response.json()).error.message}`);
+            const data = await response.json();
+            const byteCharacters = atob(data.audioContent);
+            const byteArray = new Uint8Array(byteCharacters.length).map((_, i) => byteCharacters.charCodeAt(i));
+            const audioBuffer = await app.state.audioContext.decodeAudioData(byteArray.buffer);
+            const source = app.state.audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(app.state.audioContext.destination);
+            source.start(0);
+            source.onended = () => { app.state.isSpeaking = false; };
+        } catch (error) {
+            console.error('TTS 재생에 실패했습니다:', error);
+            app.state.isSpeaking = false;
+        }
+    },
+    async generateSampleFromAI(word) {
+        try {
+            const response = await this.fetchFromGoogleSheet('generateAndSaveAiSample', { word });
+            const wordData = app.state.wordList.find(w => w.word === word);
+            if (wordData) {
+                wordData.sample = response.samples.join('\n');
+            }
+            return response.samples;
+        } catch (error) {
+            console.error('실시간 AI 예문 생성/저장 실패:', error);
+            throw error;
+        }
+    },
+    async fetchFromGoogleSheet(action, params = {}) {
+        const url = new URL(app.config.SCRIPT_URL);
+        url.searchParams.append('action', action);
+        for (const key in params) {
+            url.searchParams.append(key, params[key]);
+        }
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
+        if (data.error) throw new Error(data.message);
+        return data;
+    },
+    async translateText(text) {
+        if (app.state.translationCache[text]) return app.state.translationCache[text];
+        try {
+            const data = await this.fetchFromGoogleSheet('translateText', { text });
+            if (data.success) {
+                app.state.translationCache[text] = data.translatedText;
+                return data.translatedText;
+            }
+            return '번역 실패';
+        } catch (error) {
+            console.error('Translation fetch error:', error);
+            return '번역 오류';
+        }
+    }
+};
+
+// ================================================================
+// UI Module
+// ================================================================
+const ui = {
+    adjustFontSize(element) {
+        element.style.fontSize = '';
+        let currentFontSize = parseFloat(window.getComputedStyle(element).fontSize);
+        const container = element.parentElement;
+        const containerStyle = window.getComputedStyle(container);
+        const containerWidth = container.clientWidth - parseFloat(containerStyle.paddingLeft) - parseFloat(containerStyle.paddingRight);
+        const minFontSize = 16;
+        while (element.scrollWidth > containerWidth && currentFontSize > minFontSize) {
+            element.style.fontSize = `${--currentFontSize}px`;
+        }
+    },
+    async copyToClipboard(text) {
+        if (navigator.clipboard) {
+            try { await navigator.clipboard.writeText(text); } 
+            catch (err) { console.error('클립보드 복사 실패:', err); }
+        }
+    },
+    renderInteractiveText(targetElement, text) {
+        targetElement.innerHTML = '';
+        if (!text || !text.trim()) return;
+        const regex = /(\[.*?\])|([a-zA-Z0-9'-]+(?:[\s'-]*[a-zA-Z0-9'-]+)*)/g;
+        text.split('\n').forEach(line => {
+            let lastIndex = 0;
+            let match;
+            while ((match = regex.exec(line))) {
+                if (match.index > lastIndex) {
+                    targetElement.appendChild(document.createTextNode(line.substring(lastIndex, match.index)));
+                }
+                const [_, nonClickable, englishPhrase] = match;
+                if (englishPhrase) {
+                    const span = document.createElement('span');
+                    span.textContent = englishPhrase;
+                    span.className = 'cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors';
+                    span.title = '클릭하여 듣기 및 복사';
+                    span.onclick = () => { api.speak(englishPhrase, 'word'); this.copyToClipboard(englishPhrase); };
+                    targetElement.appendChild(span);
+                } else if (nonClickable) {
+                    targetElement.appendChild(document.createTextNode(nonClickable));
+                }
+                lastIndex = regex.lastIndex;
+            }
+            if (lastIndex < line.length) {
+                targetElement.appendChild(document.createTextNode(line.substring(lastIndex)));
+            }
+            targetElement.appendChild(document.createElement('br'));
+        });
+        if (targetElement.lastChild && targetElement.lastChild.tagName === 'BR') {
+            targetElement.removeChild(targetElement.lastChild);
+        }
+    },
+    async handleSentenceMouseOver(event, sentence) {
+        clearTimeout(app.state.tooltipTimeout);
+        const tooltip = app.elements.translationTooltip;
+        Object.assign(tooltip.style, { left: `${event.pageX + 15}px`, top: `${event.pageY + 15}px` });
+        tooltip.textContent = '번역 중...';
+        tooltip.classList.remove('hidden');
+        const translatedText = await api.translateText(sentence);
+        tooltip.textContent = translatedText;
+    },
+    handleSentenceMouseOut() {
+        app.state.tooltipTimeout = setTimeout(() => app.elements.translationTooltip.classList.add('hidden'), 300);
+    },
+    displaySentences(sentences, containerElement) {
+        containerElement.innerHTML = '';
+        sentences.filter(s => s.trim()).forEach(sentence => {
+            const p = document.createElement('p');
+            p.innerHTML = sentence.replace(/\*(.*?)\*/g, '<strong>$1</strong>');
+            p.className = 'p-2 rounded transition-colors cursor-pointer hover:bg-gray-200 sample-sentence';
+            p.onclick = () => api.speak(p.textContent, 'sample');
+            p.addEventListener('mouseover', (e) => this.handleSentenceMouseOver(e, p.textContent));
+            p.addEventListener('mouseout', this.handleSentenceMouseOut);
+            containerElement.appendChild(p);
+        });
+    }
+};
+
+// ================================================================
+// Utility Module
+// ================================================================
+const utils = {
+    levenshteinDistance(a = '', b = '') {
+        const track = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
+        for (let i = 0; i <= a.length; i += 1) track[0][i] = i;
+        for (let j = 0; j <= b.length; j += 1) track[j][0] = j;
+        for (let j = 1; j <= b.length; j += 1) {
+            for (let i = 1; i <= a.length; i += 1) {
+                const indicator = a[i - 1] === b[j - 1] ? 0 : 1;
+                track[j][i] = Math.min(track[j][i - 1] + 1, track[j - 1][i] + 1, track[j - 1][i - 1] + indicator);
+            }
+        }
+        return track[b.length][a.length];
+    }
+};
+
+// ================================================================
+// Quiz Mode Module
+// ================================================================
+const quizMode = {
+    state: {
+        currentQuiz: {},
+        quizBatch: [],
+        isFetching: false,
+        isFinished: false,
+        flippedContentType: null
+    },
+    elements: {},
+    init() {
+        this.elements = {
+            loader: document.getElementById('quiz-loader'),
+            loaderText: document.getElementById('quiz-loader-text'),
+            contentContainer: document.getElementById('quiz-content-container'),
+            cardFront: document.getElementById('quiz-card-front'),
+            cardBack: document.getElementById('quiz-card-back'),
+            word: document.getElementById('quiz-word'),
+            pronunciation: document.getElementById('quiz-pronunciation'),
+            choices: document.getElementById('quiz-choices'),
+            backTitle: document.getElementById('quiz-back-title'),
+            backContent: document.getElementById('quiz-back-content'),
+            passBtn: document.getElementById('quiz-pass-btn'),
+            sampleBtn: document.getElementById('quiz-sample-btn'),
+            explanationBtn: document.getElementById('quiz-explanation-btn'),
+            finishedScreen: document.getElementById('quiz-finished-screen'),
+            finishedMessage: document.getElementById('quiz-finished-message')
+        };
+        this.bindEvents();
+    },
+    bindEvents() {
+        this.elements.passBtn.addEventListener('click', () => this.displayNextQuiz());
+        this.elements.sampleBtn.addEventListener('click', () => this.handleFlip('sample'));
+        this.elements.explanationBtn.addEventListener('click', () => this.handleFlip('explanation'));
+        this.elements.word.addEventListener('click', () => {
+            const word = this.elements.word.textContent;
+            api.speak(word, 'word');
+            ui.copyToClipboard(word);
+        });
+        document.addEventListener('keydown', (e) => {
+            const isQuizModeActive = !this.elements.contentContainer.classList.contains('hidden') && !this.elements.choices.classList.contains('disabled');
+            if (!isQuizModeActive) return;
+            const choiceIndex = parseInt(e.key) - 1;
+            if (choiceIndex >= 0 && choiceIndex < 5 && this.elements.choices.children[choiceIndex]) {
+                e.preventDefault();
+                this.elements.choices.children[choiceIndex].click();
+            }
+        });
+    },
+    async start() {
+        this.reset();
+        if (!app.state.isWordListReady) {
+            this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
+            await this.waitForWordList();
+        }
+        await this.fetchQuizBatch();
+        this.displayNextQuiz();
+    },
+    async waitForWordList() {
+        return new Promise(resolve => {
+            const interval = setInterval(() => {
+                if(app.state.isWordListReady) {
+                    clearInterval(interval);
+                    resolve();
+                }
+            }, 100);
+        });
+    },
+    reset() {
+        this.state.quizBatch = [];
+        this.state.isFetching = false;
+        this.state.isFinished = false;
+        this.showLoader(true);
+        this.elements.loader.querySelector('.loader').style.display = 'block';
+        this.elements.loaderText.textContent = "퀴즈 데이터를 불러오는 중...";
+        this.elements.contentContainer.classList.add('hidden');
+        this.elements.finishedScreen.classList.add('hidden');
+    },
+    async fetchQuizBatch() {
+        if (this.state.isFetching || this.state.isFinished) return;
+        this.state.isFetching = true;
+        try {
+            const data = await api.fetchFromGoogleSheet('getQuiz');
+            if (data.finished) {
+                this.state.isFinished = true;
+                if (this.state.quizBatch.length === 0) {
+                    this.showFinishedScreen(data.message || "모든 단어 학습을 완료했습니다!");
+                }
+                return;
+            }
+            this.state.quizBatch.push(...data.quizzes);
+        } catch (error) {
+            console.error("퀴즈 묶음 가져오기 실패:", error);
+            this.showError(error.message);
+        } finally {
+            this.state.isFetching = false;
+        }
+    },
+    showError(message) {
+        this.elements.loader.querySelector('.loader').style.display = 'none';
+        this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">퀴즈를 가져올 수 없습니다.</p><p class="text-sm text-gray-600 mt-2 break-all">${message}</p>`;
+    },
+    displayNextQuiz() {
+        if (!this.state.isFetching && this.state.quizBatch.length <= 3) {
+            this.fetchQuizBatch();
+        }
+        if (this.state.quizBatch.length === 0) {
+            if(this.state.isFetching) {
+                this.elements.loaderText.textContent = "다음 퀴즈를 준비 중입니다...";
+                this.showLoader(true);
+                const checker = setInterval(() => {
+                    if(this.state.quizBatch.length > 0) {
+                        clearInterval(checker);
+                        this.displayNextQuiz();
+                    }
+                }, 100)
+            } 
+            else if (this.state.isFinished) {
+                this.showFinishedScreen("모든 단어 학습을 완료했습니다!");
+            }
+            return;
+        }
+        const nextQuiz = this.state.quizBatch.shift();
+        this.state.currentQuiz = nextQuiz;
+        this.showLoader(false);
+        this.renderQuiz(nextQuiz.question, nextQuiz.choices);
+    },
+    renderQuiz(question, choices) {
+        this.elements.cardFront.classList.remove('hidden');
+        this.elements.cardBack.classList.add('hidden');
+        this.state.flippedContentType = null;
+        this.elements.word.textContent = question.word;
+        ui.adjustFontSize(this.elements.word);
+        this.elements.pronunciation.textContent = question.pronunciation || '';
+        this.elements.choices.innerHTML = '';
+        choices.forEach((choice, index) => {
+            const li = document.createElement('li');
+            li.className = 'choice-item border-2 border-gray-300 p-4 rounded-lg cursor-pointer flex items-start transition-all';
+            li.innerHTML = `<span class="font-bold mr-3">${index + 1}.</span> <span>${choice}</span>`;
+            li.onclick = () => this.checkAnswer(li, choice);
+            this.elements.choices.appendChild(li);
+        });
+        this.elements.choices.classList.remove('disabled');
+        this.elements.passBtn.style.display = 'block';
+        this.elements.passBtn.disabled = false;
+        const hasSample = question.sample && question.sample.trim() !== '';
+        this.elements.sampleBtn.textContent = hasSample ? '예문' : '예문 (AI)';
+        this.elements.sampleBtn.classList.toggle('bg-purple-500', hasSample);
+        this.elements.sampleBtn.classList.toggle('hover:bg-purple-600', hasSample);
+        this.elements.sampleBtn.classList.toggle('bg-purple-300', !hasSample);
+        this.elements.sampleBtn.classList.toggle('hover:bg-purple-400', !hasSample);
+        this.elements.sampleBtn.style.display = 'block';
+        this.elements.explanationBtn.textContent = '보충자료';
+        this.elements.explanationBtn.style.display = (question.explanation && question.explanation.trim()) ? 'block' : 'none';
+    },
+    checkAnswer(selectedLi, selectedChoice) {
+        this.elements.choices.classList.add('disabled');
+        this.elements.passBtn.disabled = true;
+        const isCorrect = selectedChoice === this.state.currentQuiz.answer;
+        selectedLi.classList.add(isCorrect ? 'correct' : 'incorrect');
+        if (isCorrect) {
+            api.fetchFromGoogleSheet('updateStatus', { word: this.state.currentQuiz.question.word });
+        } else {
+            const correctAnswerEl = Array.from(this.elements.choices.children).find(li => li.querySelector('span:last-child').textContent === this.state.currentQuiz.answer);
+            correctAnswerEl?.classList.add('correct');
+        }
+        setTimeout(() => this.displayNextQuiz(), 1500);
+    },
+    showLoader(isLoading) {
+        this.elements.loader.classList.toggle('hidden', !isLoading);
+        this.elements.contentContainer.classList.toggle('hidden', isLoading);
+        this.elements.finishedScreen.classList.add('hidden');
+    },
+    showFinishedScreen(message) {
+        this.showLoader(false);
+        this.elements.contentContainer.classList.add('hidden');
+        this.elements.finishedScreen.classList.remove('hidden');
+        this.elements.finishedMessage.textContent = message;
+    },
+    async handleFlip(type) {
+        const question = this.state.currentQuiz.question;
+        const isFrontVisible = !this.elements.cardFront.classList.contains('hidden');
+
+        if(type === 'sample' && isFrontVisible && (!question.sample || !question.sample.trim())) {
+            this.elements.sampleBtn.textContent = "생성 중...";
+            this.elements.sampleBtn.disabled = true;
+            try {
+                const samples = await api.generateSampleFromAI(question.word);
+                question.sample = samples.join('\n');
+            } catch (error) {
+                app.showNoSampleMessage(); // Use a generic message for quiz mode
+                this.elements.sampleBtn.textContent = "예문 (AI)";
+                this.elements.sampleBtn.disabled = false;
+                return;
+            } finally {
+                this.elements.sampleBtn.disabled = false;
+            }
+        }
+        
+        const hasSample = question.sample && question.sample.trim();
+        this.elements.explanationBtn.textContent = '보충자료';
+        this.elements.sampleBtn.textContent = hasSample ? '예문' : '예문 (AI)';
+        
+        if (isFrontVisible) {
+            const frontHeight = this.elements.cardFront.offsetHeight;
+            this.elements.cardBack.style.minHeight = `${frontHeight}px`;
+            this.updateBackContent(type);
+            this.elements.cardFront.classList.add('hidden');
+            this.elements.cardBack.classList.remove('hidden');
+            this.state.flippedContentType = type;
+            (type === 'sample' ? this.elements.sampleBtn : this.elements.explanationBtn).textContent = 'BACK';
+        } else {
+            if (this.state.flippedContentType === type) {
+                this.elements.cardFront.classList.remove('hidden');
+                this.elements.cardBack.classList.add('hidden');
+                this.elements.cardBack.style.minHeight = '';
+                this.state.flippedContentType = null;
+            } else {
+                this.updateBackContent(type);
+                this.state.flippedContentType = type;
+                (type === 'sample' ? this.elements.sampleBtn : this.elements.explanationBtn).textContent = 'BACK';
+            }
+        }
+    },
+    updateBackContent(type) {
+        const { word, sample, explanation } = this.state.currentQuiz.question;
+        this.elements.backTitle.textContent = word;
+        this.elements.backContent.innerHTML = '';
+        if (type === 'sample') {
+            ui.displaySentences(sample.split('\n'), this.elements.backContent);
+        } else {
+            ui.renderInteractiveText(this.elements.backContent, explanation);
+        }
+    }
+};
+
+// ================================================================
+// Learning Mode Module
+// ================================================================
+const learningMode = {
+    state: {
+        currentIndex: 0,
+        touchstartX: 0,
+        touchstartY: 0,
+        lastWheelTime: 0,
+    },
+    elements: {},
+    init() {
+        this.elements = {
+            startScreen: document.getElementById('learning-start-screen'),
+            startInputContainer: document.getElementById('learning-start-input-container'),
+            startWordInput: document.getElementById('learning-start-word-input'),
+            startBtn: document.getElementById('learning-start-btn'),
+            suggestionsContainer: document.getElementById('learning-suggestions-container'),
+            suggestionsList: document.getElementById('learning-suggestions-list'),
+            backToStartBtn: document.getElementById('learning-back-to-start-btn'),
+            loader: document.getElementById('learning-loader'),
+            loaderText: document.getElementById('learning-loader-text'),
+            appContainer: document.getElementById('learning-app-container'),
+            cardBack: document.getElementById('learning-card-back'),
+            wordDisplay: document.getElementById('word-display'),
+            pronunciationDisplay: document.getElementById('pronunciation'),
+            meaningDisplay: document.getElementById('meaning-display'),
+            explanationDisplay: document.getElementById('explanation-display'),
+            explanationContainer: document.getElementById('explanation-container'),
+            fixedButtons: document.getElementById('learning-fixed-buttons'),
+            nextBtn: document.getElementById('next-btn'),
+            prevBtn: document.getElementById('prev-btn'),
+            sampleBtn: document.getElementById('sample-btn'),
+            sampleBtnImg: document.getElementById('sample-btn-img'),
+            backTitle: document.getElementById('learning-back-title'),
+            backContent: document.getElementById('learning-back-content')
+        };
+        this.bindEvents();
+    },
+    bindEvents() {
+        this.elements.startBtn.addEventListener('click', () => this.start());
+        this.elements.startWordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.start(); });
+        this.elements.startWordInput.addEventListener('input', (e) => {
+            const originalValue = e.target.value;
+            const sanitizedValue = originalValue.replace(/[^a-zA-Z\s'-]/g, '');
+            if (originalValue !== sanitizedValue) app.showImeWarning();
+            e.target.value = sanitizedValue;
+        });
+        this.elements.backToStartBtn.addEventListener('click', () => this.resetStartScreen());
+        this.elements.nextBtn.addEventListener('click', () => this.navigate(1));
+        this.elements.prevBtn.addEventListener('click', () => this.navigate(-1));
+        this.elements.sampleBtn.addEventListener('click', () => this.handleFlip());
+        this.elements.wordDisplay.addEventListener('click', () => {
+            const word = app.state.wordList[this.state.currentIndex]?.word;
+            if (word) {
+                api.speak(word, 'word');
+                ui.copyToClipboard(word);
+            }
+        });
+        document.addEventListener('wheel', this.handleWheel.bind(this), { passive: false });
+        document.addEventListener('mousedown', this.handleMiddleClick.bind(this));
+        document.addEventListener('keydown', this.handleKeyDown.bind(this));
+        document.addEventListener('touchstart', this.handleTouchStart.bind(this), { passive: true });
+        document.addEventListener('touchend', this.handleTouchEnd.bind(this));
+    },
+    async start() {
+        this.elements.startScreen.classList.add('hidden');
+        this.elements.loader.classList.remove('hidden');
+        if (!app.state.isWordListReady) {
+            this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
+            await this.waitForWordList();
+        }
+        const startWord = this.elements.startWordInput.value.trim();
+        const wordList = app.state.wordList;
+        if (wordList.length === 0) {
+            this.showError("학습할 단어가 없습니다.");
+            return;
+        }
+        let startIndex = 0;
+        if (startWord) {
+            const lowerCaseStartWord = startWord.toLowerCase();
+            const exactMatchIndex = wordList.findIndex(item => item.word.toLowerCase() === lowerCaseStartWord);
+            if (exactMatchIndex !== -1) {
+                startIndex = exactMatchIndex;
+            } else {
+                const suggestions = wordList.map((item, index) => ({
+                    word: item.word,
+                    index,
+                    distance: utils.levenshteinDistance(lowerCaseStartWord, item.word.toLowerCase())
+                })).sort((a, b) => a.distance - b.distance).slice(0, 5);
+                this.elements.loader.classList.add('hidden');
+                this.elements.startScreen.classList.remove('hidden');
+                this.displaySuggestions(suggestions);
+                return;
+            }
+        }
+        this.state.currentIndex = startIndex;
+        this.launchApp();
+    },
+    async waitForWordList() {
+        return new Promise(resolve => {
+            const interval = setInterval(() => {
+                if(app.state.isWordListReady) {
+                    clearInterval(interval);
+                    resolve();
+                }
+            }, 100);
+        });
+    },
+    showError(message) {
+        this.elements.loader.querySelector('.loader').style.display = 'none';
+        this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">오류 발생</p><p class="text-sm text-gray-600 mt-2 break-all">${message}</p>`;
+    },
+    launchApp() {
+        this.elements.startScreen.classList.add('hidden');
+        this.elements.loader.classList.add('hidden');
+        this.elements.appContainer.classList.remove('hidden');
+        this.elements.fixedButtons.classList.remove('hidden');
+        this.displayWord(this.state.currentIndex);
+    },
+    reset() {
+        this.elements.startScreen.classList.remove('hidden');
+        this.elements.appContainer.classList.add('hidden');
+        this.elements.loader.classList.add('hidden');
+        this.elements.fixedButtons.classList.add('hidden');
+        this.resetStartScreen();
+    },
+    resetStartScreen() {
+        this.elements.startInputContainer.classList.remove('hidden');
+        this.elements.suggestionsContainer.classList.add('hidden');
+        this.elements.startWordInput.value = '';
+        this.elements.startWordInput.focus();
+    },
+    displaySuggestions(suggestions) {
+        this.elements.startInputContainer.classList.add('hidden');
+        this.elements.suggestionsList.innerHTML = '';
+        suggestions.forEach(({ word, index }) => {
+            const btn = document.createElement('button');
+            btn.className = 'w-full text-left bg-gray-100 hover:bg-gray-200 font-semibold py-3 px-4 rounded-lg transition-colors';
+            btn.textContent = word;
+            btn.onclick = () => {
+                this.state.currentIndex = index;
+                this.launchApp();
+            };
+            this.elements.suggestionsList.appendChild(btn);
+        });
+        this.elements.suggestionsContainer.classList.remove('hidden');
+    },
+    displayWord(index) {
+        this.elements.cardBack.classList.remove('is-slid-up');
+        const wordData = app.state.wordList[index];
+        if (!wordData) return;
+        this.elements.wordDisplay.textContent = wordData.word;
+        ui.adjustFontSize(this.elements.wordDisplay);
+        this.elements.pronunciationDisplay.textContent = wordData.pronunciation || '';
+        this.elements.meaningDisplay.innerHTML = wordData.meaning.replace(/\n/g, '<br>');
+        ui.renderInteractiveText(this.elements.explanationDisplay, wordData.explanation);
+        this.elements.explanationContainer.classList.toggle('hidden', !wordData.explanation || !wordData.explanation.trim());
+        
+        const hasSample = wordData.sample && wordData.sample.trim();
+        this.elements.sampleBtnImg.src = hasSample ? 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png' : 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
+    },
+    navigate(direction) {
+        const len = app.state.wordList.length;
+        if (len === 0) return;
+        this.state.currentIndex = (this.state.currentIndex + direction + len) % len;
+        this.displayWord(this.state.currentIndex);
+    },
+    async handleFlip() {
+        const isBackVisible = this.elements.cardBack.classList.contains('is-slid-up');
+        const wordData = app.state.wordList[this.state.currentIndex];
+
+        if (!isBackVisible) {
+            this.elements.backTitle.textContent = wordData.word;
+            this.elements.backContent.innerHTML = '';
+            
+            let sampleText = wordData.sample;
+            if (!sampleText || !sampleText.trim()) {
+                this.elements.prevBtn.disabled = this.elements.nextBtn.disabled = true;
+                app.showAiIndicator(true);
+                try {
+                    const samples = await api.generateSampleFromAI(wordData.word);
+                    wordData.sample = samples.join('\n');
+                    sampleText = wordData.sample;
+                } catch (error) {
+                    this.elements.backContent.innerHTML = `<p class="text-red-500 text-center">${error.message}</p>`;
+                    // Restore buttons and icon on failure
+                    app.showAiIndicator(false);
+                    this.elements.prevBtn.disabled = this.elements.nextBtn.disabled = false;
+                    this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
+                    return; // Stop execution
+                } finally {
+                    app.showAiIndicator(false);
+                    this.elements.prevBtn.disabled = this.elements.nextBtn.disabled = false;
+                }
+            }
+            
+            ui.displaySentences(sampleText.split('\n'), this.elements.backContent);
+            this.elements.cardBack.classList.add('is-slid-up');
+            this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/5-remove-cat_icon-icons.com_76681.png';
+
+        } else {
+            this.elements.cardBack.classList.remove('is-slid-up');
+            const hasSample = wordData.sample && wordData.sample.trim();
+            this.elements.sampleBtnImg.src = hasSample ? 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png' : 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
+        }
+    },
+    isLearningModeActive() {
+        return !this.elements.appContainer.classList.contains('hidden');
+    },
+    handleWheel(e) {
+        if (!this.isLearningModeActive()) return;
+        const now = new Date().getTime();
+        if (now - this.state.lastWheelTime < 250) {
+            e.preventDefault();
+            return;
+        }
+        this.state.lastWheelTime = now;
+        if (e.target.closest('.overflow-y-auto')) return;
+        e.preventDefault();
+        this.navigate(e.deltaY < 0 ? -1 : 1);
+    },
+    handleMiddleClick(e) {
+        if (this.isLearningModeActive() && e.button === 1) {
+            e.preventDefault();
+            this.elements.sampleBtn.click();
+        }
+    },
+    handleKeyDown(e) {
+        if (!this.isLearningModeActive() || document.activeElement.tagName.match(/INPUT|TEXTAREA/)) return;
+        const keyMap = { 'ArrowLeft': -1, 'ArrowRight': 1 };
+        if (keyMap[e.key] !== undefined) {
+            e.preventDefault();
+            this.navigate(keyMap[e.key]);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            this.handleFlip();
+        } else if (e.key === ' ') {
+            e.preventDefault();
+            if (!this.elements.cardBack.classList.contains('is-slid-up')) {
+                api.speak(this.elements.wordDisplay.textContent, 'word');
+            }
+        }
+    },
+    handleTouchStart(e) {
+        if (!this.isLearningModeActive()) return;
+        this.state.touchstartX = e.changedTouches[0].screenX;
+        this.state.touchstartY = e.changedTouches[0].screenY;
+    },
+    handleTouchEnd(e) {
+        if (!this.isLearningModeActive() || this.state.touchstartX === 0) return;
+        if (e.target.closest('button, a, input, [onclick]')) {
+             this.state.touchstartX = this.state.touchstartY = 0;
+             return;
+        }
+        const touchendX = e.changedTouches[0].screenX;
+        const touchendY = e.changedTouches[0].screenY;
+        const deltaX = touchendX - this.state.touchstartX;
+        const deltaY = touchendY - this.state.touchstartY;
+        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
+            this.navigate(deltaX > 0 ? -1 : 1);
+        }
+        this.state.touchstartX = this.state.touchstartY = 0;
+    }
+};
+
+// 앱 실행
+document.addEventListener('DOMContentLoaded', () => {
+    app.init();
+});
 
