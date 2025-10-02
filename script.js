@@ -688,7 +688,7 @@ const learningMode = {
         this.elements.explanationContainer.classList.toggle('hidden', !wordData.explanation || !wordData.explanation.trim());
         
         const hasSample = wordData.sample && wordData.sample.trim();
-        this.elements.sampleBtnImg.src = hasSample ? 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png' : 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
+        this.elements.sampleBtnImg.src = hasSample ? 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png' : 'https://images.icon-icons.com/1055/PNG/128/1-trash-cat_icon-icons.com_76677.png';
     },
     navigate(direction) {
         const len = app.state.wordList.length;
@@ -696,40 +696,24 @@ const learningMode = {
         this.state.currentIndex = (this.state.currentIndex + direction + len) % len;
         this.displayWord(this.state.currentIndex);
     },
-    async handleFlip() {
-        const isBackVisible = this.elements.cardBack.classList.contains('is-slid-up');
+    handleFlip() {
         const wordData = app.state.wordList[this.state.currentIndex];
 
+        if (!wordData.sample || !wordData.sample.trim()) {
+            app.showNoSampleMessage();
+            return;
+        }
+
+        const isBackVisible = this.elements.cardBack.classList.contains('is-slid-up');
+        
         if (!isBackVisible) {
             this.elements.backTitle.textContent = wordData.word;
-            this.elements.backContent.innerHTML = '';
-            
-            let sampleText = wordData.sample;
-            if (!sampleText || !sampleText.trim()) {
-                this.elements.prevBtn.disabled = this.elements.nextBtn.disabled = true;
-                app.showAiIndicator(true);
-                try {
-                    const samples = await api.generateSampleFromAI(wordData.word);
-                    wordData.sample = samples.join('\n'); // Update local data
-                    sampleText = wordData.sample;
-                } catch (error) {
-                    this.elements.backContent.innerHTML = `<p class="text-red-500 text-center">${error.message}</p>`;
-                    app.showAiIndicator(false);
-                    this.elements.prevBtn.disabled = this.elements.nextBtn.disabled = false;
-                    return; 
-                } finally {
-                    app.showAiIndicator(false);
-                    this.elements.prevBtn.disabled = this.elements.nextBtn.disabled = false;
-                }
-            }
-            
-            ui.displaySentences(sampleText.split('\n'), this.elements.backContent);
+            ui.displaySentences(wordData.sample.split('\n'), this.elements.backContent);
             this.elements.cardBack.classList.add('is-slid-up');
             this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/5-remove-cat_icon-icons.com_76681.png';
         } else {
             this.elements.cardBack.classList.remove('is-slid-up');
-            const hasSample = wordData.sample && wordData.sample.trim();
-            this.elements.sampleBtnImg.src = hasSample ? 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png' : 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
+            this.displayWord(this.state.currentIndex);
         }
     },
     isLearningModeActive() {
@@ -783,7 +767,7 @@ const learningMode = {
         const touchendX = e.changedTouches[0].screenX;
         const touchendY = e.changedTouches[0].screenY;
         const deltaX = touchendX - this.state.touchstartX;
-        const deltaY = touchendY - this.state.touchstartY;
+        const deltaY = touchendY - this.touschstartY;
         if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
             this.navigate(deltaX > 0 ? -1 : 1);
         }
