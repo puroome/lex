@@ -1,10 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
-
 body {
     font-family: 'Noto Sans KR', sans-serif;
     -webkit-tap-highlight-color: transparent;
 }
-
 .loader {
     border: 4px solid #f3f3f3;
     border-radius: 50%;
@@ -13,49 +11,38 @@ body {
     height: 40px;
     animation: spin 1s linear infinite;
 }
-
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
-
 #tts-toggle-btn {
     transition: transform 0.6s, background-color 0.3s;
     transform-style: preserve-3d;
 }
-
 #tts-toggle-btn.is-flipped {
     transform: rotateY(180deg);
 }
-
 #tts-toggle-text {
     transform: rotateY(0deg);
     backface-visibility: hidden;
     -webkit-backface-visibility: hidden;
 }
-
 #tts-toggle-btn.is-flipped #tts-toggle-text {
     transform: rotateY(-180deg);
 }
-
 .choice-item:hover { transform: scale(1.02); }
 .correct { background-color: #28a745 !important; color: white !important; transform: scale(1.05); border-color: #28a745; }
 .incorrect { background-color: #dc3545 !important; color: white !important; border-color: #dc3545; }
 .disabled { pointer-events: none; opacity: 0.7; }
-
 #word-display:hover, #quiz-word:hover { color: #1e40af; cursor: pointer; }
 .sample-sentence:hover { background-color: #f0f4f8; cursor: pointer; }
-
 #word-display, #quiz-word {
     white-space: nowrap;
 }
-
-/* --- 슬라이드 애니메이션을 위한 CSS --- */
 #learning-app-container .relative {
     overflow: hidden;
     border-radius: 1rem;
 }
-
 #learning-card-back {
     position: absolute;
     top: 0;
@@ -69,9 +56,9 @@ body {
     display: flex;
     flex-direction: column;
 }
-
 #learning-card-back.is-slid-up {
     transform: translateY(0);
     opacity: 1;
     pointer-events: auto;
 }
+
