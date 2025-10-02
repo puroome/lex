@@ -25,7 +25,6 @@ const app = {
         translationTooltip: document.getElementById('translation-tooltip'),
         imeWarning: document.getElementById('ime-warning'),
         noSampleMessage: document.getElementById('no-sample-message'),
-        aiIndicator: document.getElementById('ai-indicator'),
     },
     init() {
         this.bindGlobalEvents();
@@ -98,9 +97,6 @@ const app = {
         this.imeWarningTimeout = setTimeout(() => {
             this.elements.imeWarning.classList.add('hidden');
         }, 2000);
-    },
-    showAiIndicator(show) {
-        this.elements.aiIndicator.classList.toggle('hidden', !show);
     },
     showNoSampleMessage() {
         const msgEl = this.elements.noSampleMessage;
@@ -179,19 +175,6 @@ const api = {
         } catch (error) {
             console.error('TTS 재생에 실패했습니다:', error);
             app.state.isSpeaking = false;
-        }
-    },
-    async generateSampleFromAI(word) {
-        try {
-            const response = await this.fetchFromGoogleSheet('generateAndSaveAiSample', { word });
-            const wordData = app.state.wordList.find(w => w.word === word);
-            if (wordData) {
-                wordData.sample = response.samples.join('\n');
-            }
-            return response.samples;
-        } catch (error) {
-            console.error('실시간 AI 예문 생성/저장 실패:', error);
-            throw error;
         }
     },
     async fetchFromGoogleSheet(action, params = {}) {
@@ -468,11 +451,11 @@ const quizMode = {
         this.elements.passBtn.style.display = 'block';
         this.elements.passBtn.disabled = false;
         const hasSample = question.sample && question.sample.trim() !== '';
-        this.elements.sampleBtn.textContent = hasSample ? '예문' : '예문 (AI)';
+        this.elements.sampleBtn.textContent = '예문';
         this.elements.sampleBtn.classList.toggle('bg-purple-500', hasSample);
         this.elements.sampleBtn.classList.toggle('hover:bg-purple-600', hasSample);
-        this.elements.sampleBtn.classList.toggle('bg-purple-300', !hasSample);
-        this.elements.sampleBtn.classList.toggle('hover:bg-purple-400', !hasSample);
+        this.elements.sampleBtn.classList.toggle('bg-gray-400', !hasSample);
+        this.elements.sampleBtn.classList.toggle('cursor-not-allowed', !hasSample);
         this.elements.sampleBtn.style.display = 'block';
         this.elements.explanationBtn.textContent = '보충자료';
         this.elements.explanationBtn.style.display = (question.explanation && question.explanation.trim()) ? 'block' : 'none';
@@ -503,28 +486,15 @@ const quizMode = {
     },
     async handleFlip(type) {
         const question = this.state.currentQuiz.question;
-        const isFrontVisible = !this.elements.cardFront.classList.contains('hidden');
-
-        if(type === 'sample' && isFrontVisible && (!question.sample || !question.sample.trim())) {
-            this.elements.sampleBtn.textContent = "생성 중...";
-            this.elements.sampleBtn.disabled = true;
-            try {
-                const samples = await api.generateSampleFromAI(question.word);
-                question.sample = samples.join('\n');
-            } catch (error) {
-                app.showNoSampleMessage(); // Use a generic message for quiz mode
-                this.elements.sampleBtn.textContent = "예문 (AI)";
-                this.elements.sampleBtn.disabled = false;
-                return;
-            } finally {
-                this.elements.sampleBtn.disabled = false;
-            }
+        if (type === 'sample' && (!question.sample || !question.sample.trim())) {
+            app.showNoSampleMessage();
+            return;
         }
-        
-        const hasSample = question.sample && question.sample.trim();
+
+        const isFrontVisible = !this.elements.cardFront.classList.contains('hidden');
         this.elements.explanationBtn.textContent = '보충자료';
-        this.elements.sampleBtn.textContent = hasSample ? '예문' : '예문 (AI)';
-        
+        this.elements.sampleBtn.textContent = '예문';
+
         if (isFrontVisible) {
             const frontHeight = this.elements.cardFront.offsetHeight;
             this.elements.cardBack.style.minHeight = `${frontHeight}px`;
@@ -740,15 +710,13 @@ const learningMode = {
                 app.showAiIndicator(true);
                 try {
                     const samples = await api.generateSampleFromAI(wordData.word);
-                    wordData.sample = samples.join('\n');
+                    wordData.sample = samples.join('\n'); // Update local data
                     sampleText = wordData.sample;
                 } catch (error) {
                     this.elements.backContent.innerHTML = `<p class="text-red-500 text-center">${error.message}</p>`;
-                    // Restore buttons and icon on failure
                     app.showAiIndicator(false);
                     this.elements.prevBtn.disabled = this.elements.nextBtn.disabled = false;
-                    this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
-                    return; // Stop execution
+                    return; 
                 } finally {
                     app.showAiIndicator(false);
                     this.elements.prevBtn.disabled = this.elements.nextBtn.disabled = false;
@@ -758,7 +726,6 @@ const learningMode = {
             ui.displaySentences(sampleText.split('\n'), this.elements.backContent);
             this.elements.cardBack.classList.add('is-slid-up');
             this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/5-remove-cat_icon-icons.com_76681.png';
-
         } else {
             this.elements.cardBack.classList.remove('is-slid-up');
             const hasSample = wordData.sample && wordData.sample.trim();
