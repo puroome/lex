@@ -688,7 +688,7 @@ const learningMode = {
         this.elements.explanationContainer.classList.toggle('hidden', !wordData.explanation || !wordData.explanation.trim());
         
         const hasSample = wordData.sample && wordData.sample.trim();
-        this.elements.sampleBtnImg.src = hasSample ? 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png' : 'https://images.icon-icons.com/1055/PNG/128/1-trash-cat_icon-icons.com_76677.png';
+        this.elements.sampleBtnImg.src = hasSample ? 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png' : 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
     },
     navigate(direction) {
         const len = app.state.wordList.length;
@@ -696,21 +696,22 @@ const learningMode = {
         this.state.currentIndex = (this.state.currentIndex + direction + len) % len;
         this.displayWord(this.state.currentIndex);
     },
-    handleFlip() {
+    async handleFlip() {
+        const isBackVisible = this.elements.cardBack.classList.contains('is-slid-up');
         const wordData = app.state.wordList[this.state.currentIndex];
 
-        if (!wordData.sample || !wordData.sample.trim()) {
-            app.showNoSampleMessage();
-            return;
-        }
-
-        const isBackVisible = this.elements.cardBack.classList.contains('is-slid-up');
-        
         if (!isBackVisible) {
+            let sampleText = wordData.sample;
+            if (!sampleText || !sampleText.trim()) {
+                app.showNoSampleMessage();
+                return;
+            }
+            
             this.elements.backTitle.textContent = wordData.word;
-            ui.displaySentences(wordData.sample.split('\n'), this.elements.backContent);
+            ui.displaySentences(sampleText.split('\n'), this.elements.backContent);
             this.elements.cardBack.classList.add('is-slid-up');
             this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/5-remove-cat_icon-icons.com_76681.png';
+
         } else {
             this.elements.cardBack.classList.remove('is-slid-up');
             this.displayWord(this.state.currentIndex);
@@ -767,7 +768,7 @@ const learningMode = {
         const touchendX = e.changedTouches[0].screenX;
         const touchendY = e.changedTouches[0].screenY;
         const deltaX = touchendX - this.state.touchstartX;
-        const deltaY = touchendY - this.state.touchstartY; // [수정] 오타 수정
+        const deltaY = touchendY - this.state.touchstartY;
         if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
             this.navigate(deltaX > 0 ? -1 : 1);
         }
