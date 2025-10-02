@@ -767,7 +767,7 @@ const learningMode = {
         const touchendX = e.changedTouches[0].screenX;
         const touchendY = e.changedTouches[0].screenY;
         const deltaX = touchendX - this.state.touchstartX;
-        const deltaY = touchendY - this.touschstartY;
+        const deltaY = touchendY - this.state.touchstartY; // [수정] 오타 수정
         if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
             this.navigate(deltaX > 0 ? -1 : 1);
         }
