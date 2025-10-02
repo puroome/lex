@@ -1,15 +1,11 @@
 // ================================================================
 // App Main Controller
-// 앱의 전반적인 상태와 초기화를 관리합니다.
 // ================================================================
 const app = {
-    // 설정 및 상수
     config: {
         TTS_API_KEY: "AIzaSyAJmQBGY4H9DVMlhMtvAAVMi_4N7__DfKA",
-        // [참고] Gemini API 키는 더 이상 여기서 사용하지 않고, Apps Script에서 직접 관리합니다.
         SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxtkBmzSHFOOwIOrjkbxXsHAKIBkimjuUjVOWEoUEi0vgxKclHlo4PTGnSTUSF29Ydg/exec"
     },
-    // 앱 상태
     state: {
         currentVoiceSet: 'UK',
         isSpeaking: false,
@@ -19,7 +15,6 @@ const app = {
         wordList: [],
         isWordListReady: false,
     },
-    // DOM 요소 캐싱
     elements: {
         selectionScreen: document.getElementById('selection-screen'),
         homeBtn: document.getElementById('home-btn'),
@@ -28,17 +23,15 @@ const app = {
         quizModeContainer: document.getElementById('quiz-mode-container'),
         learningModeContainer: document.getElementById('learning-mode-container'),
         translationTooltip: document.getElementById('translation-tooltip'),
-        aiIndicator: document.getElementById('ai-indicator'),
-        imeWarning: document.getElementById('ime-warning')
+        imeWarning: document.getElementById('ime-warning'),
+        noSampleMessage: document.getElementById('no-sample-message'),
     },
-    // 앱 초기화
     init() {
         this.bindGlobalEvents();
         api.loadWordList();
         quizMode.init();
         learningMode.init();
     },
-    // 전역 이벤트 리스너 바인딩
     bindGlobalEvents() {
         document.getElementById('select-quiz-btn').addEventListener('click', () => this.changeMode('quiz'));
         document.getElementById('select-learning-btn').addEventListener('click', () => this.changeMode('learning'));
@@ -55,7 +48,6 @@ const app = {
             }
         });
     },
-    // 앱 모드 변경 관리
     changeMode(mode) {
         this.elements.selectionScreen.classList.add('hidden');
         this.elements.quizModeContainer.classList.add('hidden');
@@ -74,13 +66,12 @@ const app = {
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.ttsToggleBtn.classList.remove('hidden');
             learningMode.resetStartScreen();
-        } else { // 'selection' 모드 (홈)
+        } else {
             this.elements.selectionScreen.classList.remove('hidden');
             quizMode.reset();
             learningMode.reset();
         }
     },
-    // TTS 음성 토글
     toggleVoiceSet() {
         const btn = this.elements.ttsToggleBtn;
         btn.classList.toggle('is-flipped');
@@ -93,25 +84,12 @@ const app = {
             btn.classList.toggle('hover:bg-red-600', this.state.currentVoiceSet === 'US');
         }, 250);
     },
-    // 앱 시작 오류를 화면에 표시하는 함수
     showFatalError(message) {
         const selectionDiv = this.elements.selectionScreen;
-        selectionDiv.innerHTML = `
-            <div class="p-8 text-center">
-                <h1 class="text-3xl font-bold text-red-600 mb-4">앱 시작 실패</h1>
-                <p class="text-gray-700 mb-6">데이터를 불러오는 중 문제가 발생했습니다. <br>네트워크 연결을 확인하고 잠시 후 페이지를 새로고침 해주세요.</p>
-                <div class="bg-red-50 text-red-700 p-4 rounded-lg text-left text-sm break-all">
-                    <p class="font-semibold">오류 정보:</p>
-                    <p>${message}</p>
-                </div>
-            </div>
-        `;
+        selectionDiv.innerHTML = `<div class="p-8 text-center"><h1 class="text-3xl font-bold text-red-600 mb-4">앱 시작 실패</h1><p class="text-gray-700 mb-6">데이터를 불러오는 중 문제가 발생했습니다. <br>네트워크 연결을 확인하고 잠시 후 페이지를 새로고침 해주세요.</p><div class="bg-red-50 text-red-700 p-4 rounded-lg text-left text-sm break-all"><p class="font-semibold">오류 정보:</p><p>${message}</p></div></div>`;
         selectionDiv.classList.remove('hidden');
         this.elements.quizModeContainer.classList.add('hidden');
         this.elements.learningModeContainer.classList.add('hidden');
-    },
-    showAiIndicator(show) {
-        this.elements.aiIndicator.classList.toggle('hidden', !show);
     },
     showImeWarning() {
         this.elements.imeWarning.classList.remove('hidden');
@@ -120,6 +98,15 @@ const app = {
             this.elements.imeWarning.classList.add('hidden');
         }, 2000);
     },
+    // [신규] "예문 없음" 메시지 표시 함수
+    showNoSampleMessage() {
+        const msgEl = this.elements.noSampleMessage;
+        msgEl.classList.remove('hidden', 'opacity-0');
+        setTimeout(() => {
+            msgEl.classList.add('opacity-0');
+            setTimeout(() => msgEl.classList.add('hidden'), 500);
+        }, 1500);
+    }
 };
 
 // ================================================================
@@ -131,7 +118,7 @@ const api = {
             const cachedData = localStorage.getItem('wordListCache');
             if (cachedData) {
                 const { timestamp, words } = JSON.parse(cachedData);
-                if (Date.now() - timestamp < 86400000) { // 24시간
+                if (Date.now() - timestamp < 86400000) {
                     app.state.wordList = words;
                     app.state.isWordListReady = true;
                 }
@@ -144,14 +131,9 @@ const api = {
         try {
             const data = await this.fetchFromGoogleSheet('getWords');
             if(data.error) throw new Error(data.message);
-            
             app.state.wordList = data.words;
             app.state.isWordListReady = true;
-
-            const cachePayload = {
-                timestamp: Date.now(),
-                words: data.words,
-            };
+            const cachePayload = { timestamp: Date.now(), words: data.words };
             try {
                 localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
             } catch (e) {
@@ -172,11 +154,9 @@ const api = {
         if (!text || !text.trim() || app.state.isSpeaking) return;
         if (app.state.audioContext.state === 'suspended') app.state.audioContext.resume();
         app.state.isSpeaking = true;
-
         const processedText = text.replace(/\bsb\b/g, 'somebody').replace(/\bsth\b/g, 'something');
         const voiceConfig = voiceSets[app.state.currentVoiceSet][contentType];
         const TTS_URL = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${app.config.TTS_API_KEY}`;
-
         try {
             const response = await fetch(TTS_URL, {
                 method: 'POST',
@@ -198,19 +178,7 @@ const api = {
             app.state.isSpeaking = false;
         }
     },
-    async generateSampleFromAI(word) {
-        try {
-            const response = await this.fetchFromGoogleSheet('generateAndSaveAiSample', { word });
-            const wordData = app.state.wordList.find(w => w.word === word);
-            if (wordData) {
-                wordData.sample = response.samples.join('\n');
-            }
-            return response.samples;
-        } catch (error) {
-            console.error('실시간 AI 예문 생성/저장 실패:', error);
-            throw error;
-        }
-    },
+    // [제거] 실시간 AI 예문 생성 함수 제거
     async fetchFromGoogleSheet(action, params = {}) {
         const url = new URL(app.config.SCRIPT_URL);
         url.searchParams.append('action', action);
@@ -243,6 +211,7 @@ const api = {
 // UI Module
 // ================================================================
 const ui = {
+    // ... (adjustFontSize, copyToClipboard 등 다른 UI 함수들은 변경 없음) ...
     adjustFontSize(element) {
         element.style.fontSize = '';
         let currentFontSize = parseFloat(window.getComputedStyle(element).fontSize);
@@ -323,6 +292,7 @@ const ui = {
 // Utility Module
 // ================================================================
 const utils = {
+    // ... (levenshteinDistance 함수는 변경 없음) ...
     levenshteinDistance(a = '', b = '') {
         const track = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
         for (let i = 0; i <= a.length; i += 1) track[0][i] = i;
@@ -341,6 +311,7 @@ const utils = {
 // Quiz Mode Module
 // ================================================================
 const quizMode = {
+    // ... (퀴즈 모드 로직 대부분 변경 없음, AI 생성 부분만 제거) ...
     state: {
         currentQuiz: {},
         quizBatch: [],
@@ -485,11 +456,12 @@ const quizMode = {
         this.elements.passBtn.style.display = 'block';
         this.elements.passBtn.disabled = false;
         const hasSample = question.sample && question.sample.trim() !== '';
-        this.elements.sampleBtn.textContent = hasSample ? '예문' : '예문 (AI)';
+        // [수정] 퀴즈 모드에서는 AI 생성 버튼이 없으므로 '예문'으로 통일
+        this.elements.sampleBtn.textContent = '예문';
         this.elements.sampleBtn.classList.toggle('bg-purple-500', hasSample);
         this.elements.sampleBtn.classList.toggle('hover:bg-purple-600', hasSample);
-        this.elements.sampleBtn.classList.toggle('bg-purple-300', !hasSample);
-        this.elements.sampleBtn.classList.toggle('hover:bg-purple-400', !hasSample);
+        this.elements.sampleBtn.classList.toggle('bg-gray-400', !hasSample);
+        this.elements.sampleBtn.classList.toggle('cursor-not-allowed', !hasSample);
         this.elements.sampleBtn.style.display = 'block';
         this.elements.explanationBtn.textContent = '보충자료';
         this.elements.explanationBtn.style.display = (question.explanation && question.explanation.trim()) ? 'block' : 'none';
@@ -519,14 +491,20 @@ const quizMode = {
         this.elements.finishedMessage.textContent = message;
     },
     async handleFlip(type) {
+        const question = this.state.currentQuiz.question;
+        if (type === 'sample' && (!question.sample || !question.sample.trim())) {
+            app.showNoSampleMessage();
+            return;
+        }
+
         const isFrontVisible = !this.elements.cardFront.classList.contains('hidden');
-        const hasSample = this.state.currentQuiz.question.sample && this.state.currentQuiz.question.sample.trim();
-        this.elements.sampleBtn.textContent = hasSample ? '예문' : '예문 (AI)';
         this.elements.explanationBtn.textContent = '보충자료';
+        this.elements.sampleBtn.textContent = '예문';
+
         if (isFrontVisible) {
             const frontHeight = this.elements.cardFront.offsetHeight;
             this.elements.cardBack.style.minHeight = `${frontHeight}px`;
-            await this.updateBackContent(type);
+            this.updateBackContent(type);
             this.elements.cardFront.classList.add('hidden');
             this.elements.cardBack.classList.remove('hidden');
             this.state.flippedContentType = type;
@@ -538,33 +516,18 @@ const quizMode = {
                 this.elements.cardBack.style.minHeight = '';
                 this.state.flippedContentType = null;
             } else {
-                await this.updateBackContent(type);
+                this.updateBackContent(type);
                 this.state.flippedContentType = type;
                 (type === 'sample' ? this.elements.sampleBtn : this.elements.explanationBtn).textContent = 'BACK';
             }
         }
     },
-    async updateBackContent(type) {
+    updateBackContent(type) {
         const { word, sample, explanation } = this.state.currentQuiz.question;
         this.elements.backTitle.textContent = word;
         this.elements.backContent.innerHTML = '';
         if (type === 'sample') {
-            if (sample && sample.trim()) {
-                ui.displaySentences(sample.split('\n'), this.elements.backContent);
-            } else {
-                this.elements.passBtn.disabled = true;
-                app.showAiIndicator(true);
-                try {
-                    const samples = await api.generateSampleFromAI(word);
-                    this.state.currentQuiz.question.sample = samples.join('\n');
-                    ui.displaySentences(samples, this.elements.backContent);
-                } catch (error) {
-                    this.elements.backContent.innerHTML = `<p class="text-red-500 text-center">${error.message}</p>`;
-                } finally {
-                    app.showAiIndicator(false);
-                    this.elements.passBtn.disabled = false;
-                }
-            }
+            ui.displaySentences(sample.split('\n'), this.elements.backContent);
         } else {
             ui.renderInteractiveText(this.elements.backContent, explanation);
         }
@@ -729,8 +692,19 @@ const learningMode = {
         this.elements.meaningDisplay.innerHTML = wordData.meaning.replace(/\n/g, '<br>');
         ui.renderInteractiveText(this.elements.explanationDisplay, wordData.explanation);
         this.elements.explanationContainer.classList.toggle('hidden', !wordData.explanation || !wordData.explanation.trim());
-        const hasSample = wordData.sample && wordData.sample.trim();
-        this.elements.sampleBtnImg.src = hasSample ? 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png' : 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
+        
+        // [수정] 예문 출처에 따라 고양이 아이콘 변경
+        switch(wordData.sampleSource) {
+            case 'manual':
+                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png';
+                break;
+            case 'ai':
+                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
+                break;
+            case 'none':
+                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/1-trash-cat_icon-icons.com_76677.png';
+                break;
+        }
     },
     navigate(direction) {
         const len = app.state.wordList.length;
@@ -738,37 +712,26 @@ const learningMode = {
         this.state.currentIndex = (this.state.currentIndex + direction + len) % len;
         this.displayWord(this.state.currentIndex);
     },
-    async handleFlip() {
-        const isBackVisible = this.elements.cardBack.classList.contains('is-slid-up');
+    handleFlip() {
         const wordData = app.state.wordList[this.state.currentIndex];
 
+        // [수정] 예문이 아예 없는 경우, 메시지를 보여주고 기능 종료
+        if (wordData.sampleSource === 'none') {
+            app.showNoSampleMessage();
+            return;
+        }
+
+        const isBackVisible = this.elements.cardBack.classList.contains('is-slid-up');
+        
         if (!isBackVisible) {
             this.elements.backTitle.textContent = wordData.word;
-            this.elements.backContent.innerHTML = '';
-            
-            const sampleText = wordData.sample;
-            if (sampleText && sampleText.trim()) {
-                ui.displaySentences(sampleText.split('\n'), this.elements.backContent);
-            } else {
-                this.elements.prevBtn.disabled = this.elements.nextBtn.disabled = true;
-                app.showAiIndicator(true);
-                try {
-                    const samples = await api.generateSampleFromAI(wordData.word);
-                    wordData.sample = samples.join('\n');
-                    ui.displaySentences(samples, this.elements.backContent);
-                } catch (error) {
-                    this.elements.backContent.innerHTML = `<p class="text-red-500 text-center">${error.message}</p>`;
-                } finally {
-                    app.showAiIndicator(false);
-                    this.elements.prevBtn.disabled = this.elements.nextBtn.disabled = false;
-                }
-            }
+            ui.displaySentences(wordData.sample.split('\n'), this.elements.backContent);
             this.elements.cardBack.classList.add('is-slid-up');
             this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/5-remove-cat_icon-icons.com_76681.png';
         } else {
             this.elements.cardBack.classList.remove('is-slid-up');
-            const hasSample = wordData.sample && wordData.sample.trim();
-            this.elements.sampleBtnImg.src = hasSample ? 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png' : 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
+            // 뒤로 돌아갈 때도 예문 출처에 따라 아이콘을 다시 설정
+            this.displayWord(this.state.currentIndex);
         }
     },
     isLearningModeActive() {
