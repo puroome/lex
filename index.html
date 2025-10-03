@@ -39,26 +39,23 @@
             <h1 class="text-3xl font-bold text-gray-800 mb-2">어휘 학습</h1>
             <p class="text-gray-600 mb-8">원하는 학습 방식을 선택하세요.</p>
             
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 mt-8 mb-1">
-                <div>
-                    <div id="select-learning-btn" class="cursor-pointer group" title="학습 모드">
-                        <div class="overflow-hidden rounded-2xl shadow-lg group-hover:shadow-2xl transition-all duration-300 transform group-hover:scale-105 w-44 h-44 mx-auto">
-                            <img src="https://i.imgur.com/wLzv3kG.jpeg" alt="학습 모드 이미지" class="w-full h-full object-cover">
-                        </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-8 mb-1">
+                <!-- 학습 모드 버튼 -->
+                <div class="flex flex-col items-center">
+                    <div id="select-learning-btn" class="cursor-pointer group overflow-hidden rounded-2xl shadow-lg group-hover:shadow-2xl transition-all duration-300 transform group-hover:scale-105 w-44 h-44" title="학습 모드">
+                        <img src="https://i.imgur.com/wLzv3kG.jpeg" alt="학습 모드 이미지" class="w-full h-full object-cover">
                     </div>
-                    <p class="mt-2 font-semibold text-transparent text-lg">학습 모드</p>
+                    <p class="mt-4 font-semibold text-gray-700 text-lg">학습 모드</p>
                 </div>
-                <div>
-                    <div id="select-quiz-btn" class="cursor-pointer group" title="퀴즈 모드">
-                        <div class="overflow-hidden rounded-2xl shadow-lg group-hover:shadow-2xl transition-all duration-300 transform group-hover:scale-105 w-44 h-44 mx-auto">
-                            <img src="https://i.imgur.com/9oREKDY.jpeg" alt="퀴즈 모드 이미지" class="w-full h-full object-cover">
-                        </div>
+                <!-- 퀴즈 모드 버튼 -->
+                <div class="flex flex-col items-center">
+                    <div id="select-quiz-btn" class="cursor-pointer group overflow-hidden rounded-2xl shadow-lg group-hover:shadow-2xl transition-all duration-300 transform group-hover:scale-105 w-44 h-44" title="퀴즈 모드">
+                        <img src="https://i.imgur.com/9oREKDY.jpeg" alt="퀴즈 모드 이미지" class="w-full h-full object-cover">
                     </div>
-                    <p class="mt-2 font-semibold text-transparent text-lg">퀴즈 모드</p>
+                    <p class="mt-4 font-semibold text-gray-700 text-lg">퀴즈 모드</p>
                 </div>
             </div>
         </div>
-        
         <div id="quiz-mode-container" class="hidden bg-white w-full p-4 rounded-2xl shadow-lg">
             <div id="quiz-loader" class="text-center p-10">
                 <div class="loader mx-auto"></div>
@@ -153,6 +150,7 @@
     <script src="script.js"></script>
 </body>
 </html>
+
 
 
 
