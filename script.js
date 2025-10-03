@@ -157,9 +157,9 @@ const api = {
         if (!text || !text.trim() || app.state.isSpeaking) return;
         if (app.state.audioContext.state === 'suspended') app.state.audioContext.resume();
         app.state.isSpeaking = true;
-        const textWithoutParentheses = text.replace(/^\s*\(.*?\)\s*/, '');
+        const textWithoutEmoji = text.replace(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u, '');
         
-        const processedText = textWithoutParentheses.replace(/\bsb\b/g, 'somebody').replace(/\bsth\b/g, 'something');
+        const processedText = textWithoutEmoji.replace(/\bsb\b/g, 'somebody').replace(/\bsth\b/g, 'something');
         const voiceConfig = voiceSets[app.state.currentVoiceSet][contentType];
         const TTS_URL = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${app.config.TTS_API_KEY}`;
         try {
@@ -795,5 +795,6 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
 
 
