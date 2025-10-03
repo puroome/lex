@@ -455,14 +455,7 @@ const quizMode = {
         this.elements.passBtn.style.display = 'block';
         this.elements.passBtn.disabled = false;
         const hasSample = question.sample && question.sample.trim() !== '';
-        if (question.sampleSource === 'manual') {
-            this.elements.sampleBtn.textContent = '예문';
-        } else if (question.sampleSource === 'ai') {
-            this.elements.sampleBtn.textContent = '예문 (AI)';
-        } else {
-            this.elements.sampleBtn.textContent = '예문';
-        }
-
+        this.elements.sampleBtn.textContent = '예문';
         this.elements.sampleBtn.classList.toggle('bg-purple-500', hasSample);
         this.elements.sampleBtn.classList.toggle('hover:bg-purple-600', hasSample);
         this.elements.sampleBtn.classList.toggle('bg-gray-400', !hasSample);
@@ -800,5 +793,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
-
