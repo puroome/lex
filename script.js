@@ -780,21 +780,17 @@ const learningMode = {
              this.state.touchstartX = this.state.touchstartY = 0;
              return;
         }
-        const touchendX = e.changedTouches[0].screenX;
-        const touchendY = e.changedTouches[0].screenY;
-        const deltaX = touchendX - this.state.touchstartX;
-        const deltaY = touchendY - this.state.touchstartY; // [수정] 오타 수정
+        const deltaX = e.changedTouches[0].screenX - this.state.touchstartX;
+        const deltaY = e.changedTouches[0].screenY - this.state.touchstartY;
         if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
             this.navigate(deltaX > 0 ? -1 : 1);
+        } else if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 50) {
+            this.navigate(deltaY > 0 ? 1 : -1);
         }
         this.state.touchstartX = this.state.touchstartY = 0;
     }
 };
 
-// 앱 실행
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
-
-
