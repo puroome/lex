@@ -26,7 +26,7 @@ const app = {
         translationTooltip: document.getElementById('translation-tooltip'),
         imeWarning: document.getElementById('ime-warning'),
         noSampleMessage: document.getElementById('no-sample-message'),
-        aiIndicator: document.getElementById('ai-indicator'),
+        sheetLink: document.getElementById('sheet-link'),
     },
     init() {
         this.bindGlobalEvents();
@@ -78,16 +78,26 @@ const app = {
         const isLearningStartScreen = !learningMode.elements.startScreen.classList.contains('hidden');
 
         if (!isLearningStartScreen) {
-             // 이 경고는 이제 거의 표시되지 않지만, 만약을 대비해 유지합니다.
             this.showToast('데이터 새로고침은 학습 모드 시작 화면에서만 가능합니다.', true);
             return;
         }
         
-        // 시작 화면의 버튼을 로딩 상태로 변경하여 사용자에게 피드백 제공
-        const startBtn = learningMode.elements.startBtn;
-        const originalBtnText = startBtn.textContent;
-        startBtn.disabled = true;
-        startBtn.textContent = '새로고침 중...';
+        // --- 비활성화할 요소 목록 ---
+        const elementsToDisable = [
+            learningMode.elements.startWordInput,
+            learningMode.elements.startBtn,
+            this.elements.homeBtn,
+            this.elements.ttsToggleBtn,
+            this.elements.refreshBtn,
+        ];
+        const sheetLink = this.elements.sheetLink;
+
+        // --- 요소 비활성화 및 사용자 피드백 ---
+        elementsToDisable.forEach(el => { el.disabled = true; });
+        sheetLink.classList.add('pointer-events-none', 'opacity-50');
+
+        const originalBtnText = learningMode.elements.startBtn.textContent;
+        learningMode.elements.startBtn.textContent = '새로고침 중...';
 
         try {
             await api.loadWordList(true); // 캐시 무시하고 강제 새로고침
@@ -95,9 +105,10 @@ const app = {
         } catch(e) {
             this.showToast('데이터 새로고침에 실패했습니다: ' + e.message, true);
         } finally {
-            // 버튼 상태를 원래대로 복원
-            startBtn.disabled = false;
-            startBtn.textContent = originalBtnText;
+            // --- 요소 다시 활성화 ---
+            elementsToDisable.forEach(el => { el.disabled = false; });
+            sheetLink.classList.remove('pointer-events-none', 'opacity-50');
+            learningMode.elements.startBtn.textContent = originalBtnText;
         }
     },
     showToast(message, isError = false) {
