@@ -724,10 +724,6 @@ const learningMode = {
         this.elements.suggestionsContainer.classList.add('hidden');
         this.elements.startWordInput.value = '';
         this.elements.startWordInput.focus();
-        // 학습 모드 시작 화면으로 돌아오면 새로고침 버튼 다시 표시
-        if (!app.elements.selectionScreen.classList.contains('hidden')) {
-            app.elements.refreshBtn.classList.remove('hidden');
-        }
     },
     displaySuggestions(suggestions) {
         this.elements.startInputContainer.classList.add('hidden');
