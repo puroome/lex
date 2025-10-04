@@ -785,6 +785,7 @@ const learningMode = {
         if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
             this.navigate(deltaX > 0 ? -1 : 1);
         } else if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 50) {
+            if (!e.target.closest('#learning-card-front')) {
             this.navigate(deltaY > 0 ? 1 : -1);
         }
         this.state.touchstartX = this.state.touchstartY = 0;
@@ -794,3 +795,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
