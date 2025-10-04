@@ -36,9 +36,19 @@ body {
 .disabled { pointer-events: none; opacity: 0.7; }
 #word-display:hover, #quiz-word:hover { color: #1e40af; cursor: pointer; }
 .sample-sentence:hover { background-color: #f0f4f8; cursor: pointer; }
+
 #word-display, #quiz-word {
     white-space: nowrap;
 }
+
+.pronunciation-inline {
+    font-size: 60%;
+    opacity: 0.8;
+    font-weight: normal;
+    margin-left: 0.75rem;
+    vertical-align: middle;
+}
+
 #learning-app-container .relative {
     overflow: hidden;
     border-radius: 1rem;
