@@ -785,11 +785,9 @@ const learningMode = {
         if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
             this.navigate(deltaX > 0 ? -1 : 1);
         } else if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 50) {
-            if (!e.target.closest('#learning-card-front')) {
-                if (deltaY < 0) { // 위로 스와이프 했을 때
-                    this.navigate(1); // 다음으로 이동
-                }
-        }
+            if (deltaY < 0) { // 위로 스와이프 했을 때
+                this.navigate(1); // 다음으로 이동
+            }
         }
         this.state.touchstartX = this.state.touchstartY = 0;
     }
@@ -798,6 +796,7 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
 
 
 
