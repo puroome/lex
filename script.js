@@ -116,19 +116,22 @@ const app = {
 // API Module
 // ================================================================
 const api = {
-    async loadWordList() {
-        try {
-            const cachedData = localStorage.getItem('wordListCache');
-            if (cachedData) {
-                const { timestamp, words } = JSON.parse(cachedData);
-                if (Date.now() - timestamp < 86400000) {
-                    app.state.wordList = words;
-                    app.state.isWordListReady = true;
+    async loadWordList(force = false) {
+        if (!force) {
+            try {
+                const cachedData = localStorage.getItem('wordListCache');
+                if (cachedData) {
+                    const { timestamp, words } = JSON.parse(cachedData);
+                    if (Date.now() - timestamp < 86400000) {
+                        app.state.wordList = words;
+                        app.state.isWordListReady = true;
+                        return;
+                    }
                 }
+            } catch (e) {
+                console.error("캐시 로딩 실패:", e);
+                localStorage.removeItem('wordListCache');
             }
-        } catch (e) {
-            console.error("캐시 로딩 실패:", e);
-            localStorage.removeItem('wordListCache');
         }
 
         try {
@@ -147,6 +150,7 @@ const api = {
             if (!app.state.isWordListReady) {
                 app.showFatalError(error.message);
             }
+            throw error;
         }
     },
     async speak(text, contentType = 'word') {
@@ -798,6 +802,7 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
 
 
 
