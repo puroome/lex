@@ -780,7 +780,6 @@ const learningMode = {
              this.state.touchstartX = this.state.touchstartY = 0;
              return;
         }
-        }
         const deltaX = e.changedTouches[0].screenX - this.state.touchstartX;
         const deltaY = e.changedTouches[0].screenY - this.state.touchstartY;
         if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
@@ -789,6 +788,7 @@ const learningMode = {
             if (!e.target.closest('#learning-card-front')) {
             this.navigate(deltaY > 0 ? 1 : -1);
         }
+        }
         this.state.touchstartX = this.state.touchstartY = 0;
     }
 };
@@ -796,5 +796,6 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
 
 
