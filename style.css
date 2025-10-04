@@ -62,3 +62,6 @@ body {
     pointer-events: auto;
 }
 
+#learning-card-front {
+    min-height: 60vh; /* 화면 높이의 60%를 최소 높이로 지정 */
+}
