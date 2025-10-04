@@ -627,7 +627,6 @@ const learningMode = {
             appContainer: document.getElementById('learning-app-container'),
             cardBack: document.getElementById('learning-card-back'),
             wordDisplay: document.getElementById('word-display'),
-            pronunciationDisplay: document.getElementById('pronunciation'),
             meaningDisplay: document.getElementById('meaning-display'),
             explanationDisplay: document.getElementById('explanation-display'),
             explanationContainer: document.getElementById('explanation-container'),
@@ -755,9 +754,13 @@ const learningMode = {
         this.elements.cardBack.classList.remove('is-slid-up');
         const wordData = app.state.wordList[index];
         if (!wordData) return;
-        this.elements.wordDisplay.textContent = wordData.word;
+        
+        const wordText = wordData.word;
+        const pronText = wordData.pronunciation ? `<span class="pronunciation-inline">${wordData.pronunciation}</span>` : '';
+        this.elements.wordDisplay.innerHTML = `${wordText} ${pronText}`;
+        
         ui.adjustFontSize(this.elements.wordDisplay);
-        this.elements.pronunciationDisplay.textContent = wordData.pronunciation || '';
+        
         this.elements.meaningDisplay.innerHTML = wordData.meaning.replace(/\n/g, '<br>');
         ui.renderInteractiveText(this.elements.explanationDisplay, wordData.explanation);
         this.elements.explanationContainer.classList.toggle('hidden', !wordData.explanation || !wordData.explanation.trim());
@@ -855,4 +858,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
