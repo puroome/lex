@@ -18,7 +18,7 @@ const app = {
     elements: {
         selectionScreen: document.getElementById('selection-screen'),
         homeBtn: document.getElementById('home-btn'),
-        refreshBtn: document.getElementById('refresh-btn'), // 새로고침 버튼 추가
+        refreshBtn: document.getElementById('refresh-btn'),
         ttsToggleBtn: document.getElementById('tts-toggle-btn'),
         ttsToggleText: document.getElementById('tts-toggle-text'),
         quizModeContainer: document.getElementById('quiz-mode-container'),
@@ -38,78 +38,66 @@ const app = {
         document.getElementById('select-quiz-btn').addEventListener('click', () => this.changeMode('quiz'));
         document.getElementById('select-learning-btn').addEventListener('click', () => this.changeMode('learning'));
         this.elements.homeBtn.addEventListener('click', () => this.changeMode('selection'));
-        this.elements.refreshBtn.addEventListener('click', () => this.forceReload()); // 새로고침 버튼 이벤트
+        this.elements.refreshBtn.addEventListener('click', () => this.forceReload());
         this.elements.ttsToggleBtn.addEventListener('click', this.toggleVoiceSet.bind(this));
         document.body.addEventListener('click', () => {
             if (!this.state.audioContext) {
                 this.state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
         }, { once: true });
-        // 툴팁 위치가 더 이상 마우스를 따라다니지 않으므로 mousemove 이벤트 리스너 제거
     },
     changeMode(mode) {
+        // 모든 버튼을 기본적으로 숨김 처리
         this.elements.selectionScreen.classList.add('hidden');
         this.elements.quizModeContainer.classList.add('hidden');
         this.elements.learningModeContainer.classList.add('hidden');
         this.elements.homeBtn.classList.add('hidden');
-        this.elements.refreshBtn.classList.add('hidden'); // 새로고침 버튼 숨김/표시
+        this.elements.refreshBtn.classList.add('hidden');
         this.elements.ttsToggleBtn.classList.add('hidden');
         learningMode.elements.fixedButtons.classList.add('hidden');
 
-        if (mode === 'quiz' || mode === 'learning') { // 학습 또는 퀴즈 모드일 때
+        if (mode === 'quiz') {
+            this.elements.quizModeContainer.classList.remove('hidden');
             this.elements.homeBtn.classList.remove('hidden');
-            this.elements.refreshBtn.classList.remove('hidden'); // 새로고침 버튼 표시
             this.elements.ttsToggleBtn.classList.remove('hidden');
-            if (mode === 'quiz') {
-                this.elements.quizModeContainer.classList.remove('hidden');
-                quizMode.start();
-            } else {
-                this.elements.learningModeContainer.classList.remove('hidden');
-                learningMode.resetStartScreen();
-            }
-        } else { // 선택 화면으로 돌아갈 때
+            quizMode.start();
+        } else if (mode === 'learning') {
+            this.elements.learningModeContainer.classList.remove('hidden');
+            this.elements.homeBtn.classList.remove('hidden');
+            this.elements.ttsToggleBtn.classList.remove('hidden');
+            // 학습 모드 시작 화면에서만 새로고침 버튼 표시
+            this.elements.refreshBtn.classList.remove('hidden'); 
+            learningMode.resetStartScreen();
+        } else { // 'selection' 모드
             this.elements.selectionScreen.classList.remove('hidden');
             quizMode.reset();
             learningMode.reset();
         }
     },
     async forceReload() {
-        const isLearningMode = learningMode.isLearningModeActive();
-        const isQuizMode = !this.elements.quizModeContainer.classList.contains('hidden') && !this.elements.selectionScreen.classList.contains('hidden');
-        
-        let currentWord = null;
-        if (isLearningMode) {
-            currentWord = this.state.wordList[learningMode.state.currentIndex]?.word;
-            learningMode.elements.appContainer.classList.add('hidden');
-            learningMode.elements.fixedButtons.classList.add('hidden');
-            learningMode.elements.loader.classList.remove('hidden');
-            learningMode.elements.loaderText.textContent = '데이터를 새로고침하는 중...';
-        } else if (isQuizMode) {
-            quizMode.showLoader(true);
-            quizMode.elements.loaderText.textContent = '데이터를 새로고침하는 중...';
-        } else {
-             this.showToast('학습 또는 퀴즈 모드에서만 새로고침할 수 있습니다.');
-             return;
+        const isLearningStartScreen = !learningMode.elements.startScreen.classList.contains('hidden');
+
+        if (!isLearningStartScreen) {
+             // 이 경고는 이제 거의 표시되지 않지만, 만약을 대비해 유지합니다.
+            this.showToast('데이터 새로고침은 학습 모드 시작 화면에서만 가능합니다.', true);
+            return;
         }
+        
+        // 시작 화면의 버튼을 로딩 상태로 변경하여 사용자에게 피드백 제공
+        const startBtn = learningMode.elements.startBtn;
+        const originalBtnText = startBtn.textContent;
+        startBtn.disabled = true;
+        startBtn.textContent = '새로고침 중...';
 
         try {
-            await api.loadWordList(true); // force a reload
+            await api.loadWordList(true); // 캐시 무시하고 강제 새로고침
             this.showToast('데이터를 성공적으로 새로고침했습니다!');
         } catch(e) {
             this.showToast('데이터 새로고침에 실패했습니다: ' + e.message, true);
         } finally {
-            if (isLearningMode) {
-                learningMode.elements.loader.classList.add('hidden');
-                let newIndex = 0;
-                if (currentWord) {
-                    const foundIndex = this.state.wordList.findIndex(item => item.word === currentWord);
-                    if (foundIndex !== -1) newIndex = foundIndex;
-                }
-                learningMode.state.currentIndex = newIndex;
-                learningMode.launchApp();
-            } else if (isQuizMode) {
-                quizMode.start();
-            }
+            // 버튼 상태를 원래대로 복원
+            startBtn.disabled = false;
+            startBtn.textContent = originalBtnText;
         }
     },
     showToast(message, isError = false) {
@@ -163,7 +151,7 @@ const app = {
 // API Module
 // ================================================================
 const api = {
-    async loadWordList(force = false) { // force 파라미터 추가
+    async loadWordList(force = false) {
         if (force) {
             localStorage.removeItem('wordListCache');
             app.state.isWordListReady = false;
@@ -243,7 +231,7 @@ const api = {
         const url = new URL(app.config.SCRIPT_URL);
         url.searchParams.append('action', action);
         for (const key in params) {
-            if (params[key]) { // boolean false 값은 전달하지 않도록
+            if (params[key]) {
                 url.searchParams.append(key, params[key]);
             }
         }
@@ -326,20 +314,16 @@ const ui = {
     async handleSentenceMouseOver(event, sentence) {
         clearTimeout(app.state.tooltipTimeout);
         const tooltip = app.elements.translationTooltip;
-
-        // --- 번역 툴팁 위치 조정 로직 ---
         const targetElement = event.currentTarget;
         const rect = targetElement.getBoundingClientRect();
         const tooltipLeft = rect.left + window.scrollX;
-        const tooltipTop = rect.bottom + window.scrollY + 5; // 5px 아래 여백
+        const tooltipTop = rect.bottom + window.scrollY + 5;
 
         Object.assign(tooltip.style, {
             left: `${tooltipLeft}px`,
             top: `${tooltipTop}px`,
-            // 마우스 위치가 아닌 고정 위치이므로 transform 제거/초기화
             transform: 'none' 
         });
-        // --- 로직 종료 ---
 
         tooltip.textContent = '번역 중...';
         tooltip.classList.remove('hidden');
@@ -724,6 +708,8 @@ const learningMode = {
         this.elements.loader.classList.add('hidden');
         this.elements.appContainer.classList.remove('hidden');
         this.elements.fixedButtons.classList.remove('hidden');
+        // 학습 앱이 시작되면 새로고침 버튼을 숨김
+        app.elements.refreshBtn.classList.add('hidden');
         this.displayWord(this.state.currentIndex);
     },
     reset() {
@@ -738,6 +724,10 @@ const learningMode = {
         this.elements.suggestionsContainer.classList.add('hidden');
         this.elements.startWordInput.value = '';
         this.elements.startWordInput.focus();
+        // 학습 모드 시작 화면으로 돌아오면 새로고침 버튼 다시 표시
+        if (!app.elements.selectionScreen.classList.contains('hidden')) {
+            app.elements.refreshBtn.classList.remove('hidden');
+        }
     },
     displaySuggestions(suggestions) {
         this.elements.startInputContainer.classList.add('hidden');
