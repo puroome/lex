@@ -666,7 +666,6 @@ const learningMode = {
                 ui.copyToClipboard(word);
             }
         });
-        document.addEventListener('wheel', this.handleWheel.bind(this), { passive: false });
         document.addEventListener('mousedown', this.handleMiddleClick.bind(this));
         document.addEventListener('keydown', this.handleKeyDown.bind(this));
         document.addEventListener('touchstart', this.handleTouchStart.bind(this), { passive: true });
@@ -808,18 +807,6 @@ const learningMode = {
     isLearningModeActive() {
         return !this.elements.appContainer.classList.contains('hidden');
     },
-    handleWheel(e) {
-        if (!this.isLearningModeActive()) return;
-        const now = new Date().getTime();
-        if (now - this.state.lastWheelTime < 250) {
-            e.preventDefault();
-            return;
-        }
-        this.state.lastWheelTime = now;
-        if (e.target.closest('.overflow-y-auto')) return;
-        e.preventDefault();
-        this.navigate(e.deltaY < 0 ? -1 : 1);
-    },
     handleMiddleClick(e) {
         if (this.isLearningModeActive() && e.button === 1) {
             e.preventDefault();
@@ -871,3 +858,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
