@@ -461,22 +461,26 @@ const ui = {
         };
         
         app.elements.searchDaumContextBtn.onclick = () => {
-            window.open(`https://dic.daum.net/search.do?q=${encodedWord}`, '_blank');
+            // '_blank' 대신 고유한 창 이름을 지정하여 기존 탭을 재활용합니다.
+            window.open(`https://dic.daum.net/search.do?q=${encodedWord}`, 'daum_dictionary_window');
             this.hideWordContextMenu();
         };
         
         app.elements.searchNaverContextBtn.onclick = () => {
-            window.open(`https://en.dict.naver.com/#/search?query=${encodedWord}`, '_blank');
+            // '_blank' 대신 고유한 창 이름을 지정하여 기존 탭을 재활용합니다.
+            window.open(`https://en.dict.naver.com/#/search?query=${encodedWord}`, 'naver_dictionary_window');
             this.hideWordContextMenu();
         };
 
         app.elements.searchEtymContextBtn.onclick = () => {
-            window.open(`https://www.etymonline.com/search?q=${encodedWord}`, '_blank');
+            // '_blank' 대신 고유한 창 이름을 지정하여 기존 탭을 재활용합니다.
+            window.open(`https://www.etymonline.com/search?q=${encodedWord}`, 'etymonline_window');
             this.hideWordContextMenu();
         };
 
         app.elements.searchLongmanContextBtn.onclick = () => {
-            window.open(`https://www.ldoceonline.com/dictionary/${encodedWord}`, '_blank');
+            // '_blank' 대신 고유한 창 이름을 지정하여 기존 탭을 재활용합니다.
+            window.open(`https://www.ldoceonline.com/dictionary/${encodedWord}`, 'longman_dictionary_window');
             this.hideWordContextMenu();
         };
     },
@@ -1020,4 +1024,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
