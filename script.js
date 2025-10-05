@@ -32,6 +32,8 @@ const app = {
         searchAppContextBtn: document.getElementById('search-app-context-btn'),
         searchDaumContextBtn: document.getElementById('search-daum-context-btn'),
         searchNaverContextBtn: document.getElementById('search-naver-context-btn'),
+        searchEtymContextBtn: document.getElementById('search-etym-context-btn'),
+        searchLongmanContextBtn: document.getElementById('search-longman-context-btn'),
     },
     init() {
         this.bindGlobalEvents();
@@ -437,9 +439,12 @@ const ui = {
             containerElement.appendChild(p);
         });
     },
-    showWordContextMenu(event, word) {
+    showWordContextMenu(event, word, options = {}) {
         event.preventDefault();
         const menu = app.elements.wordContextMenu;
+
+        // "이 앱" 메뉴 보이기/숨기기 처리
+        app.elements.searchAppContextBtn.style.display = options.hideAppSearch ? 'none' : 'block';
         
         const touch = event.touches ? event.touches[0] : null;
         const x = touch ? touch.clientX : event.clientX;
@@ -462,6 +467,16 @@ const ui = {
         
         app.elements.searchNaverContextBtn.onclick = () => {
             window.open(`https://en.dict.naver.com/#/search?query=${encodedWord}`, '_blank');
+            this.hideWordContextMenu();
+        };
+
+        app.elements.searchEtymContextBtn.onclick = () => {
+            window.open(`https://www.etymonline.com/search?q=${encodedWord}`, '_blank');
+            this.hideWordContextMenu();
+        };
+
+        app.elements.searchLongmanContextBtn.onclick = () => {
+            window.open(`https://www.ldoceonline.com/dictionary/${encodedWord}`, '_blank');
             this.hideWordContextMenu();
         };
     },
@@ -764,6 +779,8 @@ const learningMode = {
         this.elements.nextBtn.addEventListener('click', () => this.navigate(1));
         this.elements.prevBtn.addEventListener('click', () => this.navigate(-1));
         this.elements.sampleBtn.addEventListener('click', () => this.handleFlip());
+
+        // 단어 카드 클릭 이벤트
         this.elements.wordDisplay.addEventListener('click', () => {
             const word = app.state.wordList[this.state.currentIndex]?.word;
             if (word) {
@@ -771,6 +788,35 @@ const learningMode = {
                 ui.copyToClipboard(word);
             }
         });
+
+        // 단어 카드 우클릭/길게 누르기 이벤트
+        this.elements.wordDisplay.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const wordData = app.state.wordList[this.state.currentIndex];
+            if (wordData) {
+                ui.showWordContextMenu(e, wordData.word, { hideAppSearch: true });
+            }
+        });
+
+        let wordDisplayTouchMove = false;
+        this.elements.wordDisplay.addEventListener('touchstart', (e) => {
+            wordDisplayTouchMove = false;
+            clearTimeout(app.state.longPressTimer);
+            app.state.longPressTimer = setTimeout(() => {
+                const wordData = app.state.wordList[this.state.currentIndex];
+                if (!wordDisplayTouchMove && wordData) {
+                    ui.showWordContextMenu(e, wordData.word, { hideAppSearch: true });
+                }
+            }, 700);
+        }, { passive: true });
+        this.elements.wordDisplay.addEventListener('touchmove', () => {
+            wordDisplayTouchMove = true;
+            clearTimeout(app.state.longPressTimer);
+        });
+        this.elements.wordDisplay.addEventListener('touchend', () => {
+            clearTimeout(app.state.longPressTimer);
+        });
+
         document.addEventListener('mousedown', this.handleMiddleClick.bind(this));
         document.addEventListener('keydown', this.handleKeyDown.bind(this));
         document.addEventListener('touchstart', this.handleTouchStart.bind(this), { passive: true });
@@ -942,12 +988,13 @@ const learningMode = {
     },
     handleTouchStart(e) {
         if (!this.isLearningModeActive()) return;
+        if (e.target.closest('#word-display')) return; // 단어 카드 자체의 터치는 위에서 처리
         this.state.touchstartX = e.changedTouches[0].screenX;
         this.state.touchstartY = e.changedTouches[0].screenY;
     },
     handleTouchEnd(e) {
         if (!this.isLearningModeActive() || this.state.touchstartX === 0) return;
-        if (e.target.closest('button, a, input, [onclick]')) {
+        if (e.target.closest('button, a, input, [onclick], .interactive-word')) {
              this.state.touchstartX = this.state.touchstartY = 0;
              return;
         }
