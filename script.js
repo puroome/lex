@@ -12,6 +12,7 @@ const app = {
         audioContext: null,
         translationCache: {},
         translateDebounceTimeout: null, // 디바운스 타이머 ID
+        hideTooltipTimeout: null,       // 툴팁 숨기기 타이머 ID
         wordList: [],
         isWordListReady: false,
     },
@@ -45,6 +46,17 @@ const app = {
                 this.state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
         }, { once: true });
+
+        // 툴팁 자체에 대한 마우스 이벤트 추가
+        const tooltip = this.elements.translationTooltip;
+        tooltip.addEventListener('mouseover', () => {
+            clearTimeout(this.state.hideTooltipTimeout);
+        });
+        tooltip.addEventListener('mouseout', () => {
+            this.state.hideTooltipTimeout = setTimeout(() => {
+                tooltip.classList.add('hidden');
+            }, 300);
+        });
     },
     changeMode(mode) {
         // 모든 버튼을 기본적으로 숨김 처리
@@ -323,7 +335,12 @@ const ui = {
         }
     },
     handleSentenceMouseOver(event, sentence) {
+        // 툴팁을 숨기려는 타이머를 취소
+        clearTimeout(app.state.hideTooltipTimeout);
+        // 이전에 설정된 번역 요청 타이머를 취소 (디바운스)
         clearTimeout(app.state.translateDebounceTimeout);
+        
+        // 1초 후에 번역을 요청하는 새 타이머 설정
         app.state.translateDebounceTimeout = setTimeout(async () => {
             const tooltip = app.elements.translationTooltip;
             const targetElement = event.currentTarget;
@@ -341,12 +358,21 @@ const ui = {
             tooltip.classList.remove('hidden');
             
             const translatedText = await api.translateText(sentence);
-            tooltip.textContent = translatedText;
+
+            // API 호출이 완료되었을 때 툴팁이 여전히 보여야 하는 경우에만 텍스트 업데이트
+            if (!tooltip.classList.contains('hidden')) {
+                tooltip.textContent = translatedText;
+            }
         }, 1000); // 1초 디바운스
     },
     handleSentenceMouseOut() {
+        // 실행 대기 중인 번역 요청을 취소
         clearTimeout(app.state.translateDebounceTimeout);
-        app.elements.translationTooltip.classList.add('hidden');
+        
+        // 짧은 지연 시간 후 툴팁을 숨김 (사용자가 툴팁으로 마우스를 옮길 시간을 줌)
+        app.state.hideTooltipTimeout = setTimeout(() => {
+            app.elements.translationTooltip.classList.add('hidden');
+        }, 300);
     },
     displaySentences(sentences, containerElement) {
         containerElement.innerHTML = '';
@@ -865,4 +891,5 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
 
