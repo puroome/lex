@@ -488,7 +488,7 @@ const ui = {
                                 this.showWordContextMenu(e, englishPhrase);
                             }
                         }, 700);
-                    });
+                    }, { passive: true });
                     span.addEventListener('touchmove', (e) => { e.stopPropagation(); touchMove = true; clearTimeout(app.state.longPressTimer); });
                     span.addEventListener('touchend', (e) => { e.stopPropagation(); clearTimeout(app.state.longPressTimer); });
                     p.appendChild(span);
@@ -1084,3 +1084,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
