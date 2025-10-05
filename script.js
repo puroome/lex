@@ -11,8 +11,7 @@ const app = {
         isSpeaking: false,
         audioContext: null,
         translationCache: {},
-        hideTooltipTimeout: null, // Renamed from tooltipTimeout
-        translateDebounceTimeout: null, // For debouncing translation
+        translateDebounceTimeout: null, // 디바운스 타이머 ID
         wordList: [],
         isWordListReady: false,
     },
@@ -305,14 +304,9 @@ const ui = {
                 if (englishPhrase) {
                     const span = document.createElement('span');
                     span.textContent = englishPhrase;
-                    span.className = 'interactive-word cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors';
+                    span.className = 'cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors';
                     span.title = '클릭하여 듣기 및 복사';
-                    span.onclick = (e) => { 
-                        api.speak(englishPhrase, 'word'); 
-                        this.copyToClipboard(englishPhrase);
-                        e.currentTarget.classList.add('word-clicked');
-                        setTimeout(() => e.currentTarget.classList.remove('word-clicked'), 300);
-                    };
+                    span.onclick = () => { api.speak(englishPhrase, 'word'); this.copyToClipboard(englishPhrase); };
                     targetElement.appendChild(span);
                 } else if (nonClickable) {
                     targetElement.appendChild(document.createTextNode(nonClickable));
@@ -330,7 +324,6 @@ const ui = {
     },
     handleSentenceMouseOver(event, sentence) {
         clearTimeout(app.state.translateDebounceTimeout);
-        
         app.state.translateDebounceTimeout = setTimeout(async () => {
             const tooltip = app.elements.translationTooltip;
             const targetElement = event.currentTarget;
@@ -423,12 +416,10 @@ const quizMode = {
         this.elements.passBtn.addEventListener('click', () => this.displayNextQuiz());
         this.elements.sampleBtn.addEventListener('click', () => this.handleFlip('sample'));
         this.elements.explanationBtn.addEventListener('click', () => this.handleFlip('explanation'));
-        this.elements.word.addEventListener('click', (e) => {
+        this.elements.word.addEventListener('click', () => {
             const word = this.elements.word.textContent;
             api.speak(word, 'word');
             ui.copyToClipboard(word);
-            e.currentTarget.classList.add('word-clicked');
-            setTimeout(() => e.currentTarget.classList.remove('word-clicked'), 300);
         });
         document.addEventListener('keydown', (e) => {
             const isQuizModeActive = !this.elements.contentContainer.classList.contains('hidden') && !this.elements.choices.classList.contains('disabled');
@@ -549,24 +540,15 @@ const quizMode = {
     checkAnswer(selectedLi, selectedChoice) {
         this.elements.choices.classList.add('disabled');
         this.elements.passBtn.disabled = true;
-        
-        // Show submitting state
-        selectedLi.classList.add('submitting');
-
         const isCorrect = selectedChoice === this.state.currentQuiz.answer;
-        
-        setTimeout(() => {
-            selectedLi.classList.remove('submitting');
-            selectedLi.classList.add(isCorrect ? 'correct' : 'incorrect');
-            
-            if (isCorrect) {
-                api.fetchFromGoogleSheet('updateStatus', { word: this.state.currentQuiz.question.word });
-            } else {
-                const correctAnswerEl = Array.from(this.elements.choices.children).find(li => li.querySelector('span:last-child').textContent === this.state.currentQuiz.answer);
-                correctAnswerEl?.classList.add('correct');
-            }
-            setTimeout(() => this.displayNextQuiz(), 1200); // Slightly adjusted timing
-        }, 300); // Short delay to show submitting state
+        selectedLi.classList.add(isCorrect ? 'correct' : 'incorrect');
+        if (isCorrect) {
+            api.fetchFromGoogleSheet('updateStatus', { word: this.state.currentQuiz.question.word });
+        } else {
+            const correctAnswerEl = Array.from(this.elements.choices.children).find(li => li.querySelector('span:last-child').textContent === this.state.currentQuiz.answer);
+            correctAnswerEl?.classList.add('correct');
+        }
+        setTimeout(() => this.displayNextQuiz(), 1500);
     },
     showLoader(isLoading) {
         this.elements.loader.classList.toggle('hidden', !isLoading);
@@ -674,13 +656,11 @@ const learningMode = {
         this.elements.nextBtn.addEventListener('click', () => this.navigate(1));
         this.elements.prevBtn.addEventListener('click', () => this.navigate(-1));
         this.elements.sampleBtn.addEventListener('click', () => this.handleFlip());
-        this.elements.wordDisplay.addEventListener('click', (e) => {
+        this.elements.wordDisplay.addEventListener('click', () => {
             const word = app.state.wordList[this.state.currentIndex]?.word;
             if (word) {
                 api.speak(word, 'word');
                 ui.copyToClipboard(word);
-                e.currentTarget.classList.add('word-clicked');
-                setTimeout(() => e.currentTarget.classList.remove('word-clicked'), 300);
             }
         });
         document.addEventListener('mousedown', this.handleMiddleClick.bind(this));
@@ -885,3 +865,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
