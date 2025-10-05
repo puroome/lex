@@ -11,6 +11,15 @@ body {
     height: 40px;
     animation: spin 1s linear infinite;
 }
+.loader-small {
+    display: inline-block;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: #fff;
+    width: 20px;
+    height: 20px;
+    animation: spin 1s linear infinite;
+}
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
@@ -35,10 +44,14 @@ body {
 .incorrect { background-color: #dc3545 !important; color: white !important; border-color: #dc3545; }
 .disabled { pointer-events: none; opacity: 0.7; }
 #word-display:hover, #quiz-word:hover { color: #1e40af; cursor: pointer; }
+#word-display.active-feedback, #quiz-word.active-feedback {
+    background-color: #d1fae5; /* Tailwind green-100 */
+}
 .sample-sentence:hover { background-color: #f0f4f8; cursor: pointer; }
 
 #word-display, #quiz-word {
     white-space: nowrap;
+    transition: background-color 0.2s;
 }
 
 .pronunciation-inline {
