@@ -842,8 +842,18 @@ const learningMode = {
         }
         const deltaX = e.changedTouches[0].screenX - this.state.touchstartX;
         const deltaY = e.changedTouches[0].screenY - this.state.touchstartY;
+        
+        // 수평 스와이프 (좌/우) 로 이전/다음 단어 이동
         if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
             this.navigate(deltaX > 0 ? -1 : 1);
+        } 
+        // 수직 스와이프 (위) 이고, 앱 화면 바깥쪽일 경우 다음 단어로 이동
+        else if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 50) {
+            if (!e.target.closest('#learning-app-container')) {
+                if (deltaY < 0) { // 위로 스와이프
+                    this.navigate(1); // 다음 단어로 이동
+                }
+            }
         }
         this.state.touchstartX = this.state.touchstartY = 0;
     }
@@ -852,4 +862,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
