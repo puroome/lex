@@ -431,11 +431,75 @@ const ui = {
         containerElement.innerHTML = '';
         sentences.filter(s => s.trim()).forEach(sentence => {
             const p = document.createElement('p');
-            p.innerHTML = sentence.replace(/\*(.*?)\*/g, '<strong>$1</strong>');
-            p.className = 'p-2 rounded transition-colors cursor-pointer hover:bg-gray-200 sample-sentence';
-            p.onclick = () => api.speak(p.textContent, 'sample');
-            p.addEventListener('mouseover', (e) => this.handleSentenceMouseOver(e, p.textContent));
-            p.addEventListener('mouseout', this.handleSentenceMouseOut);
+            p.className = 'p-2 rounded transition-colors sample-sentence';
+            
+            // 문장 전체 듣기 이벤트 (단어 클릭 시는 제외)
+            p.addEventListener('click', (e) => {
+                if (!e.target.classList.contains('interactive-word')) {
+                    api.speak(p.textContent, 'sample');
+                }
+            });
+
+            p.addEventListener('mouseover', (e) => {
+                if (!e.target.classList.contains('interactive-word')) {
+                     p.classList.add('hover:bg-gray-200', 'cursor-pointer');
+                     this.handleSentenceMouseOver(e, p.textContent);
+                }
+            });
+            p.addEventListener('mouseout', () => {
+                p.classList.remove('hover:bg-gray-200', 'cursor-pointer');
+                this.handleSentenceMouseOut();
+            });
+
+            // 문장을 단어 단위로 쪼개서 interactive-word로 만들기
+            const processedSentence = sentence.replace(/\*(.*?)\*/g, '$1'); // bold 마크업 제거
+            const regex = /(\[.*?\])|([a-zA-Z0-9'-]+(?:[\s'-]*[a-zA-Z0-9'-]+)*)/g;
+            let lastIndex = 0;
+            let match;
+            while ((match = regex.exec(processedSentence))) {
+                if (match.index > lastIndex) {
+                    p.appendChild(document.createTextNode(processedSentence.substring(lastIndex, match.index)));
+                }
+                const [_, nonClickable, englishPhrase] = match;
+                if (englishPhrase) {
+                    const span = document.createElement('span');
+                    span.textContent = englishPhrase;
+                    span.className = 'cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors interactive-word';
+                    span.title = '클릭: 듣기/복사 | 우클릭/길게 누르기: 검색';
+                    
+                    span.onclick = (e) => {
+                        e.stopPropagation(); // p 태그의 클릭 이벤트 전파 방지
+                        clearTimeout(app.state.longPressTimer);
+                        api.speak(englishPhrase, 'word');
+                        this.copyToClipboard(englishPhrase);
+                    };
+                    span.oncontextmenu = (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        this.showWordContextMenu(e, englishPhrase);
+                    };
+                    let touchMove = false;
+                    span.addEventListener('touchstart', (e) => {
+                        e.stopPropagation();
+                        touchMove = false;
+                        clearTimeout(app.state.longPressTimer);
+                        app.state.longPressTimer = setTimeout(() => {
+                            if (!touchMove) {
+                                this.showWordContextMenu(e, englishPhrase);
+                            }
+                        }, 700);
+                    });
+                    span.addEventListener('touchmove', (e) => { e.stopPropagation(); touchMove = true; clearTimeout(app.state.longPressTimer); });
+                    span.addEventListener('touchend', (e) => { e.stopPropagation(); clearTimeout(app.state.longPressTimer); });
+                    p.appendChild(span);
+                } else if (nonClickable) {
+                    p.appendChild(document.createTextNode(nonClickable));
+                }
+                lastIndex = regex.lastIndex;
+            }
+            if (lastIndex < processedSentence.length) {
+                p.appendChild(document.createTextNode(processedSentence.substring(lastIndex)));
+            }
             containerElement.appendChild(p);
         });
     },
@@ -1020,4 +1084,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
