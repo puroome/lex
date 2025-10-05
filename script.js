@@ -11,7 +11,8 @@ const app = {
         isSpeaking: false,
         audioContext: null,
         translationCache: {},
-        tooltipTimeout: null,
+        hideTooltipTimeout: null, // Renamed from tooltipTimeout
+        translateDebounceTimeout: null, // For debouncing translation
         wordList: [],
         isWordListReady: false,
     },
@@ -304,9 +305,14 @@ const ui = {
                 if (englishPhrase) {
                     const span = document.createElement('span');
                     span.textContent = englishPhrase;
-                    span.className = 'cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors';
+                    span.className = 'interactive-word cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors';
                     span.title = '클릭하여 듣기 및 복사';
-                    span.onclick = () => { api.speak(englishPhrase, 'word'); this.copyToClipboard(englishPhrase); };
+                    span.onclick = (e) => { 
+                        api.speak(englishPhrase, 'word'); 
+                        this.copyToClipboard(englishPhrase);
+                        e.currentTarget.classList.add('word-clicked');
+                        setTimeout(() => e.currentTarget.classList.remove('word-clicked'), 300);
+                    };
                     targetElement.appendChild(span);
                 } else if (nonClickable) {
                     targetElement.appendChild(document.createTextNode(nonClickable));
@@ -322,28 +328,32 @@ const ui = {
             targetElement.removeChild(targetElement.lastChild);
         }
     },
-    async handleSentenceMouseOver(event, sentence) {
-        clearTimeout(app.state.tooltipTimeout);
-        const tooltip = app.elements.translationTooltip;
-        const targetElement = event.currentTarget;
-        const rect = targetElement.getBoundingClientRect();
-        const tooltipLeft = rect.left + window.scrollX;
-        const tooltipTop = rect.bottom + window.scrollY + 5;
-
-        Object.assign(tooltip.style, {
-            left: `${tooltipLeft}px`,
-            top: `${tooltipTop}px`,
-            transform: 'none' 
-        });
-
-        tooltip.textContent = '번역 중...';
-        tooltip.classList.remove('hidden');
+    handleSentenceMouseOver(event, sentence) {
+        clearTimeout(app.state.translateDebounceTimeout);
         
-        const translatedText = await api.translateText(sentence);
-        tooltip.textContent = translatedText;
+        app.state.translateDebounceTimeout = setTimeout(async () => {
+            const tooltip = app.elements.translationTooltip;
+            const targetElement = event.currentTarget;
+            const rect = targetElement.getBoundingClientRect();
+            const tooltipLeft = rect.left + window.scrollX;
+            const tooltipTop = rect.bottom + window.scrollY + 5;
+
+            Object.assign(tooltip.style, {
+                left: `${tooltipLeft}px`,
+                top: `${tooltipTop}px`,
+                transform: 'none' 
+            });
+
+            tooltip.textContent = '번역 중...';
+            tooltip.classList.remove('hidden');
+            
+            const translatedText = await api.translateText(sentence);
+            tooltip.textContent = translatedText;
+        }, 1000); // 1초 디바운스
     },
     handleSentenceMouseOut() {
-        app.state.tooltipTimeout = setTimeout(() => app.elements.translationTooltip.classList.add('hidden'), 300);
+        clearTimeout(app.state.translateDebounceTimeout);
+        app.elements.translationTooltip.classList.add('hidden');
     },
     displaySentences(sentences, containerElement) {
         containerElement.innerHTML = '';
@@ -413,10 +423,12 @@ const quizMode = {
         this.elements.passBtn.addEventListener('click', () => this.displayNextQuiz());
         this.elements.sampleBtn.addEventListener('click', () => this.handleFlip('sample'));
         this.elements.explanationBtn.addEventListener('click', () => this.handleFlip('explanation'));
-        this.elements.word.addEventListener('click', () => {
+        this.elements.word.addEventListener('click', (e) => {
             const word = this.elements.word.textContent;
             api.speak(word, 'word');
             ui.copyToClipboard(word);
+            e.currentTarget.classList.add('word-clicked');
+            setTimeout(() => e.currentTarget.classList.remove('word-clicked'), 300);
         });
         document.addEventListener('keydown', (e) => {
             const isQuizModeActive = !this.elements.contentContainer.classList.contains('hidden') && !this.elements.choices.classList.contains('disabled');
@@ -537,15 +549,24 @@ const quizMode = {
     checkAnswer(selectedLi, selectedChoice) {
         this.elements.choices.classList.add('disabled');
         this.elements.passBtn.disabled = true;
+        
+        // Show submitting state
+        selectedLi.classList.add('submitting');
+
         const isCorrect = selectedChoice === this.state.currentQuiz.answer;
-        selectedLi.classList.add(isCorrect ? 'correct' : 'incorrect');
-        if (isCorrect) {
-            api.fetchFromGoogleSheet('updateStatus', { word: this.state.currentQuiz.question.word });
-        } else {
-            const correctAnswerEl = Array.from(this.elements.choices.children).find(li => li.querySelector('span:last-child').textContent === this.state.currentQuiz.answer);
-            correctAnswerEl?.classList.add('correct');
-        }
-        setTimeout(() => this.displayNextQuiz(), 1500);
+        
+        setTimeout(() => {
+            selectedLi.classList.remove('submitting');
+            selectedLi.classList.add(isCorrect ? 'correct' : 'incorrect');
+            
+            if (isCorrect) {
+                api.fetchFromGoogleSheet('updateStatus', { word: this.state.currentQuiz.question.word });
+            } else {
+                const correctAnswerEl = Array.from(this.elements.choices.children).find(li => li.querySelector('span:last-child').textContent === this.state.currentQuiz.answer);
+                correctAnswerEl?.classList.add('correct');
+            }
+            setTimeout(() => this.displayNextQuiz(), 1200); // Slightly adjusted timing
+        }, 300); // Short delay to show submitting state
     },
     showLoader(isLoading) {
         this.elements.loader.classList.toggle('hidden', !isLoading);
@@ -653,11 +674,13 @@ const learningMode = {
         this.elements.nextBtn.addEventListener('click', () => this.navigate(1));
         this.elements.prevBtn.addEventListener('click', () => this.navigate(-1));
         this.elements.sampleBtn.addEventListener('click', () => this.handleFlip());
-        this.elements.wordDisplay.addEventListener('click', () => {
+        this.elements.wordDisplay.addEventListener('click', (e) => {
             const word = app.state.wordList[this.state.currentIndex]?.word;
             if (word) {
                 api.speak(word, 'word');
                 ui.copyToClipboard(word);
+                e.currentTarget.classList.add('word-clicked');
+                setTimeout(() => e.currentTarget.classList.remove('word-clicked'), 300);
             }
         });
         document.addEventListener('mousedown', this.handleMiddleClick.bind(this));
