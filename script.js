@@ -361,16 +361,16 @@ const ui = {
                     span.title = '클릭: 듣기/복사 | 우클릭/길게 누르기: 검색';
 
                     // Left-click handler
-                    span.onclick = () => {
+                    span.onclick = (e) => {
                         clearTimeout(app.state.longPressTimer);
-                        api.speak(englishPhrase, 'word');
-                        this.copyToClipboard(englishPhrase);
+                        api.speak(e.currentTarget.textContent, 'word');
+                        this.copyToClipboard(e.currentTarget.textContent);
                     };
 
                     // Right-click handler
                     span.oncontextmenu = (e) => {
                         e.preventDefault();
-                        this.showWordContextMenu(e, englishPhrase);
+                        this.showWordContextMenu(e, e.currentTarget.textContent);
                     };
 
                     // Long-press handlers for touch devices
@@ -380,7 +380,7 @@ const ui = {
                         clearTimeout(app.state.longPressTimer);
                         app.state.longPressTimer = setTimeout(() => {
                             if (!touchMove) {
-                                this.showWordContextMenu(e, englishPhrase);
+                                this.showWordContextMenu(e, e.currentTarget.textContent);
                             }
                         }, 700);
                     });
@@ -470,13 +470,13 @@ const ui = {
                     span.onclick = (e) => {
                         e.stopPropagation(); // p 태그의 클릭 이벤트 전파 방지
                         clearTimeout(app.state.longPressTimer);
-                        api.speak(englishPhrase, 'word');
-                        this.copyToClipboard(englishPhrase);
+                        api.speak(e.currentTarget.textContent, 'word');
+                        this.copyToClipboard(e.currentTarget.textContent);
                     };
                     span.oncontextmenu = (e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        this.showWordContextMenu(e, englishPhrase);
+                        this.showWordContextMenu(e, e.currentTarget.textContent);
                     };
                     let touchMove = false;
                     span.addEventListener('touchstart', (e) => {
@@ -485,7 +485,7 @@ const ui = {
                         clearTimeout(app.state.longPressTimer);
                         app.state.longPressTimer = setTimeout(() => {
                             if (!touchMove) {
-                                this.showWordContextMenu(e, englishPhrase);
+                                this.showWordContextMenu(e, e.currentTarget.textContent);
                             }
                         }, 700);
                     }, { passive: true });
