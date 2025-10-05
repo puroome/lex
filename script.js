@@ -3,7 +3,6 @@
 // ================================================================
 const app = {
     config: {
-        TTS_API_KEY: "AIzaSyAJmQBGY4H9DVMlhMtvAAVMi_4N7__DfKA",
         SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxtkBmzSHFOOwIOrjkbxXsHAKIBkimjuUjVOWEoUEi0vgxKclHlo4PTGnSTUSF29Ydg/exec"
     },
     state: {
@@ -14,6 +13,8 @@ const app = {
         translateDebounceTimeout: null, // 디바운스 타이머 ID
         wordList: [],
         isWordListReady: false,
+        ukVoice: null, // 영국식 음성 저장
+        usVoice: null, // 미국식 음성 저장
     },
     elements: {
         selectionScreen: document.getElementById('selection-screen'),
@@ -29,10 +30,39 @@ const app = {
         sheetLink: document.getElementById('sheet-link'),
     },
     init() {
+        this.loadVoices(); // 앱 시작 시 내장 TTS 음성 로드
         this.bindGlobalEvents();
         api.loadWordList();
         quizMode.init();
         learningMode.init();
+    },
+    loadVoices() {
+        // 사용 가능한 음성 목록을 가져와서 상태에 저장하는 함수
+        const setVoices = () => {
+            const voices = window.speechSynthesis.getVoices();
+            // en-GB (영국)와 en-US (미국) 음성을 찾습니다.
+            // 간혹 en-GB 대신 en_GB로 된 경우도 있어 둘 다 확인합니다.
+            app.state.ukVoice = voices.find(voice => voice.lang === 'en-GB' || voice.lang === 'en_GB');
+            app.state.usVoice = voices.find(voice => voice.lang === 'en-US' || voice.lang === 'en_US');
+
+            // 음성을 찾지 못했을 경우, 기본 영어 음성을 fallback으로 사용합니다.
+            if (!app.state.ukVoice) {
+                app.state.ukVoice = voices.find(voice => voice.lang.startsWith('en-'));
+            }
+            if (!app.state.usVoice) {
+                app.state.usVoice = voices.find(voice => voice.lang.startsWith('en-'));
+            }
+            
+            // console.log("UK Voice:", app.state.ukVoice);
+            // console.log("US Voice:", app.state.usVoice);
+        };
+
+        // 브라우저가 음성 목록을 비동기적으로 로드하므로, `voiceschanged` 이벤트를 수신해야 합니다.
+        if (window.speechSynthesis.onvoiceschanged !== undefined) {
+            window.speechSynthesis.onvoiceschanged = setVoices;
+        }
+        // 초기 로드 시에도 호출
+        setVoices();
     },
     bindGlobalEvents() {
         document.getElementById('select-quiz-btn').addEventListener('click', () => this.changeMode('quiz'));
@@ -40,11 +70,12 @@ const app = {
         this.elements.homeBtn.addEventListener('click', () => this.changeMode('selection'));
         this.elements.refreshBtn.addEventListener('click', () => this.forceReload());
         this.elements.ttsToggleBtn.addEventListener('click', this.toggleVoiceSet.bind(this));
-        document.body.addEventListener('click', () => {
-            if (!this.state.audioContext) {
-                this.state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            }
-        }, { once: true });
+        // audioContext는 Web Speech API에서 직접 관리하므로 제거해도 괜찮습니다.
+        // document.body.addEventListener('click', () => {
+        //     if (!this.state.audioContext) {
+        //         this.state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        //     }
+        // }, { once: true });
     },
     changeMode(mode) {
         // 모든 버튼을 기본적으로 숨김 처리
@@ -204,39 +235,49 @@ const api = {
             }
         }
     },
+    // Google TTS API 대신 Web Speech API를 사용하도록 speak 함수를 완전히 수정합니다.
     async speak(text, contentType = 'word') {
-        const voiceSets = {
-            'UK': { 'word': { languageCode: 'en-GB', name: 'en-GB-Wavenet-D', ssmlGender: 'MALE' }, 'sample': { languageCode: 'en-GB', name: 'en-GB-Journey-D', ssmlGender: 'MALE' } },
-            'US': { 'word': { languageCode: 'en-US', name: 'en-US-Wavenet-F', ssmlGender: 'FEMALE' }, 'sample': { languageCode: 'en-US', name: 'en-US-Journey-F', ssmlGender: 'FEMALE' } }
-        };
         if (!text || !text.trim() || app.state.isSpeaking) return;
-        if (app.state.audioContext.state === 'suspended') app.state.audioContext.resume();
+        
+        // 진행 중인 다른 발음이 있다면 취소
+        window.speechSynthesis.cancel();
+
         app.state.isSpeaking = true;
         const textWithoutEmoji = text.replace(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u, '');
-        
         const processedText = textWithoutEmoji.replace(/\bsb\b/g, 'somebody').replace(/\bsth\b/g, 'something');
-        const voiceConfig = voiceSets[app.state.currentVoiceSet][contentType];
-        const TTS_URL = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${app.config.TTS_API_KEY}`;
-        try {
-            const response = await fetch(TTS_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ input: { text: processedText }, voice: voiceConfig, audioConfig: { audioEncoding: 'MP3' } })
-            });
-            if (!response.ok) throw new Error(`TTS API Error: ${(await response.json()).error.message}`);
-            const data = await response.json();
-            const byteCharacters = atob(data.audioContent);
-            const byteArray = new Uint8Array(byteCharacters.length).map((_, i) => byteCharacters.charCodeAt(i));
-            const audioBuffer = await app.state.audioContext.decodeAudioData(byteArray.buffer);
-            const source = app.state.audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(app.state.audioContext.destination);
-            source.start(0);
-            source.onended = () => { app.state.isSpeaking = false; };
-        } catch (error) {
-            console.error('TTS 재생에 실패했습니다:', error);
-            app.state.isSpeaking = false;
+
+        const utterance = new SpeechSynthesisUtterance(processedText);
+
+        // 현재 선택된 발음(UK/US)에 맞는 음성을 설정합니다.
+        if (app.state.currentVoiceSet === 'UK' && app.state.ukVoice) {
+            utterance.voice = app.state.ukVoice;
+        } else if (app.state.currentVoiceSet === 'US' && app.state.usVoice) {
+            utterance.voice = app.state.usVoice;
+        } else {
+            // 적절한 음성을 찾지 못한 경우, 브라우저 기본값으로 재생됩니다.
+            console.warn(`${app.state.currentVoiceSet} voice not found. Using default.`);
         }
+        
+        // 예문일 경우 목소리 톤을 약간 조절할 수 있습니다.
+        if (contentType === 'sample') {
+            utterance.pitch = 1.1; // 약간 높은 톤
+            utterance.rate = 0.95; // 약간 느린 속도
+        }
+
+        utterance.onstart = () => {
+            app.state.isSpeaking = true;
+        };
+
+        utterance.onend = () => {
+            app.state.isSpeaking = false;
+        };
+        
+        utterance.onerror = (event) => {
+            console.error('SpeechSynthesisUtterance.onerror', event);
+            app.state.isSpeaking = false;
+        };
+
+        window.speechSynthesis.speak(utterance);
     },
     async fetchFromGoogleSheet(action, params = {}) {
         const url = new URL(app.config.SCRIPT_URL);
@@ -860,5 +901,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
-
