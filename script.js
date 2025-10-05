@@ -56,7 +56,7 @@ const app = {
             }
         });
     },
-    changeMode(mode) {
+    changeMode(mode, options = {}) {
         // 모든 버튼을 기본적으로 숨김 처리
         this.elements.selectionScreen.classList.add('hidden');
         this.elements.quizModeContainer.classList.add('hidden');
@@ -76,8 +76,14 @@ const app = {
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.ttsToggleBtn.classList.remove('hidden');
             // 학습 모드 시작 화면에서만 새로고침 버튼 표시
-            this.elements.refreshBtn.classList.remove('hidden'); 
-            learningMode.resetStartScreen();
+            this.elements.refreshBtn.classList.remove('hidden');
+            // 검색 결과에 따라 UI 분기
+            if (options.suggestions) {
+                learningMode.elements.startScreen.classList.remove('hidden');
+                learningMode.displaySuggestions(options.suggestions);
+            } else {
+                learningMode.resetStartScreen();
+            }
         } else { // 'selection' 모드
             this.elements.selectionScreen.classList.remove('hidden');
             quizMode.reset();
@@ -168,13 +174,29 @@ const app = {
     },
     searchWordInLearningMode(word) {
         if (!word) return;
-        this.changeMode('learning');
-        // 뷰가 업데이트될 시간을 주기 위해 약간의 지연 추가
-        setTimeout(() => {
-            learningMode.elements.startWordInput.value = word;
-            learningMode.elements.startBtn.click();
-            ui.hideWordContextMenu();
-        }, 100);
+
+        const wordList = this.state.wordList;
+        const lowerCaseWord = word.toLowerCase();
+        const exactMatchIndex = wordList.findIndex(item => item.word.toLowerCase() === lowerCaseWord);
+
+        if (exactMatchIndex !== -1) {
+            // 단어가 있으면, 기존 방식대로 검색 실행
+            this.changeMode('learning');
+            setTimeout(() => {
+                learningMode.elements.startWordInput.value = word;
+                learningMode.elements.startBtn.click();
+            }, 50); // 약간의 딜레이는 뷰 전환을 위해 유지
+        } else {
+            // 단어가 없으면, 추천 단어 목록을 계산하여 바로 표시
+            const suggestions = wordList.map((item, index) => ({
+                word: item.word,
+                index,
+                distance: utils.levenshteinDistance(lowerCaseWord, item.word.toLowerCase())
+            })).sort((a, b) => a.distance - b.distance).slice(0, 5);
+            
+            this.changeMode('learning', { suggestions: suggestions });
+        }
+        ui.hideWordContextMenu();
     },
 };
 
