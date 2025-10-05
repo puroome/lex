@@ -432,69 +432,63 @@ const ui = {
         sentences.filter(s => s.trim()).forEach(sentence => {
             const p = document.createElement('p');
             p.className = 'p-2 rounded transition-colors cursor-pointer hover:bg-gray-200 sample-sentence';
+
+            // --- EVENT LISTENERS on the <p> element (sentence container) ---
             p.onclick = () => api.speak(p.textContent, 'sample');
-            p.addEventListener('mouseover', (e) => this.handleSentenceMouseOver(e, p.textContent));
+            p.addEventListener('mouseover', (e) => {
+                if (e.target.classList.contains('interactive-word')) {
+                    this.handleSentenceMouseOut();
+                    return;
+                }
+                this.handleSentenceMouseOver(e, p.textContent);
+            });
             p.addEventListener('mouseout', this.handleSentenceMouseOut);
 
-            // 문장 내의 텍스트를 단어 단위로 상호작용 가능하게 만드는 내부 헬퍼 함수
+            // --- HELPER to process text parts (words, bold text, etc.) ---
             const processTextInto = (targetElement, text) => {
-                const regex = /(\[.*?\])|([a-zA-Z0-9'-]+(?:[\s'-]*[a-zA-Z0-9'-]+)*)/g;
-                let lastIndex = 0;
-                let match;
-                while ((match = regex.exec(text))) {
-                    if (match.index > lastIndex) {
-                        targetElement.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
-                    }
-                    const [_, nonClickable, englishPhrase] = match;
-                    if (englishPhrase) {
+                const parts = text.split(/([,\s\.'])/g).filter(part => part);
+
+                parts.forEach(part => {
+                    if (/[a-zA-Z]/.test(part)) {
                         const span = document.createElement('span');
-                        span.textContent = englishPhrase;
+                        span.textContent = part;
                         span.className = 'hover:bg-yellow-200 rounded-sm transition-colors interactive-word';
-                        span.title = '클릭: 듣기/복사 | 우클릭/길게 누르기: 검색';
                         
-                        // 단어 클릭 시: 단어 발음 & 이벤트 버블링 중단
                         span.onclick = (e) => { 
                             e.stopPropagation(); 
                             clearTimeout(app.state.longPressTimer); 
-                            api.speak(englishPhrase, 'word'); 
-                            this.copyToClipboard(englishPhrase); 
+                            api.speak(part, 'word'); 
+                            this.copyToClipboard(part); 
                         };
                         
-                        // 단어 우클릭 시: 컨텍스트 메뉴 & 이벤트 버블링 중단
                         span.oncontextmenu = (e) => { 
                             e.preventDefault(); 
                             e.stopPropagation(); 
-                            this.showWordContextMenu(e, englishPhrase); 
+                            this.showWordContextMenu(e, part); 
                         };
                         
-                        // 단어 길게 터치 시
                         let touchMove = false;
                         span.addEventListener('touchstart', (e) => { 
                             e.stopPropagation(); 
                             touchMove = false; 
                             clearTimeout(app.state.longPressTimer); 
                             app.state.longPressTimer = setTimeout(() => { 
-                                if (!touchMove) { this.showWordContextMenu(e, englishPhrase); } 
+                                if (!touchMove) { this.showWordContextMenu(e, part); } 
                             }, 700); 
-                        });
+                        }, { passive: true });
                         span.addEventListener('touchmove', (e) => { e.stopPropagation(); touchMove = true; clearTimeout(app.state.longPressTimer); });
                         span.addEventListener('touchend', (e) => { e.stopPropagation(); clearTimeout(app.state.longPressTimer); });
                         
                         targetElement.appendChild(span);
-
-                    } else if (nonClickable) {
-                        targetElement.appendChild(document.createTextNode(nonClickable));
+                    } else {
+                        targetElement.appendChild(document.createTextNode(part));
                     }
-                    lastIndex = regex.lastIndex;
-                }
-                if (lastIndex < text.length) {
-                    targetElement.appendChild(document.createTextNode(text.substring(lastIndex)));
-                }
+                });
             };
 
-            // 볼드체(*)를 기준으로 문장을 분리하여 각 부분을 처리
-            const parts = sentence.split(/(\*.*?\*)/g);
-            parts.forEach(part => {
+            // --- MAIN LOGIC to build the sentence content ---
+            const sentenceParts = sentence.split(/(\*.*?\*)/g);
+            sentenceParts.forEach(part => {
                 if (part.startsWith('*') && part.endsWith('*')) {
                     const strong = document.createElement('strong');
                     processTextInto(strong, part.slice(1, -1));
@@ -529,25 +523,21 @@ const ui = {
         };
         
         app.elements.searchDaumContextBtn.onclick = () => {
-            // '_blank' 대신 고유한 창 이름을 지정하여 기존 탭을 재활용합니다.
             window.open(`https://dic.daum.net/search.do?q=${encodedWord}`, 'daum_dictionary_window');
             this.hideWordContextMenu();
         };
         
         app.elements.searchNaverContextBtn.onclick = () => {
-            // '_blank' 대신 고유한 창 이름을 지정하여 기존 탭을 재활용합니다.
             window.open(`https://en.dict.naver.com/#/search?query=${encodedWord}`, 'naver_dictionary_window');
             this.hideWordContextMenu();
         };
 
         app.elements.searchEtymContextBtn.onclick = () => {
-            // '_blank' 대신 고유한 창 이름을 지정하여 기존 탭을 재활용합니다.
             window.open(`https://www.etymonline.com/search?q=${encodedWord}`, 'etymonline_window');
             this.hideWordContextMenu();
         };
 
         app.elements.searchLongmanContextBtn.onclick = () => {
-            // '_blank' 대신 고유한 창 이름을 지정하여 기존 탭을 재활용합니다.
             window.open(`https://www.ldoceonline.com/dictionary/${encodedWord}`, 'longman_dictionary_window');
             this.hideWordContextMenu();
         };
