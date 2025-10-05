@@ -77,11 +77,18 @@ const app = {
             this.elements.ttsToggleBtn.classList.remove('hidden');
             // 학습 모드 시작 화면에서만 새로고침 버튼 표시
             this.elements.refreshBtn.classList.remove('hidden');
+
+            // 학습 모드로 전환 시, 항상 학습 앱 컨테이너(단어 카드)는 숨기고 시작 화면을 표시하도록 준비
+            learningMode.elements.appContainer.classList.add('hidden');
+            learningMode.elements.loader.classList.add('hidden');
+            learningMode.elements.startScreen.classList.remove('hidden');
+
             // 검색 결과에 따라 UI 분기
             if (options.suggestions) {
-                learningMode.elements.startScreen.classList.remove('hidden');
+                // 바로 제안 목록을 표시
                 learningMode.displaySuggestions(options.suggestions);
             } else {
+                // 기본 시작 화면(입력창)을 표시
                 learningMode.resetStartScreen();
             }
         } else { // 'selection' 모드
@@ -957,3 +964,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
