@@ -29,7 +29,9 @@ const app = {
         noSampleMessage: document.getElementById('no-sample-message'),
         sheetLink: document.getElementById('sheet-link'),
         wordContextMenu: document.getElementById('word-context-menu'),
-        searchWordContextBtn: document.getElementById('search-word-context-btn'),
+        searchAppContextBtn: document.getElementById('search-app-context-btn'),
+        searchDaumContextBtn: document.getElementById('search-daum-context-btn'),
+        searchNaverContextBtn: document.getElementById('search-naver-context-btn'),
     },
     init() {
         this.bindGlobalEvents();
@@ -447,13 +449,20 @@ const ui = {
         menu.style.left = `${x}px`;
         menu.classList.remove('hidden');
 
-        const searchBtn = app.elements.searchWordContextBtn;
-        const newSearchBtn = searchBtn.cloneNode(true);
-        searchBtn.parentNode.replaceChild(newSearchBtn, searchBtn);
-        app.elements.searchWordContextBtn = newSearchBtn;
+        const encodedWord = encodeURIComponent(word);
 
-        newSearchBtn.onclick = () => {
+        app.elements.searchAppContextBtn.onclick = () => {
             app.searchWordInLearningMode(word);
+        };
+        
+        app.elements.searchDaumContextBtn.onclick = () => {
+            window.open(`https://dic.daum.net/search.do?q=${encodedWord}`, '_blank');
+            this.hideWordContextMenu();
+        };
+        
+        app.elements.searchNaverContextBtn.onclick = () => {
+            window.open(`https://en.dict.naver.com/#/search?query=${encodedWord}`, '_blank');
+            this.hideWordContextMenu();
         };
     },
     hideWordContextMenu() {
