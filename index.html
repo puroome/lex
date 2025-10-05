@@ -14,20 +14,21 @@
 
     <div class="fixed top-0 left-0 right-0 z-50 flex justify-center pointer-events-none">
         <div class="w-full max-w-2xl relative px-4">
-            <button id="tts-toggle-btn" aria-label="음성 변경 (영국/미국)" class="hidden main-header-btn absolute top-4 left-4 bg-indigo-700 hover:bg-indigo-800 text-white font-bold p-3 rounded-full shadow-lg w-12 h-12 flex items-center justify-center text-sm pointer-events-auto" title="음성 변경 (영국/미국)">
+            <button id="tts-toggle-btn" class="hidden absolute top-4 left-4 bg-indigo-700 hover:bg-indigo-800 text-white font-bold p-3 rounded-full shadow-lg w-12 h-12 flex items-center justify-center text-sm pointer-events-auto" title="음성 변경 (영국/미국)">
                 <span id="tts-toggle-text">UK</span>
             </button>
-            <button id="refresh-btn" aria-label="데이터 새로고침" class="hidden main-header-btn absolute top-4 right-20 bg-blue-600 hover:bg-blue-700 text-white font-bold p-3 rounded-full shadow-lg pointer-events-auto" title="데이터 새로고침">
+            <!-- 데이터 새로고침 아이콘 추가 -->
+            <button id="refresh-btn" class="hidden absolute top-4 right-30 bg-blue-600 hover:bg-blue-700 text-white font-bold p-3 rounded-full shadow-lg pointer-events-auto" title="데이터 새로고침">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
             </button>
-            <button id="home-btn" aria-label="모드 선택으로 돌아가기" class="hidden main-header-btn absolute top-4 right-4 bg-gray-700 hover:bg-gray-800 text-white font-bold p-3 rounded-full shadow-lg pointer-events-auto" title="모드 선택으로 돌아가기">
+            <button id="home-btn" class="hidden absolute top-4 right-4 bg-gray-700 hover:bg-gray-800 text-white font-bold p-3 rounded-full shadow-lg pointer-events-auto" title="모드 선택으로 돌아가기">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
             </button>
         </div>
     </div>
 
     <div class="w-full max-w-2xl mx-auto pt-20">
-        <div id="selection-screen" class="main-screen bg-white p-8 rounded-2xl shadow-lg text-center relative">
+        <div id="selection-screen" class="bg-white p-8 rounded-2xl shadow-lg text-center relative">
             <a id="sheet-link" href="https://docs.google.com/spreadsheets/d/1aX-o13iqQBFEJcOQktor9KokstXfvHETA-YNOEs8ugs/edit?usp=sharing" target="_blank" class="absolute top-6 right-6 z-[110] group" title="단어 목록 시트 열기">
                 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" class="w-8 h-8 transition-transform duration-300 ease-in-out group-hover:scale-110 group-hover:-rotate-6">
                     <defs>
@@ -59,8 +60,7 @@
                 </div>
             </div>
         </div>
-
-        <div id="quiz-mode-container" class="main-screen hidden bg-white w-full p-4 rounded-2xl shadow-lg">
+        <div id="quiz-mode-container" class="hidden bg-white w-full p-4 rounded-2xl shadow-lg">
             <div id="quiz-loader" class="text-center p-10">
                 <div class="loader mx-auto"></div>
                 <p id="quiz-loader-text" class="mt-4 text-gray-600">퀴즈 데이터를 불러오는 중...</p>
@@ -80,7 +80,7 @@
                     </div>
                 </div>
                 <div id="quiz-button-container" class="mt-8 flex items-center space-x-4">
-                    <button id="quiz-pass-btn" class="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg text-lg transition-colors flex justify-center items-center">PASS</button>
+                    <button id="quiz-pass-btn" class="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg text-lg transition-colors">PASS</button>
                     <button id="quiz-sample-btn" class="flex-1 bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 px-4 rounded-lg text-lg transition-colors">예문</button>
                     <button id="quiz-explanation-btn" class="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg text-lg transition-colors hidden">보충자료</button>
                 </div>
@@ -91,7 +91,7 @@
             </div>
         </div>
 
-        <div id="learning-mode-container" class="main-screen hidden">
+        <div id="learning-mode-container" class="hidden">
             <div id="learning-start-screen" class="bg-white p-8 rounded-2xl shadow-lg text-center">
                 <div id="learning-start-input-container">
                     <h1 class="text-2xl font-bold text-gray-800 mb-4">학습 모드</h1>
@@ -135,13 +135,13 @@
     
     <div id="learning-fixed-buttons" class="hidden fixed bottom-0 left-0 right-0 p-4 z-40">
         <div class="max-w-2xl mx-auto flex justify-between items-center px-4">
-            <button id="prev-btn" aria-label="이전 단어" class="bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-full w-14 h-14 flex items-center justify-center transition-colors">
+            <button id="prev-btn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-full w-14 h-14 flex items-center justify-center transition-colors">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><polyline points="15 18 9 12 15 6"></polyline></svg>
             </button>
-            <button id="sample-btn" aria-label="예문 보기/숨기기" class="transition-transform transform hover:scale-110 focus:outline-none">
+            <button id="sample-btn" class="transition-transform transform hover:scale-110 focus:outline-none">
                 <img id="sample-btn-img" src="" alt="예문/뒤로" class="w-28 h-auto">
             </button>
-            <button id="next-btn" aria-label="다음 단어" class="bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-full w-14 h-14 flex items-center justify-center transition-colors">
+            <button id="next-btn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-full w-14 h-14 flex items-center justify-center transition-colors">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><polyline points="9 18 15 12 9 6"></polyline></svg>
             </button>
         </div>
@@ -153,4 +153,3 @@
     <script src="script.js"></script>
 </body>
 </html>
-
