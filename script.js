@@ -14,6 +14,7 @@ const app = {
         translateDebounceTimeout: null, // 디바운스 타이머 ID
         wordList: [],
         isWordListReady: false,
+        longPressTimer: null, // 길게 누르기 타이머
     },
     elements: {
         selectionScreen: document.getElementById('selection-screen'),
@@ -27,6 +28,8 @@ const app = {
         imeWarning: document.getElementById('ime-warning'),
         noSampleMessage: document.getElementById('no-sample-message'),
         sheetLink: document.getElementById('sheet-link'),
+        wordContextMenu: document.getElementById('word-context-menu'),
+        searchWordContextBtn: document.getElementById('search-word-context-btn'),
     },
     init() {
         this.bindGlobalEvents();
@@ -45,6 +48,13 @@ const app = {
                 this.state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
         }, { once: true });
+        
+        // 컨텍스트 메뉴 바깥쪽 클릭 시 메뉴 숨기기
+        document.addEventListener('click', (e) => {
+            if (!this.elements.wordContextMenu.contains(e.target)) {
+                ui.hideWordContextMenu();
+            }
+        });
     },
     changeMode(mode) {
         // 모든 버튼을 기본적으로 숨김 처리
@@ -155,7 +165,17 @@ const app = {
             msgEl.classList.add('opacity-0');
             setTimeout(() => msgEl.classList.add('hidden'), 500);
         }, 1500);
-    }
+    },
+    searchWordInLearningMode(word) {
+        if (!word) return;
+        this.changeMode('learning');
+        // 뷰가 업데이트될 시간을 주기 위해 약간의 지연 추가
+        setTimeout(() => {
+            learningMode.elements.startWordInput.value = word;
+            learningMode.elements.startBtn.click();
+            ui.hideWordContextMenu();
+        }, 100);
+    },
 };
 
 // ================================================================
@@ -304,9 +324,40 @@ const ui = {
                 if (englishPhrase) {
                     const span = document.createElement('span');
                     span.textContent = englishPhrase;
-                    span.className = 'cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors';
-                    span.title = '클릭하여 듣기 및 복사';
-                    span.onclick = () => { api.speak(englishPhrase, 'word'); this.copyToClipboard(englishPhrase); };
+                    span.className = 'cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors interactive-word';
+                    span.title = '클릭: 듣기/복사 | 우클릭/길게 누르기: 검색';
+
+                    // Left-click handler
+                    span.onclick = () => {
+                        clearTimeout(app.state.longPressTimer);
+                        api.speak(englishPhrase, 'word');
+                        this.copyToClipboard(englishPhrase);
+                    };
+
+                    // Right-click handler
+                    span.oncontextmenu = (e) => {
+                        e.preventDefault();
+                        this.showWordContextMenu(e, englishPhrase);
+                    };
+
+                    // Long-press handlers for touch devices
+                    let touchMove = false;
+                    span.addEventListener('touchstart', (e) => {
+                        touchMove = false;
+                        clearTimeout(app.state.longPressTimer);
+                        app.state.longPressTimer = setTimeout(() => {
+                            if (!touchMove) {
+                                this.showWordContextMenu(e, englishPhrase);
+                            }
+                        }, 700);
+                    });
+                    span.addEventListener('touchmove', () => {
+                        touchMove = true;
+                        clearTimeout(app.state.longPressTimer);
+                    });
+                    span.addEventListener('touchend', () => {
+                        clearTimeout(app.state.longPressTimer);
+                    });
                     targetElement.appendChild(span);
                 } else if (nonClickable) {
                     targetElement.appendChild(document.createTextNode(nonClickable));
@@ -354,6 +405,30 @@ const ui = {
             p.addEventListener('mouseout', this.handleSentenceMouseOut);
             containerElement.appendChild(p);
         });
+    },
+    showWordContextMenu(event, word) {
+        event.preventDefault();
+        const menu = app.elements.wordContextMenu;
+        
+        const touch = event.touches ? event.touches[0] : null;
+        const x = touch ? touch.clientX : event.clientX;
+        const y = touch ? touch.clientY : event.clientY;
+
+        menu.style.top = `${y}px`;
+        menu.style.left = `${x}px`;
+        menu.classList.remove('hidden');
+
+        const searchBtn = app.elements.searchWordContextBtn;
+        const newSearchBtn = searchBtn.cloneNode(true);
+        searchBtn.parentNode.replaceChild(newSearchBtn, searchBtn);
+        app.elements.searchWordContextBtn = newSearchBtn;
+
+        newSearchBtn.onclick = () => {
+            app.searchWordInLearningMode(word);
+        };
+    },
+    hideWordContextMenu() {
+        app.elements.wordContextMenu.classList.add('hidden');
     }
 };
 
@@ -860,5 +935,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
-
