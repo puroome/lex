@@ -323,34 +323,24 @@ const ui = {
         }
     },
     handleSentenceMouseOver(event, sentence) {
-        // Clear any previous timer to reset the debounce period
         clearTimeout(app.state.translateDebounceTimeout);
-
-        // Set a new timer to trigger the translation after 1 second
         app.state.translateDebounceTimeout = setTimeout(async () => {
             const tooltip = app.elements.translationTooltip;
-            const targetElement = event.currentTarget;
-            const rect = targetElement.getBoundingClientRect();
-            const tooltipLeft = rect.left + window.scrollX;
-            const tooltipTop = rect.bottom + window.scrollY + 5;
+            const targetRect = event.target.getBoundingClientRect();
 
             Object.assign(tooltip.style, {
-                left: `${tooltipLeft}px`,
-                top: `${tooltipTop}px`,
-                transform: 'none'
+                left: `${targetRect.left + window.scrollX}px`,
+                top: `${targetRect.bottom + window.scrollY + 5}px`
             });
 
             tooltip.textContent = '번역 중...';
             tooltip.classList.remove('hidden');
-
             const translatedText = await api.translateText(sentence);
             tooltip.textContent = translatedText;
-        }, 1000); // 1000ms = 1 second debounce
+        }, 1000); // 1초 디바운스
     },
     handleSentenceMouseOut() {
-        // When the mouse leaves, cancel the pending translation request
         clearTimeout(app.state.translateDebounceTimeout);
-        // And immediately hide the tooltip
         app.elements.translationTooltip.classList.add('hidden');
     },
     displaySentences(sentences, containerElement) {
@@ -870,4 +860,5 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
 
