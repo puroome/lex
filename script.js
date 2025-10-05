@@ -429,84 +429,13 @@ const ui = {
     },
     displaySentences(sentences, containerElement) {
         containerElement.innerHTML = '';
-        if (!sentences) return;
-
-        sentences.filter(s => s && s.trim()).forEach(sentence => {
+        sentences.filter(s => s.trim()).forEach(sentence => {
             const p = document.createElement('p');
+            p.innerHTML = sentence.replace(/\*(.*?)\*/g, '<strong>$1</strong>');
             p.className = 'p-2 rounded transition-colors cursor-pointer hover:bg-gray-200 sample-sentence';
-            
-            // 기존 기능 유지: 왼쪽 클릭 시 전체 문장 발음
             p.onclick = () => api.speak(p.textContent, 'sample');
             p.addEventListener('mouseover', (e) => this.handleSentenceMouseOver(e, p.textContent));
             p.addEventListener('mouseout', this.handleSentenceMouseOut);
-
-            // 영어 단어, [], ** 구문을 식별하는 정규식
-            const regex = /(\[.*?\])|([a-zA-Z0-9'-]+(?:[\s'-]*[a-zA-Z0-9'-]+)*)|\*(.*?)\*/g;
-            let lastIndex = 0;
-            let match;
-
-            while ((match = regex.exec(sentence)) !== null) {
-                // 매칭되지 않은 앞부분 텍스트 추가
-                if (match.index > lastIndex) {
-                    p.appendChild(document.createTextNode(sentence.substring(lastIndex, match.index)));
-                }
-
-                const [fullMatch, nonClickable, englishPhrase, boldContent] = match;
-                
-                if (englishPhrase) {
-                    const span = document.createElement('span');
-                    span.textContent = englishPhrase;
-
-                    // 오른쪽 클릭 핸들러 (컨텍스트 메뉴)
-                    span.oncontextmenu = (e) => {
-                        e.preventDefault();
-                        e.stopPropagation(); // 부모 이벤트 전파 방지
-                        this.showWordContextMenu(e, englishPhrase);
-                    };
-
-                    // 길게 누르기 핸들러 (터치 기기용)
-                    let touchMove = false;
-                    span.addEventListener('touchstart', (e) => {
-                        e.stopPropagation(); // 부모 이벤트 전파 방지
-                        touchMove = false;
-                        clearTimeout(app.state.longPressTimer);
-                        app.state.longPressTimer = setTimeout(() => {
-                            if (!touchMove) {
-                                this.showWordContextMenu(e, englishPhrase);
-                            }
-                        }, 700);
-                    }, { passive: true });
-
-                    span.addEventListener('touchmove', (e) => {
-                        e.stopPropagation();
-                        touchMove = true;
-                        clearTimeout(app.state.longPressTimer);
-                    });
-
-                    span.addEventListener('touchend', (e) => {
-                        e.stopPropagation();
-                        clearTimeout(app.state.longPressTimer);
-                    });
-                    
-                    p.appendChild(span);
-
-                } else if (nonClickable) {
-                    p.appendChild(document.createTextNode(nonClickable));
-                } else if (boldContent) {
-                    const strong = document.createElement('strong');
-                    strong.textContent = boldContent;
-                    p.appendChild(strong);
-                } else {
-                     p.appendChild(document.createTextNode(fullMatch));
-                }
-                lastIndex = regex.lastIndex;
-            }
-
-            // 마지막 매칭 이후의 나머지 텍스트 추가
-            if (lastIndex < sentence.length) {
-                p.appendChild(document.createTextNode(sentence.substring(lastIndex)));
-            }
-            
             containerElement.appendChild(p);
         });
     },
@@ -1091,3 +1020,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
