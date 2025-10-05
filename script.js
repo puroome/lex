@@ -14,12 +14,13 @@ const app = {
         tooltipTimeout: null,
         wordList: [],
         isWordListReady: false,
-        debouncedTranslate: null,
+        debounceTimer: null,
     },
     elements: {},
     init() {
         this.elements = {
             mainScreens: document.querySelectorAll('.main-screen'),
+            mainHeaderBtns: document.querySelectorAll('.main-header-btn'),
             selectionScreen: document.getElementById('selection-screen'),
             homeBtn: document.getElementById('home-btn'),
             refreshBtn: document.getElementById('refresh-btn'),
@@ -32,16 +33,15 @@ const app = {
             noSampleMessage: document.getElementById('no-sample-message'),
             sheetLink: document.getElementById('sheet-link'),
         };
-        this.state.debouncedTranslate = this.debounce(ui.handleSentenceMouseOver, 300);
         this.bindGlobalEvents();
         api.loadWordList();
         quizMode.init();
         learningMode.init();
     },
     bindGlobalEvents() {
-        document.getElementById('select-quiz-btn').addEventListener('click', () => this.changeMode('quiz'));
-        document.getElementById('select-learning-btn').addEventListener('click', () => this.changeMode('learning'));
-        this.elements.homeBtn.addEventListener('click', () => this.changeMode('selection'));
+        document.getElementById('select-quiz-btn').addEventListener('click', () => this.showScreen('quiz'));
+        document.getElementById('select-learning-btn').addEventListener('click', () => this.showScreen('learning'));
+        this.elements.homeBtn.addEventListener('click', () => this.showScreen('selection'));
         this.elements.refreshBtn.addEventListener('click', () => this.forceReload());
         this.elements.ttsToggleBtn.addEventListener('click', this.toggleVoiceSet.bind(this));
         document.body.addEventListener('click', () => {
@@ -50,26 +50,23 @@ const app = {
             }
         }, { once: true });
     },
-    changeMode(mode) {
-        this.elements.mainScreens.forEach(screen => screen.classList.add('hidden'));
-        
-        this.elements.homeBtn.classList.add('hidden');
-        this.elements.refreshBtn.classList.add('hidden');
-        this.elements.ttsToggleBtn.classList.add('hidden');
+    showScreen(screenName) {
+        this.elements.mainScreens.forEach(el => el.classList.add('hidden'));
+        this.elements.mainHeaderBtns.forEach(el => el.classList.add('hidden'));
         learningMode.elements.fixedButtons.classList.add('hidden');
 
-        if (mode === 'quiz') {
+        if (screenName === 'quiz') {
             this.elements.quizModeContainer.classList.remove('hidden');
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.ttsToggleBtn.classList.remove('hidden');
             quizMode.start();
-        } else if (mode === 'learning') {
+        } else if (screenName === 'learning') {
             this.elements.learningModeContainer.classList.remove('hidden');
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.ttsToggleBtn.classList.remove('hidden');
-            this.elements.refreshBtn.classList.remove('hidden'); 
+            this.elements.refreshBtn.classList.remove('hidden');
             learningMode.resetStartScreen();
-        } else { // 'selection' 모드
+        } else { // 'selection'
             this.elements.selectionScreen.classList.remove('hidden');
             quizMode.reset();
             learningMode.reset();
@@ -131,7 +128,7 @@ const app = {
     showFatalError(message) {
         const selectionDiv = this.elements.selectionScreen;
         selectionDiv.innerHTML = `<div class="p-8 text-center"><h1 class="text-3xl font-bold text-red-600 mb-4">앱 시작 실패</h1><p class="text-gray-700 mb-6">데이터를 불러오는 중 문제가 발생했습니다. <br>네트워크 연결을 확인하고 잠시 후 페이지를 새로고침 해주세요.</p><div class="bg-red-50 text-red-700 p-4 rounded-lg text-left text-sm break-all"><p class="font-semibold">오류 정보:</p><p>${message}</p></div></div>`;
-        this.changeMode('selection');
+        this.showScreen('selection');
     },
     showImeWarning() {
         this.elements.imeWarning.classList.remove('hidden');
@@ -148,27 +145,16 @@ const app = {
             setTimeout(() => msgEl.classList.add('hidden'), 500);
         }, 1500);
     },
-    waitForWordList() {
+    async waitForWordList() {
+        if (this.state.isWordListReady) return Promise.resolve();
         return new Promise(resolve => {
-            if (app.state.isWordListReady) {
-                resolve();
-                return;
-            }
             const interval = setInterval(() => {
-                if (app.state.isWordListReady) {
+                if (this.state.isWordListReady) {
                     clearInterval(interval);
                     resolve();
                 }
             }, 100);
         });
-    },
-    debounce(func, delay) {
-        let timeout;
-        return function(...args) {
-            const context = this;
-            clearTimeout(timeout);
-            timeout = setTimeout(() => func.apply(context, args), delay);
-        };
     }
 };
 
@@ -180,9 +166,7 @@ const api = {
         if (force) {
             localStorage.removeItem('wordListCache');
             app.state.isWordListReady = false;
-        }
-
-        if (!force) {
+        } else {
             try {
                 const cachedData = localStorage.getItem('wordListCache');
                 if (cachedData) {
@@ -190,6 +174,7 @@ const api = {
                     if (Date.now() - timestamp < 86400000) { // 24 hours
                         app.state.wordList = words;
                         app.state.isWordListReady = true;
+                        return;
                     }
                 }
             } catch (e) {
@@ -198,24 +183,19 @@ const api = {
             }
         }
         
-        if (app.state.isWordListReady && !force) return;
-
         try {
             const data = await this.fetchFromGoogleSheet('getWords', { forceRefresh: force });
             if(data.error) throw new Error(data.message);
             app.state.wordList = data.words;
             app.state.isWordListReady = true;
             const cachePayload = { timestamp: Date.now(), words: data.words };
-            try {
-                localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
-            } catch (e) {
-                console.error("localStorage 저장 실패:", e);
-            }
+            localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
         } catch (error) {
             console.error("단어 목록 로딩 실패:", error);
             if (!app.state.isWordListReady) {
                 app.showFatalError(error.message);
             }
+            throw error;
         }
     },
     async speak(text, contentType = 'word') {
@@ -256,7 +236,7 @@ const api = {
         const url = new URL(app.config.SCRIPT_URL);
         url.searchParams.append('action', action);
         for (const key in params) {
-            if (params[key]) {
+            if (params[key] !== undefined) {
                 url.searchParams.append(key, params[key]);
             }
         }
@@ -298,9 +278,10 @@ const ui = {
         }
     },
     async copyToClipboard(text) {
-        if (navigator.clipboard) {
-            try { await navigator.clipboard.writeText(text); } 
-            catch (err) { console.error('클립보드 복사 실패:', err); }
+        try {
+            await navigator.clipboard.writeText(text);
+        } catch (err) {
+            console.error('클립보드 복사 실패:', err);
         }
     },
     renderInteractiveText(targetElement, text) {
@@ -336,28 +317,25 @@ const ui = {
             targetElement.removeChild(targetElement.lastChild);
         }
     },
-    async handleSentenceMouseOver(event, sentence) {
-        clearTimeout(app.state.tooltipTimeout);
-        const tooltip = app.elements.translationTooltip;
-        const targetElement = event.currentTarget;
-        const rect = targetElement.getBoundingClientRect();
-        const tooltipLeft = rect.left + window.scrollX;
-        const tooltipTop = rect.bottom + window.scrollY + 5;
-
-        Object.assign(tooltip.style, {
-            left: `${tooltipLeft}px`,
-            top: `${tooltipTop}px`,
-            transform: 'none' 
-        });
-
-        tooltip.textContent = '번역 중...';
-        tooltip.classList.remove('hidden');
-        
-        const translatedText = await api.translateText(sentence);
-        tooltip.textContent = translatedText;
+    handleSentenceMouseOver(event, sentence) {
+        clearTimeout(app.state.debounceTimer);
+        app.state.debounceTimer = setTimeout(async () => {
+            const tooltip = app.elements.translationTooltip;
+            const targetElement = event.currentTarget;
+            const rect = targetElement.getBoundingClientRect();
+            
+            tooltip.style.left = `${rect.left + window.scrollX}px`;
+            tooltip.style.top = `${rect.bottom + window.scrollY + 5}px`;
+            tooltip.textContent = '번역 중...';
+            tooltip.classList.remove('hidden');
+            
+            const translatedText = await api.translateText(sentence);
+            tooltip.textContent = translatedText;
+        }, 300);
     },
     handleSentenceMouseOut() {
-        app.state.tooltipTimeout = setTimeout(() => app.elements.translationTooltip.classList.add('hidden'), 300);
+        clearTimeout(app.state.debounceTimer);
+        app.elements.translationTooltip.classList.add('hidden');
     },
     displaySentences(sentences, containerElement) {
         containerElement.innerHTML = '';
@@ -366,10 +344,14 @@ const ui = {
             p.innerHTML = sentence.replace(/\*(.*?)\*/g, '<strong>$1</strong>');
             p.className = 'p-2 rounded transition-colors cursor-pointer hover:bg-gray-200 sample-sentence';
             p.onclick = () => api.speak(p.textContent, 'sample');
-            p.addEventListener('mouseover', (e) => app.state.debouncedTranslate(e, p.textContent));
+            p.addEventListener('mouseover', (e) => this.handleSentenceMouseOver(e, p.textContent));
             p.addEventListener('mouseout', this.handleSentenceMouseOut);
             containerElement.appendChild(p);
         });
+    },
+    giveFeedback(element) {
+        element.classList.add('active-feedback');
+        setTimeout(() => element.classList.remove('active-feedback'), 200);
     }
 };
 
@@ -431,11 +413,10 @@ const quizMode = {
             const word = this.elements.word.textContent;
             api.speak(word, 'word');
             ui.copyToClipboard(word);
-            e.currentTarget.classList.add('active-feedback');
-            setTimeout(() => e.currentTarget.classList.remove('active-feedback'), 200);
+            ui.giveFeedback(e.currentTarget);
         });
         document.addEventListener('keydown', (e) => {
-            const isQuizModeActive = !this.elements.contentContainer.classList.contains('hidden') && !this.elements.choices.classList.contains('disabled');
+            const isQuizModeActive = !app.elements.quizModeContainer.classList.contains('hidden') && !this.elements.choices.classList.contains('disabled');
             if (!isQuizModeActive) return;
             const choiceIndex = parseInt(e.key) - 1;
             if (choiceIndex >= 0 && choiceIndex < 5 && this.elements.choices.children[choiceIndex]) {
@@ -446,10 +427,10 @@ const quizMode = {
     },
     async start() {
         this.reset();
-        if (!app.state.isWordListReady) {
-            this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
-            await app.waitForWordList();
-        }
+        this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
+        await app.waitForWordList();
+        
+        this.elements.loaderText.textContent = "퀴즈 데이터를 불러오는 중...";
         await this.fetchQuizBatch();
         this.displayNextQuiz();
     },
@@ -458,7 +439,7 @@ const quizMode = {
         this.state.isFetching = false;
         this.state.isFinished = false;
         this.showLoader(true);
-        this.elements.loader.querySelector('.loader').style.display = 'block';
+        this.elements.loader.style.display = 'block';
         this.elements.loaderText.textContent = "퀴즈 데이터를 불러오는 중...";
         this.elements.contentContainer.classList.add('hidden');
         this.elements.finishedScreen.classList.add('hidden');
@@ -484,7 +465,7 @@ const quizMode = {
         }
     },
     showError(message) {
-        this.elements.loader.querySelector('.loader').style.display = 'none';
+        this.elements.loader.style.display = 'none';
         this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">퀴즈를 가져올 수 없습니다.</p><p class="text-sm text-gray-600 mt-2 break-all">${message}</p>`;
     },
     displayNextQuiz() {
@@ -499,10 +480,12 @@ const quizMode = {
                     if(this.state.quizBatch.length > 0) {
                         clearInterval(checker);
                         this.displayNextQuiz();
+                    } else if (this.state.isFinished) {
+                        clearInterval(checker);
+                        this.showFinishedScreen("모든 단어 학습을 완료했습니다!");
                     }
                 }, 100)
-            } 
-            else if (this.state.isFinished) {
+            } else if (this.state.isFinished) {
                 this.showFinishedScreen("모든 단어 학습을 완료했습니다!");
             }
             return;
@@ -528,9 +511,10 @@ const quizMode = {
             this.elements.choices.appendChild(li);
         });
         this.elements.choices.classList.remove('disabled');
-        this.elements.passBtn.style.display = 'block';
-        this.elements.passBtn.disabled = false;
+        
         this.elements.passBtn.innerHTML = 'PASS';
+        this.elements.passBtn.disabled = false;
+        
         const hasSample = question.sample && question.sample.trim() !== '';
         this.elements.sampleBtn.textContent = '예문';
         this.elements.sampleBtn.classList.toggle('bg-purple-500', hasSample);
@@ -543,28 +527,23 @@ const quizMode = {
     },
     checkAnswer(selectedLi, selectedChoice) {
         this.elements.choices.classList.add('disabled');
-        
-        const originalPassText = this.elements.passBtn.textContent;
+        this.elements.passBtn.innerHTML = '<span class="loader-small"></span>';
         this.elements.passBtn.disabled = true;
-        this.elements.passBtn.innerHTML = `<div class="loader-small"></div>`;
-
+        
         const isCorrect = selectedChoice === this.state.currentQuiz.answer;
         selectedLi.classList.add(isCorrect ? 'correct' : 'incorrect');
+        
         if (isCorrect) {
             api.fetchFromGoogleSheet('updateStatus', { word: this.state.currentQuiz.question.word });
         } else {
             const correctAnswerEl = Array.from(this.elements.choices.children).find(li => li.querySelector('span:last-child').textContent === this.state.currentQuiz.answer);
             correctAnswerEl?.classList.add('correct');
         }
-        setTimeout(() => {
-            this.elements.passBtn.innerHTML = originalPassText; // 복원
-            this.displayNextQuiz();
-        }, 1500);
+        setTimeout(() => this.displayNextQuiz(), 1500);
     },
     showLoader(isLoading) {
         this.elements.loader.classList.toggle('hidden', !isLoading);
         this.elements.contentContainer.classList.toggle('hidden', isLoading);
-        this.elements.finishedScreen.classList.add('hidden');
     },
     showFinishedScreen(message) {
         this.showLoader(false);
@@ -572,7 +551,7 @@ const quizMode = {
         this.elements.finishedScreen.classList.remove('hidden');
         this.elements.finishedMessage.textContent = message;
     },
-    handleFlip(type) {
+    async handleFlip(type) {
         const question = this.state.currentQuiz.question;
         if (type === 'sample' && (!question.sample || !question.sample.trim())) {
             app.showNoSampleMessage();
@@ -595,7 +574,6 @@ const quizMode = {
             if (this.state.flippedContentType === type) {
                 this.elements.cardFront.classList.remove('hidden');
                 this.elements.cardBack.classList.add('hidden');
-                this.elements.cardBack.style.minHeight = '';
                 this.state.flippedContentType = null;
             } else {
                 this.updateBackContent(type);
@@ -607,7 +585,6 @@ const quizMode = {
     updateBackContent(type) {
         const { word, sample, explanation } = this.state.currentQuiz.question;
         this.elements.backTitle.textContent = word;
-        this.elements.backContent.innerHTML = '';
         if (type === 'sample') {
             ui.displaySentences(sample.split('\n'), this.elements.backContent);
         } else {
@@ -624,7 +601,6 @@ const learningMode = {
         currentIndex: 0,
         touchstartX: 0,
         touchstartY: 0,
-        lastWheelTime: 0,
     },
     elements: {},
     init() {
@@ -672,8 +648,7 @@ const learningMode = {
             if (word) {
                 api.speak(word, 'word');
                 ui.copyToClipboard(word);
-                e.currentTarget.classList.add('active-feedback');
-                setTimeout(() => e.currentTarget.classList.remove('active-feedback'), 200);
+                ui.giveFeedback(e.currentTarget);
             }
         });
         document.addEventListener('mousedown', this.handleMiddleClick.bind(this));
@@ -684,10 +659,10 @@ const learningMode = {
     async start() {
         this.elements.startScreen.classList.add('hidden');
         this.elements.loader.classList.remove('hidden');
-        if (!app.state.isWordListReady) {
-            this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
-            await app.waitForWordList();
-        }
+        
+        this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
+        await app.waitForWordList();
+
         const startWord = this.elements.startWordInput.value.trim();
         const wordList = app.state.wordList;
         if (wordList.length === 0) {
@@ -718,6 +693,7 @@ const learningMode = {
     showError(message) {
         this.elements.loader.querySelector('.loader').style.display = 'none';
         this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">오류 발생</p><p class="text-sm text-gray-600 mt-2 break-all">${message}</p>`;
+        this.elements.backToStartBtn.classList.remove('hidden');
     },
     launchApp() {
         this.elements.startScreen.classList.add('hidden');
@@ -731,12 +707,14 @@ const learningMode = {
         this.elements.appContainer.classList.add('hidden');
         this.elements.loader.classList.add('hidden');
         this.elements.fixedButtons.classList.add('hidden');
-        this.elements.startScreen.classList.remove('hidden');
-        this.resetStartScreen();
     },
     resetStartScreen() {
+        this.elements.appContainer.classList.add('hidden');
+        this.elements.fixedButtons.classList.add('hidden');
+        this.elements.startScreen.classList.remove('hidden');
         this.elements.startInputContainer.classList.remove('hidden');
         this.elements.suggestionsContainer.classList.add('hidden');
+        this.elements.loader.classList.add('hidden');
         this.elements.startWordInput.value = '';
         this.elements.startWordInput.focus();
     },
@@ -763,7 +741,6 @@ const learningMode = {
         const wordText = wordData.word;
         const pronText = wordData.pronunciation ? `<span class="pronunciation-inline">${wordData.pronunciation}</span>` : '';
         this.elements.wordDisplay.innerHTML = `${wordText} ${pronText}`;
-        
         ui.adjustFontSize(this.elements.wordDisplay);
         
         this.elements.meaningDisplay.innerHTML = wordData.meaning.replace(/\n/g, '<br>');
@@ -789,7 +766,7 @@ const learningMode = {
         this.state.currentIndex = (this.state.currentIndex + direction + len) % len;
         this.displayWord(this.state.currentIndex);
     },
-    handleFlip() {
+    async handleFlip() {
         const isBackVisible = this.elements.cardBack.classList.contains('is-slid-up');
         const wordData = app.state.wordList[this.state.currentIndex];
 
@@ -824,14 +801,9 @@ const learningMode = {
         if (keyMap[e.key] !== undefined) {
             e.preventDefault();
             this.navigate(keyMap[e.key]);
-        } else if (e.key === 'Enter') {
+        } else if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             this.handleFlip();
-        } else if (e.key === ' ') {
-            e.preventDefault();
-            if (!this.elements.cardBack.classList.contains('is-slid-up')) {
-                this.elements.wordDisplay.click();
-            }
         }
     },
     handleTouchStart(e) {
@@ -852,11 +824,8 @@ const learningMode = {
             this.navigate(deltaX > 0 ? -1 : 1);
         } 
         else if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 50) {
-            if (!e.target.closest('#learning-app-container')) {
-                if (deltaY < 0) {
-                    this.navigate(1);
-                }
-            }
+            if (deltaY < 0) this.handleFlip(); // Up swipe
+            else this.handleFlip(); // Down swipe, treat as same action
         }
         this.state.touchstartX = this.state.touchstartY = 0;
     }
@@ -865,3 +834,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
