@@ -358,7 +358,6 @@ const ui = {
                     const span = document.createElement('span');
                     span.textContent = englishPhrase;
                     span.className = 'cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors interactive-word';
-                    span.title = '클릭: 듣기/복사 | 우클릭/길게 누르기: 검색';
 
                     // Left-click handler
                     span.onclick = () => {
@@ -1082,4 +1081,5 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
 
