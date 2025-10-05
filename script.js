@@ -431,11 +431,79 @@ const ui = {
         containerElement.innerHTML = '';
         sentences.filter(s => s.trim()).forEach(sentence => {
             const p = document.createElement('p');
-            p.innerHTML = sentence.replace(/\*(.*?)\*/g, '<strong>$1</strong>');
             p.className = 'p-2 rounded transition-colors cursor-pointer hover:bg-gray-200 sample-sentence';
             p.onclick = () => api.speak(p.textContent, 'sample');
             p.addEventListener('mouseover', (e) => this.handleSentenceMouseOver(e, p.textContent));
             p.addEventListener('mouseout', this.handleSentenceMouseOut);
+
+            // 문장 내의 텍스트를 단어 단위로 상호작용 가능하게 만드는 내부 헬퍼 함수
+            const processTextInto = (targetElement, text) => {
+                const regex = /(\[.*?\])|([a-zA-Z0-9'-]+(?:[\s'-]*[a-zA-Z0-9'-]+)*)/g;
+                let lastIndex = 0;
+                let match;
+                while ((match = regex.exec(text))) {
+                    if (match.index > lastIndex) {
+                        targetElement.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
+                    }
+                    const [_, nonClickable, englishPhrase] = match;
+                    if (englishPhrase) {
+                        const span = document.createElement('span');
+                        span.textContent = englishPhrase;
+                        span.className = 'hover:bg-yellow-200 rounded-sm transition-colors interactive-word';
+                        span.title = '클릭: 듣기/복사 | 우클릭/길게 누르기: 검색';
+                        
+                        // 단어 클릭 시: 단어 발음 & 이벤트 버블링 중단
+                        span.onclick = (e) => { 
+                            e.stopPropagation(); 
+                            clearTimeout(app.state.longPressTimer); 
+                            api.speak(englishPhrase, 'word'); 
+                            this.copyToClipboard(englishPhrase); 
+                        };
+                        
+                        // 단어 우클릭 시: 컨텍스트 메뉴 & 이벤트 버블링 중단
+                        span.oncontextmenu = (e) => { 
+                            e.preventDefault(); 
+                            e.stopPropagation(); 
+                            this.showWordContextMenu(e, englishPhrase); 
+                        };
+                        
+                        // 단어 길게 터치 시
+                        let touchMove = false;
+                        span.addEventListener('touchstart', (e) => { 
+                            e.stopPropagation(); 
+                            touchMove = false; 
+                            clearTimeout(app.state.longPressTimer); 
+                            app.state.longPressTimer = setTimeout(() => { 
+                                if (!touchMove) { this.showWordContextMenu(e, englishPhrase); } 
+                            }, 700); 
+                        });
+                        span.addEventListener('touchmove', (e) => { e.stopPropagation(); touchMove = true; clearTimeout(app.state.longPressTimer); });
+                        span.addEventListener('touchend', (e) => { e.stopPropagation(); clearTimeout(app.state.longPressTimer); });
+                        
+                        targetElement.appendChild(span);
+
+                    } else if (nonClickable) {
+                        targetElement.appendChild(document.createTextNode(nonClickable));
+                    }
+                    lastIndex = regex.lastIndex;
+                }
+                if (lastIndex < text.length) {
+                    targetElement.appendChild(document.createTextNode(text.substring(lastIndex)));
+                }
+            };
+
+            // 볼드체(*)를 기준으로 문장을 분리하여 각 부분을 처리
+            const parts = sentence.split(/(\*.*?\*)/g);
+            parts.forEach(part => {
+                if (part.startsWith('*') && part.endsWith('*')) {
+                    const strong = document.createElement('strong');
+                    processTextInto(strong, part.slice(1, -1));
+                    p.appendChild(strong);
+                } else if (part) {
+                    processTextInto(p, part);
+                }
+            });
+
             containerElement.appendChild(p);
         });
     },
@@ -1024,3 +1092,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
