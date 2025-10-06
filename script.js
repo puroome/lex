@@ -137,7 +137,7 @@ const app = {
             toast.style.transition = 'opacity 0.5s';
             toast.style.opacity = '0';
             setTimeout(() => toast.remove(), 500);
-        }, 2500);
+        }, 3500); // 오류 메시지가 길 수 있으므로 표시 시간을 늘립니다.
     },
     toggleVoiceSet() {
         const btn = this.elements.ttsToggleBtn;
@@ -253,7 +253,6 @@ const api = {
         app.state.isSpeaking = true;
 
         try {
-            // 서버(Apps Script)에 음성 데이터를 요청합니다. 서버가 캐싱을 처리합니다.
             const data = await this.fetchFromGoogleSheet('getTTS', {
                 text: text,
                 voiceSet: app.state.currentVoiceSet,
@@ -267,7 +266,6 @@ const api = {
                 throw new Error('서버로부터 음성 데이터를 받지 못했습니다.');
             }
 
-            // Base64로 인코딩된 오디오 데이터를 디코딩하고 재생합니다.
             const byteCharacters = atob(data.audioContent);
             const byteArray = new Uint8Array(byteCharacters.length).map((_, i) => byteCharacters.charCodeAt(i));
             const audioBuffer = await app.state.audioContext.decodeAudioData(byteArray.buffer);
@@ -280,7 +278,8 @@ const api = {
             };
         } catch (error) {
             console.error('TTS 재생에 실패했습니다:', error);
-            app.showToast(`발음 재생에 실패했습니다.`, true);
+            // 서버에서 받은 실제 오류 메시지를 사용자에게 보여주어 디버깅을 돕습니다.
+            app.showToast(`발음 재생 실패: ${error.message}`, true);
             app.state.isSpeaking = false;
         }
     },
