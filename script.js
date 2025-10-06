@@ -10,10 +10,12 @@ const app = {
         isSpeaking: false,
         audioContext: null,
         translationCache: {},
-        translateDebounceTimeout: null, // 디바운스 타이머 ID
+        translateDebounceTimeout: null, 
         wordList: [],
         isWordListReady: false,
-        longPressTimer: null, // 길게 누르기 타이머
+        longPressTimer: null,
+        // ✨ 1단계: 미리 받아온 오디오 데이터를 저장할 클라이언트 캐시를 만듭니다.
+        audioCache: new Map(), // Map을 사용하여 오디오 버퍼와 요청 Promise를 관리
     },
     elements: {
         selectionScreen: document.getElementById('selection-screen'),
@@ -141,6 +143,8 @@ const app = {
     toggleVoiceSet() {
         const btn = this.elements.ttsToggleBtn;
         btn.classList.toggle('is-flipped');
+        // 음성 설정이 바뀌면 오디오 캐시를 초기화해서 새로운 목소리로 다시 받아오게 함
+        app.state.audioCache.clear(); 
         setTimeout(() => {
             this.state.currentVoiceSet = (this.state.currentVoiceSet === 'UK') ? 'US' : 'UK';
             this.elements.ttsToggleText.textContent = this.state.currentVoiceSet;
@@ -148,6 +152,14 @@ const app = {
             btn.classList.toggle('hover:bg-indigo-800', this.state.currentVoiceSet === 'UK');
             btn.classList.toggle('bg-red-500', this.state.currentVoiceSet === 'US');
             btn.classList.toggle('hover:bg-red-600', this.state.currentVoiceSet === 'US');
+            // 변경된 목소리로 현재 단어 오디오 미리 불러오기
+            if (learningMode.isLearningModeActive()) {
+                const currentWord = app.state.wordList[learningMode.state.currentIndex];
+                if (currentWord) api.getAudio(currentWord.word, 'word');
+            } else if (!quizMode.elements.contentContainer.classList.contains('hidden')) {
+                 const currentQuizWord = quizMode.state.currentQuiz?.question?.word;
+                 if(currentQuizWord) api.getAudio(currentQuizWord, 'word');
+            }
         }, 250);
     },
     showFatalError(message) {
@@ -213,15 +225,12 @@ const api = {
                 const cachedData = localStorage.getItem('wordListCache');
                 if (cachedData) {
                     const { timestamp, words } = JSON.parse(cachedData);
-                    if (Date.now() - timestamp < 86400000) { // 24 hours
+                    if (Date.now() - timestamp < 86400000) {
                         app.state.wordList = words;
                         app.state.isWordListReady = true;
                     }
                 }
-            } catch (e) {
-                console.error("캐시 로딩 실패:", e);
-                localStorage.removeItem('wordListCache');
-            }
+            } catch (e) { console.error("캐시 로딩 실패:", e); localStorage.removeItem('wordListCache'); }
         }
         
         if (app.state.isWordListReady && !force) return;
@@ -232,50 +241,78 @@ const api = {
             app.state.wordList = data.words;
             app.state.isWordListReady = true;
             const cachePayload = { timestamp: Date.now(), words: data.words };
-            try {
-                localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
-            } catch (e) {
-                console.error("localStorage 저장 실패:", e);
-            }
+            try { localStorage.setItem('wordListCache', JSON.stringify(cachePayload)); } 
+            catch (e) { console.error("localStorage 저장 실패:", e); }
         } catch (error) {
             console.error("단어 목록 로딩 실패:", error);
-            if (!app.state.isWordListReady) {
-                app.showFatalError(error.message);
-            }
+            if (!app.state.isWordListReady) app.showFatalError(error.message);
         }
     },
-    // ✨ 2단계: speak 함수를 수정하여 우리 서버(Apps Script)에 요청을 보냅니다.
-    async speak(text, contentType = 'word') {
+    // ✨ 2단계: 오디오를 가져오는 로직을 중앙에서 관리하는 함수를 만듭니다.
+    getAudio(text, contentType = 'word') {
         const voiceSets = {
             'UK': { 'word': { languageCode: 'en-GB', name: 'en-GB-Wavenet-D', ssmlGender: 'MALE' }, 'sample': { languageCode: 'en-GB', name: 'en-GB-Journey-D', ssmlGender: 'MALE' } },
             'US': { 'word': { languageCode: 'en-US', name: 'en-US-Wavenet-F', ssmlGender: 'FEMALE' }, 'sample': { languageCode: 'en-US', name: 'en-US-Journey-F', ssmlGender: 'FEMALE' } }
         };
+        const voiceConfig = voiceSets[app.state.currentVoiceSet][contentType];
+        const cacheKey = `${text}|${voiceConfig.name}|${contentType}`;
 
+        // 캐시에 이미 오디오 데이터(AudioBuffer)나 요청(Promise)이 있는지 확인
+        if (app.state.audioCache.has(cacheKey)) {
+            return app.state.audioCache.get(cacheKey);
+        }
+
+        const textWithoutEmoji = text.replace(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u, '');
+        const processedText = textWithoutEmoji.replace(/\bsb\b/g, 'somebody').replace(/\bsth\b/g, 'something');
+
+        // 서버에서 오디오를 가져오는 요청을 Promise로 만듭니다.
+        const audioPromise = new Promise(async (resolve, reject) => {
+            try {
+                const data = await this.fetchFromGoogleSheet('speak', {
+                    text: processedText,
+                    voiceConfig: JSON.stringify(voiceConfig)
+                });
+                
+                if (!data.success || !data.audioContent) {
+                    throw new Error(`Server-side TTS Error: ${data.message || 'No audio content'}`);
+                }
+
+                const byteCharacters = atob(data.audioContent);
+                const byteArray = new Uint8Array(byteCharacters.length).map((_, i) => byteCharacters.charCodeAt(i));
+                // 오디오 데이터를 AudioBuffer로 변환
+                const audioBuffer = await app.state.audioContext.decodeAudioData(byteArray.buffer);
+                resolve(audioBuffer);
+            } catch (error) {
+                console.error('오디오 데이터 가져오기 실패:', error);
+                // 실패 시 캐시에서 해당 요청을 제거
+                app.state.audioCache.delete(cacheKey);
+                reject(error);
+            }
+        });
+
+        // 캐시에 실제 데이터 대신 요청 자체(Promise)를 저장합니다.
+        // 이렇게 하면 동일한 요청이 여러 번 들어와도 서버에는 한 번만 요청하게 됩니다.
+        app.state.audioCache.set(cacheKey, audioPromise);
+
+        // 요청이 성공적으로 완료되면, 캐시에 저장된 Promise를 실제 오디오 데이터(AudioBuffer)로 교체합니다.
+        audioPromise.then(audioBuffer => {
+            app.state.audioCache.set(cacheKey, audioBuffer);
+        });
+
+        return audioPromise;
+    },
+    // ✨ 3단계: speak 함수는 이제 getAudio 함수를 사용하여 오디오를 재생만 합니다.
+    async speak(text, contentType = 'word') {
         if (!text || !text.trim() || app.state.isSpeaking) return;
         if (app.state.audioContext.state === 'suspended') app.state.audioContext.resume();
         
         app.state.isSpeaking = true;
         
-        const textWithoutEmoji = text.replace(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u, '');
-        const processedText = textWithoutEmoji.replace(/\bsb\b/g, 'somebody').replace(/\bsth\b/g, 'something');
-        const voiceConfig = voiceSets[app.state.currentVoiceSet][contentType];
-        
         try {
-            // Google TTS API 대신, 우리 Apps Script 서버에 요청합니다.
-            const data = await this.fetchFromGoogleSheet('speak', {
-                text: processedText,
-                voiceConfig: JSON.stringify(voiceConfig) // voiceConfig 객체를 문자열로 전달
-            });
+            // 중앙 관리 함수에서 오디오 데이터를 가져옵니다 (캐시되었거나 새로 받아옴).
+            const audioBuffer = await this.getAudio(text, contentType);
             
-            if (!data.success || !data.audioContent) {
-                throw new Error(`Server-side TTS Error: ${data.message || 'No audio content'}`);
-            }
-
-            const byteCharacters = atob(data.audioContent);
-            const byteArray = new Uint8Array(byteCharacters.length).map((_, i) => byteCharacters.charCodeAt(i));
-            const audioBuffer = await app.state.audioContext.decodeAudioData(byteArray.buffer);
             const source = app.state.audioContext.createBufferSource();
-            
             source.buffer = audioBuffer;
             source.connect(app.state.audioContext.destination);
             source.start(0);
@@ -290,9 +327,7 @@ const api = {
         const url = new URL(app.config.SCRIPT_URL);
         url.searchParams.append('action', action);
         for (const key in params) {
-            if (params[key]) {
-                url.searchParams.append(key, params[key]);
-            }
+            if (params[key]) url.searchParams.append(key, params[key]);
         }
         const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -316,6 +351,7 @@ const api = {
     }
 };
 
+// ... (UI Module, Utility Module은 변경사항이 거의 없으므로 생략)
 // ================================================================
 // UI Module
 // ================================================================
@@ -412,7 +448,7 @@ const ui = {
             tooltip.classList.remove('hidden');
             const translatedText = await api.translateText(sentence);
             tooltip.textContent = translatedText;
-        }, 1000); // 1초 디바운스
+        }, 1000);
     },
     handleSentenceMouseOut() {
         clearTimeout(app.state.translateDebounceTimeout);
@@ -686,6 +722,8 @@ const quizMode = {
         this.elements.cardBack.classList.add('hidden');
         this.state.flippedContentType = null;
         this.elements.word.textContent = question.word;
+        // ✨ 4단계: 퀴즈 화면에 단어가 표시될 때, 발음을 미리 불러옵니다.
+        api.getAudio(question.word, 'word'); 
         ui.adjustFontSize(this.elements.word);
         this.elements.pronunciation.textContent = question.pronunciation || '';
         this.elements.choices.innerHTML = '';
@@ -958,6 +996,11 @@ const learningMode = {
         const wordData = app.state.wordList[index];
         if (!wordData) return;
         
+        // ✨ 5단계: 학습 화면에 단어가 표시될 때, 발음을 미리 불러옵니다.
+        // api.getAudio는 Promise를 반환하지만, 여기서 await할 필요는 없습니다.
+        // 백그라운드에서 실행되도록 그냥 호출하기만 하면 됩니다.
+        api.getAudio(wordData.word, 'word');
+
         const wordText = wordData.word;
         const pronText = wordData.pronunciation ? `<span class="pronunciation-inline">${wordData.pronunciation}</span>` : '';
         this.elements.wordDisplay.innerHTML = `${wordText} ${pronText}`;
@@ -1064,3 +1107,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
