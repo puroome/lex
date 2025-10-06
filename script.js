@@ -76,6 +76,20 @@ const app = {
             const options = e.state?.options || {};
             this._renderMode(mode, options);
         });
+
+        // 팝업 메뉴 외의 기본 우클릭 메뉴 방지
+        document.addEventListener('contextmenu', (e) => {
+            const target = e.target;
+            // 사용자 정의 메뉴를 트리거하는 요소들 (학습 모드의 단어, 예문의 단어 등)
+            const isInteractiveTrigger = target.closest('.interactive-word, #word-display');
+            // 사용자 정의 메뉴 자체
+            const isCustomContextMenu = target.closest('#word-context-menu');
+
+            // 트리거 요소나 메뉴 자체가 아니라면 기본 동작(브라우저 메뉴)을 막습니다.
+            if (!isInteractiveTrigger && !isCustomContextMenu) {
+                e.preventDefault();
+            }
+        });
     },
     navigateTo(mode, options = {}) {
         // 현재 상태와 같은 상태로의 불필요한 이동을 방지
