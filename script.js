@@ -45,11 +45,16 @@ const app = {
         api.loadWordList();
         quizMode.init();
         learningMode.init();
+
+        // 브라우저 기록 및 URL 해시에 따라 초기 화면을 설정
+        const initialMode = window.location.hash.replace('#', '') || 'selection';
+        history.replaceState({ mode: initialMode, options: {} }, '', window.location.href);
+        this._renderMode(initialMode);
     },
     bindGlobalEvents() {
-        document.getElementById('select-quiz-btn').addEventListener('click', () => this.changeMode('quiz'));
-        document.getElementById('select-learning-btn').addEventListener('click', () => this.changeMode('learning'));
-        this.elements.homeBtn.addEventListener('click', () => this.changeMode('selection'));
+        document.getElementById('select-quiz-btn').addEventListener('click', () => this.navigateTo('quiz'));
+        document.getElementById('select-learning-btn').addEventListener('click', () => this.navigateTo('learning'));
+        this.elements.homeBtn.addEventListener('click', () => this.navigateTo('selection'));
         this.elements.refreshBtn.addEventListener('click', () => this.forceReload());
         this.elements.ttsToggleBtn.addEventListener('click', this.toggleVoiceSet.bind(this));
         document.body.addEventListener('click', () => {
@@ -64,8 +69,26 @@ const app = {
                 ui.hideWordContextMenu();
             }
         });
+
+        // 브라우저 뒤로/앞으로 가기 버튼 이벤트 처리
+        window.addEventListener('popstate', (e) => {
+            const mode = e.state?.mode || 'selection';
+            const options = e.state?.options || {};
+            this._renderMode(mode, options);
+        });
     },
-    changeMode(mode, options = {}) {
+    navigateTo(mode, options = {}) {
+        // 현재 상태와 같은 상태로의 불필요한 이동을 방지
+        if (history.state?.mode === mode) return;
+
+        const newPath = mode === 'selection' 
+            ? window.location.pathname + window.location.search // 해시를 제거하여 기본 URL로
+            : `#${mode}`;
+
+        history.pushState({ mode, options }, '', newPath);
+        this._renderMode(mode, options);
+    },
+    _renderMode(mode, options = {}) {
         // 모든 버튼을 기본적으로 숨김 처리
         this.elements.selectionScreen.classList.add('hidden');
         this.elements.quizModeContainer.classList.add('hidden');
@@ -84,20 +107,15 @@ const app = {
             this.elements.learningModeContainer.classList.remove('hidden');
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.ttsToggleBtn.classList.remove('hidden');
-            // 학습 모드 시작 화면에서만 새로고침 버튼 표시
             this.elements.refreshBtn.classList.remove('hidden');
-
-            // 학습 모드로 전환 시, 항상 학습 앱 컨테이너(단어 카드)는 숨기고 시작 화면을 표시하도록 준비
+            
             learningMode.elements.appContainer.classList.add('hidden');
             learningMode.elements.loader.classList.add('hidden');
             learningMode.elements.startScreen.classList.remove('hidden');
 
-            // 검색 결과에 따라 UI 분기
             if (options.suggestions) {
-                // 바로 제안 목록을 표시
                 learningMode.displaySuggestions(options.suggestions);
             } else {
-                // 기본 시작 화면(입력창)을 표시
                 learningMode.resetStartScreen();
             }
         } else { // 'selection' 모드
@@ -114,7 +132,6 @@ const app = {
             return;
         }
         
-        // --- 비활성화할 요소 목록 ---
         const elementsToDisable = [
             learningMode.elements.startWordInput,
             learningMode.elements.startBtn,
@@ -124,7 +141,6 @@ const app = {
         ];
         const sheetLink = this.elements.sheetLink;
 
-        // --- 요소 비활성화 및 사용자 피드백 ---
         elementsToDisable.forEach(el => { el.disabled = true; });
         sheetLink.classList.add('pointer-events-none', 'opacity-50');
 
@@ -132,12 +148,11 @@ const app = {
         learningMode.elements.startBtn.textContent = '새로고침 중...';
 
         try {
-            await api.loadWordList(true); // 캐시 무시하고 강제 새로고침
+            await api.loadWordList(true);
             this.showToast('데이터를 성공적으로 새로고침했습니다!');
         } catch(e) {
             this.showToast('데이터 새로고침에 실패했습니다: ' + e.message, true);
         } finally {
-            // --- 요소 다시 활성화 ---
             elementsToDisable.forEach(el => { el.disabled = false; });
             sheetLink.classList.remove('pointer-events-none', 'opacity-50');
             learningMode.elements.startBtn.textContent = originalBtnText;
@@ -196,21 +211,19 @@ const app = {
         const exactMatchIndex = wordList.findIndex(item => item.word.toLowerCase() === lowerCaseWord);
 
         if (exactMatchIndex !== -1) {
-            // 단어가 있으면, 기존 방식대로 검색 실행
-            this.changeMode('learning');
+            this._renderMode('learning');
             setTimeout(() => {
                 learningMode.elements.startWordInput.value = word;
                 learningMode.elements.startBtn.click();
-            }, 50); // 약간의 딜레이는 뷰 전환을 위해 유지
+            }, 50);
         } else {
-            // 단어가 없으면, 추천 단어 목록을 계산하여 바로 표시
             const suggestions = wordList.map((item, index) => ({
                 word: item.word,
                 index,
                 distance: utils.levenshteinDistance(lowerCaseWord, item.word.toLowerCase())
             })).sort((a, b) => a.distance - b.distance).slice(0, 5);
             
-            this.changeMode('learning', { suggestions: suggestions });
+            this._renderMode('learning', { suggestions: suggestions });
         }
         ui.hideWordContextMenu();
     },
@@ -1237,4 +1250,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
