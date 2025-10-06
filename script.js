@@ -3,14 +3,15 @@
 // ================================================================
 const app = {
     config: {
+        // TTS_API_KEY는 여기서 완전히 제거합니다.
         SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxtkBmzSHFOOwIOrjkbxXsHAKIBkimjuUjVOWEoUEi0vgxKclHlo4PTGnSTUSF29Ydg/exec"
     },
     state: {
         currentVoiceSet: 'UK',
         isSpeaking: false,
         audioContext: null,
-        audioCache: {}, // Client-side cache for audio buffers
         translationCache: {},
+        ttsCache: {}, // 클라이언트(브라우저) TTS 캐시 객체 추가
         translateDebounceTimeout: null, // 디바운스 타이머 ID
         wordList: [],
         isWordListReady: false,
@@ -118,7 +119,7 @@ const app = {
         learningMode.elements.startBtn.textContent = '새로고침 중...';
 
         try {
-            await api.loadWordList(true);
+            await api.loadWordList(true); 
             this.showToast('데이터를 성공적으로 새로고침했습니다!');
         } catch(e) {
             this.showToast('데이터 새로고침에 실패했습니다: ' + e.message, true);
@@ -185,7 +186,7 @@ const app = {
             setTimeout(() => {
                 learningMode.elements.startWordInput.value = word;
                 learningMode.elements.startBtn.click();
-            }, 50);
+            }, 50); 
         } else {
             const suggestions = wordList.map((item, index) => ({
                 word: item.word,
@@ -203,11 +204,6 @@ const app = {
 // API Module
 // ================================================================
 const api = {
-    _prefetching: new Set(),
-    isPrefetching(key) { return this._prefetching.has(key); },
-    markAsPrefetching(key) { this._prefetching.add(key); },
-    unmarkAsPrefetching(key) { this._prefetching.delete(key); },
-
     async loadWordList(force = false) {
         if (force) {
             localStorage.removeItem('wordListCache');
@@ -250,94 +246,69 @@ const api = {
             }
         }
     },
-    
     async speak(text, contentType = 'word') {
+        const voiceSets = {
+            'UK': { 'word': { languageCode: 'en-GB', name: 'en-GB-Wavenet-D', ssmlGender: 'MALE' }, 'sample': { languageCode: 'en-GB', name: 'en-GB-Journey-D', ssmlGender: 'MALE' } },
+            'US': { 'word': { languageCode: 'en-US', name: 'en-US-Wavenet-F', ssmlGender: 'FEMALE' }, 'sample': { languageCode: 'en-US', name: 'en-US-Journey-F', ssmlGender: 'FEMALE' } }
+        };
         if (!text || !text.trim() || app.state.isSpeaking) return;
         if (app.state.audioContext.state === 'suspended') app.state.audioContext.resume();
         
-        const cacheKey = `${text}_${app.state.currentVoiceSet}_${contentType}`;
+        const textWithoutEmoji = text.replace(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u, '');
+        const processedText = textWithoutEmoji.replace(/\bsb\b/g, 'somebody').replace(/\bsth\b/g, 'something');
+        const voiceConfig = voiceSets[app.state.currentVoiceSet][contentType];
+        
+        const cacheKey = `${processedText}_${voiceConfig.name}`;
 
-        if (app.state.audioCache[cacheKey]) {
-            app.state.isSpeaking = true;
-            const source = app.state.audioContext.createBufferSource();
-            source.buffer = app.state.audioCache[cacheKey];
-            source.connect(app.state.audioContext.destination);
-            source.start(0);
-            source.onended = () => { app.state.isSpeaking = false; };
-            return;
+        // 1. 클라이언트 캐시 확인
+        if (app.state.ttsCache[cacheKey]) {
+            try {
+                app.state.isSpeaking = true;
+                const audioBuffer = app.state.ttsCache[cacheKey];
+                const source = app.state.audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(app.state.audioContext.destination);
+                source.start(0);
+                source.onended = () => { app.state.isSpeaking = false; };
+                return; 
+            } catch(error) {
+                console.error('캐시된 TTS 재생 실패:', error);
+                // 실패 시 캐시를 지우고 계속 진행하여 새로 가져오도록 함
+                delete app.state.ttsCache[cacheKey];
+                app.state.isSpeaking = false;
+            }
         }
 
         app.state.isSpeaking = true;
+
         try {
-            const audioBuffer = await this.fetchAndCacheAudio(text, contentType);
+            // 2. 캐시에 없으면 백엔드(Apps Script)에 요청
+            const params = {
+                text: processedText,
+                voiceConfig: JSON.stringify(voiceConfig)
+            };
+            const data = await this.fetchFromGoogleSheet('getTTS', params);
+
+            if (!data.audioContent) throw new Error("백엔드로부터 음성 데이터를 받지 못했습니다.");
+            
+            const byteCharacters = atob(data.audioContent);
+            const byteArray = new Uint8Array(byteCharacters.length).map((_, i) => byteCharacters.charCodeAt(i));
+            const audioBuffer = await app.state.audioContext.decodeAudioData(byteArray.buffer);
+
+            // 3. 성공 시, 디코딩된 오디오 버퍼를 클라이언트 캐시에 저장
+            app.state.ttsCache[cacheKey] = audioBuffer;
+            
             const source = app.state.audioContext.createBufferSource();
             source.buffer = audioBuffer;
             source.connect(app.state.audioContext.destination);
             source.start(0);
             source.onended = () => { app.state.isSpeaking = false; };
+
         } catch (error) {
             console.error('TTS 재생에 실패했습니다:', error);
             app.state.isSpeaking = false;
         }
     },
-
-    // ✨ New: Pre-fetches audio and stores it in the cache without playing
-    prefetchAudio(text, contentType = 'word') {
-        if (!text || !text.trim()) return;
-        this.fetchAndCacheAudio(text, contentType).catch(error => {
-            // We can ignore prefetch errors, they will be re-fetched on click if needed
-        });
-    },
-
-    // ✨ New: Centralized function for fetching, decoding, and caching audio
-    async fetchAndCacheAudio(text, contentType) {
-        const voiceSets = {
-            'UK': { 'word': { languageCode: 'en-GB', name: 'en-GB-Wavenet-D', ssmlGender: 'MALE' }, 'sample': { languageCode: 'en-GB', name: 'en-GB-Journey-D', ssmlGender: 'MALE' } },
-            'US': { 'word': { languageCode: 'en-US', name: 'en-US-Wavenet-F', ssmlGender: 'FEMALE' }, 'sample': { languageCode: 'en-US', name: 'en-US-Journey-F', ssmlGender: 'FEMALE' } }
-        };
-
-        const cacheKey = `${text}_${app.state.currentVoiceSet}_${contentType}`;
-
-        if (app.state.audioCache[cacheKey]) {
-            return app.state.audioCache[cacheKey];
-        }
-        if (this.isPrefetching(cacheKey)) {
-             // If a fetch is already in progress, we don't start another one.
-             // A more advanced implementation could return the promise of the ongoing fetch.
-             return;
-        }
-
-        this.markAsPrefetching(cacheKey);
-
-        const textWithoutEmoji = text.replace(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u, '');
-        const processedText = textWithoutEmoji.replace(/\bsb\b/g, 'somebody').replace(/\bsth\b/g, 'something');
-        const voiceConfig = voiceSets[app.state.currentVoiceSet][contentType];
-        
-        try {
-            const data = await this.fetchFromGoogleSheet('speak', {
-                text: processedText,
-                voiceConfig: JSON.stringify(voiceConfig)
-            });
-            
-            if (!data.success || !data.audioContent) {
-                throw new Error(`Server-side TTS Error: ${data.message || 'No audio content'}`);
-            }
-
-            const byteCharacters = atob(data.audioContent);
-            const byteArray = new Uint8Array(byteCharacters.length).map((_, i) => byteCharacters.charCodeAt(i));
-            
-            if (!app.state.audioContext) {
-                 app.state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            }
-            const audioBuffer = await app.state.audioContext.decodeAudioData(byteArray.buffer);
-            
-            app.state.audioCache[cacheKey] = audioBuffer;
-            return audioBuffer;
-        } finally {
-            this.unmarkAsPrefetching(cacheKey);
-        }
-    },
-
     async fetchFromGoogleSheet(action, params = {}) {
         const url = new URL(app.config.SCRIPT_URL);
         url.searchParams.append('action', action);
@@ -406,17 +377,20 @@ const ui = {
                     span.textContent = englishPhrase;
                     span.className = 'cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors interactive-word';
 
+                    // Left-click handler
                     span.onclick = () => {
                         clearTimeout(app.state.longPressTimer);
                         api.speak(englishPhrase, 'word');
                         this.copyToClipboard(englishPhrase);
                     };
 
+                    // Right-click handler
                     span.oncontextmenu = (e) => {
                         e.preventDefault();
                         this.showWordContextMenu(e, englishPhrase);
                     };
 
+                    // Long-press handlers for touch devices
                     let touchMove = false;
                     span.addEventListener('touchstart', (e) => {
                         touchMove = false;
@@ -760,9 +734,6 @@ const quizMode = {
         this.elements.sampleBtn.style.display = 'block';
         this.elements.explanationBtn.textContent = '보충자료';
         this.elements.explanationBtn.style.display = (question.explanation && question.explanation.trim()) ? 'block' : 'none';
-        
-        // ✨ Pre-fetch audio for the quiz word
-        api.prefetchAudio(question.word, 'word');
     },
     checkAnswer(selectedLi, selectedChoice) {
         this.elements.choices.classList.add('disabled');
@@ -1035,13 +1006,6 @@ const learningMode = {
                 this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
                 break;
         }
-        
-        // ✨ Pre-fetch audio for current and next words
-        api.prefetchAudio(wordData.word, 'word');
-        const nextWordData = app.state.wordList[(index + 1) % app.state.wordList.length];
-        if (nextWordData) {
-            api.prefetchAudio(nextWordData.word, 'word');
-        }
     },
     navigate(direction) {
         const len = app.state.wordList.length;
@@ -1126,4 +1090,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
