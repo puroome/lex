@@ -10,7 +10,6 @@ const app = {
         currentVoiceSet: 'UK',
         isSpeaking: false,
         audioContext: null,
-        translationCache: {},
         translateDebounceTimeout: null, // 디바운스 타이머 ID
         wordList: [],
         isWordListReady: false,
@@ -38,8 +37,9 @@ const app = {
     async init() {
         try {
             await audioCache.init();
+            await translationDBCache.init();
         } catch (e) {
-            console.error("오디오 캐시를 초기화할 수 없습니다.", e);
+            console.error("캐시를 초기화할 수 없습니다.", e);
         }
         this.bindGlobalEvents();
         api.loadWordList();
@@ -275,6 +275,65 @@ const audioCache = {
     }
 };
 
+// ================================================================
+// Translation Cache Module (Using IndexedDB)
+// ================================================================
+const translationDBCache = {
+    db: null,
+    dbName: 'translationCacheDB',
+    storeName: 'translationStore',
+    init() {
+        return new Promise((resolve, reject) => {
+            if (!('indexedDB' in window)) {
+                console.warn('IndexedDB not supported, translation caching disabled.');
+                return resolve();
+            }
+            const request = indexedDB.open(this.dbName, 1);
+            request.onupgradeneeded = event => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(this.storeName)) {
+                    db.createObjectStore(this.storeName);
+                }
+            };
+            request.onsuccess = event => {
+                this.db = event.target.result;
+                resolve();
+            };
+            request.onerror = event => {
+                console.error("IndexedDB error:", event.target.error);
+                reject(event.target.error);
+            };
+        });
+    },
+    get(key) {
+        return new Promise((resolve, reject) => {
+            if (!this.db) {
+                return resolve(null);
+            }
+            const transaction = this.db.transaction([this.storeName], 'readonly');
+            const store = transaction.objectStore(this.storeName);
+            const request = store.get(key);
+            request.onsuccess = () => {
+                resolve(request.result); // string 또는 undefined
+            };
+            request.onerror = (event) => {
+                console.error("IndexedDB get error:", event.target.error);
+                reject(event.target.error);
+            };
+        });
+    },
+    save(key, data) {
+        if (!this.db) return;
+        try {
+            const transaction = this.db.transaction([this.storeName], 'readwrite');
+            const store = transaction.objectStore(this.storeName);
+            store.put(data, key);
+        } catch (e) {
+            console.error("IndexedDB save error:", e);
+        }
+    }
+};
+
 
 // ================================================================
 // API Module
@@ -396,11 +455,18 @@ const api = {
         return data;
     },
     async translateText(text) {
-        if (app.state.translationCache[text]) return app.state.translationCache[text];
         try {
+            // 1. Check persistent cache first
+            const cachedTranslation = await translationDBCache.get(text);
+            if (cachedTranslation) {
+                return cachedTranslation;
+            }
+    
+            // 2. If not in cache, fetch from API
             const data = await this.fetchFromGoogleSheet('translateText', { text });
             if (data.success) {
-                app.state.translationCache[text] = data.translatedText;
+                // 3. Save to persistent cache
+                translationDBCache.save(text, data.translatedText);
                 return data.translatedText;
             }
             return '번역 실패';
@@ -1171,3 +1237,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
