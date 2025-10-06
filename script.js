@@ -767,7 +767,6 @@ const quizMode = {
             cardFront: document.getElementById('quiz-card-front'),
             cardBack: document.getElementById('quiz-card-back'),
             word: document.getElementById('quiz-word'),
-            pronunciation: document.getElementById('quiz-pronunciation'),
             choices: document.getElementById('quiz-choices'),
             backTitle: document.getElementById('quiz-back-title'),
             backContent: document.getElementById('quiz-back-content'),
@@ -882,7 +881,6 @@ const quizMode = {
         this.state.flippedContentType = null;
         this.elements.word.textContent = question.word;
         ui.adjustFontSize(this.elements.word);
-        this.elements.pronunciation.textContent = question.pronunciation || '';
         this.elements.choices.innerHTML = '';
         choices.forEach((choice, index) => {
             const li = document.createElement('li');
