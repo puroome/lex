@@ -3,7 +3,7 @@
 // ================================================================
 const app = {
     config: {
-        // TTS_API_KEY는 여기서 완전히 제거합니다.
+        // TTS API 키를 클라이언트에서 제거하여 보안을 강화했습니다.
         SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxtkBmzSHFOOwIOrjkbxXsHAKIBkimjuUjVOWEoUEi0vgxKclHlo4PTGnSTUSF29Ydg/exec"
     },
     state: {
@@ -11,7 +11,6 @@ const app = {
         isSpeaking: false,
         audioContext: null,
         translationCache: {},
-        ttsCache: {}, // 클라이언트(브라우저) TTS 캐시 객체 추가
         translateDebounceTimeout: null, // 디바운스 타이머 ID
         wordList: [],
         isWordListReady: false,
@@ -89,7 +88,7 @@ const app = {
             } else {
                 learningMode.resetStartScreen();
             }
-        } else { // 'selection' 모드
+        } else {
             this.elements.selectionScreen.classList.remove('hidden');
             quizMode.reset();
             learningMode.reset();
@@ -119,7 +118,7 @@ const app = {
         learningMode.elements.startBtn.textContent = '새로고침 중...';
 
         try {
-            await api.loadWordList(true); 
+            await api.loadWordList(true);
             this.showToast('데이터를 성공적으로 새로고침했습니다!');
         } catch(e) {
             this.showToast('데이터 새로고침에 실패했습니다: ' + e.message, true);
@@ -186,7 +185,7 @@ const app = {
             setTimeout(() => {
                 learningMode.elements.startWordInput.value = word;
                 learningMode.elements.startBtn.click();
-            }, 50); 
+            }, 50);
         } else {
             const suggestions = wordList.map((item, index) => ({
                 word: item.word,
@@ -247,65 +246,41 @@ const api = {
         }
     },
     async speak(text, contentType = 'word') {
-        const voiceSets = {
-            'UK': { 'word': { languageCode: 'en-GB', name: 'en-GB-Wavenet-D', ssmlGender: 'MALE' }, 'sample': { languageCode: 'en-GB', name: 'en-GB-Journey-D', ssmlGender: 'MALE' } },
-            'US': { 'word': { languageCode: 'en-US', name: 'en-US-Wavenet-F', ssmlGender: 'FEMALE' }, 'sample': { languageCode: 'en-US', name: 'en-US-Journey-F', ssmlGender: 'FEMALE' } }
-        };
         if (!text || !text.trim() || app.state.isSpeaking) return;
-        if (app.state.audioContext.state === 'suspended') app.state.audioContext.resume();
-        
-        const textWithoutEmoji = text.replace(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u, '');
-        const processedText = textWithoutEmoji.replace(/\bsb\b/g, 'somebody').replace(/\bsth\b/g, 'something');
-        const voiceConfig = voiceSets[app.state.currentVoiceSet][contentType];
-        
-        const cacheKey = `${processedText}_${voiceConfig.name}`;
-
-        // 1. 클라이언트 캐시 확인
-        if (app.state.ttsCache[cacheKey]) {
-            try {
-                app.state.isSpeaking = true;
-                const audioBuffer = app.state.ttsCache[cacheKey];
-                const source = app.state.audioContext.createBufferSource();
-                source.buffer = audioBuffer;
-                source.connect(app.state.audioContext.destination);
-                source.start(0);
-                source.onended = () => { app.state.isSpeaking = false; };
-                return; 
-            } catch(error) {
-                console.error('캐시된 TTS 재생 실패:', error);
-                // 실패 시 캐시를 지우고 계속 진행하여 새로 가져오도록 함
-                delete app.state.ttsCache[cacheKey];
-                app.state.isSpeaking = false;
-            }
+        if (app.state.audioContext.state === 'suspended') {
+            app.state.audioContext.resume();
         }
-
         app.state.isSpeaking = true;
 
         try {
-            // 2. 캐시에 없으면 백엔드(Apps Script)에 요청
-            const params = {
-                text: processedText,
-                voiceConfig: JSON.stringify(voiceConfig)
-            };
-            const data = await this.fetchFromGoogleSheet('getTTS', params);
+            // 서버(Apps Script)에 음성 데이터를 요청합니다. 서버가 캐싱을 처리합니다.
+            const data = await this.fetchFromGoogleSheet('getTTS', {
+                text: text,
+                voiceSet: app.state.currentVoiceSet,
+                contentType: contentType
+            });
 
-            if (!data.audioContent) throw new Error("백엔드로부터 음성 데이터를 받지 못했습니다.");
-            
+            if (data.error) {
+                throw new Error(data.message);
+            }
+            if (!data.audioContent) {
+                throw new Error('서버로부터 음성 데이터를 받지 못했습니다.');
+            }
+
+            // Base64로 인코딩된 오디오 데이터를 디코딩하고 재생합니다.
             const byteCharacters = atob(data.audioContent);
             const byteArray = new Uint8Array(byteCharacters.length).map((_, i) => byteCharacters.charCodeAt(i));
             const audioBuffer = await app.state.audioContext.decodeAudioData(byteArray.buffer);
-
-            // 3. 성공 시, 디코딩된 오디오 버퍼를 클라이언트 캐시에 저장
-            app.state.ttsCache[cacheKey] = audioBuffer;
-            
             const source = app.state.audioContext.createBufferSource();
             source.buffer = audioBuffer;
             source.connect(app.state.audioContext.destination);
             source.start(0);
-            source.onended = () => { app.state.isSpeaking = false; };
-
+            source.onended = () => {
+                app.state.isSpeaking = false;
+            };
         } catch (error) {
             console.error('TTS 재생에 실패했습니다:', error);
+            app.showToast(`발음 재생에 실패했습니다.`, true);
             app.state.isSpeaking = false;
         }
     },
@@ -377,20 +352,17 @@ const ui = {
                     span.textContent = englishPhrase;
                     span.className = 'cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors interactive-word';
 
-                    // Left-click handler
                     span.onclick = () => {
                         clearTimeout(app.state.longPressTimer);
                         api.speak(englishPhrase, 'word');
                         this.copyToClipboard(englishPhrase);
                     };
 
-                    // Right-click handler
                     span.oncontextmenu = (e) => {
                         e.preventDefault();
                         this.showWordContextMenu(e, englishPhrase);
                     };
 
-                    // Long-press handlers for touch devices
                     let touchMove = false;
                     span.addEventListener('touchstart', (e) => {
                         touchMove = false;
@@ -438,7 +410,7 @@ const ui = {
             tooltip.classList.remove('hidden');
             const translatedText = await api.translateText(sentence);
             tooltip.textContent = translatedText;
-        }, 1000); // 1초 디바운스
+        }, 1000);
     },
     handleSentenceMouseOut() {
         clearTimeout(app.state.translateDebounceTimeout);
