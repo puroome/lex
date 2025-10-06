@@ -3,7 +3,7 @@
 // ================================================================
 const app = {
     config: {
-        // TTS API 키를 클라이언트에서 제거하여 보안을 강화했습니다.
+        // 보안을 위해 API 키를 클라이언트 코드에서 제거했습니다.
         SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxtkBmzSHFOOwIOrjkbxXsHAKIBkimjuUjVOWEoUEi0vgxKclHlo4PTGnSTUSF29Ydg/exec"
     },
     state: {
@@ -53,6 +53,7 @@ const app = {
             }
         }, { once: true });
         
+        // 컨텍스트 메뉴 바깥쪽 클릭 시 메뉴 숨기기
         document.addEventListener('click', (e) => {
             if (!this.elements.wordContextMenu.contains(e.target)) {
                 ui.hideWordContextMenu();
@@ -60,6 +61,7 @@ const app = {
         });
     },
     changeMode(mode, options = {}) {
+        // 모든 버튼을 기본적으로 숨김 처리
         this.elements.selectionScreen.classList.add('hidden');
         this.elements.quizModeContainer.classList.add('hidden');
         this.elements.learningModeContainer.classList.add('hidden');
@@ -77,18 +79,23 @@ const app = {
             this.elements.learningModeContainer.classList.remove('hidden');
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.ttsToggleBtn.classList.remove('hidden');
+            // 학습 모드 시작 화면에서만 새로고침 버튼 표시
             this.elements.refreshBtn.classList.remove('hidden');
 
+            // 학습 모드로 전환 시, 항상 학습 앱 컨테이너(단어 카드)는 숨기고 시작 화면을 표시하도록 준비
             learningMode.elements.appContainer.classList.add('hidden');
             learningMode.elements.loader.classList.add('hidden');
             learningMode.elements.startScreen.classList.remove('hidden');
 
+            // 검색 결과에 따라 UI 분기
             if (options.suggestions) {
+                // 바로 제안 목록을 표시
                 learningMode.displaySuggestions(options.suggestions);
             } else {
+                // 기본 시작 화면(입력창)을 표시
                 learningMode.resetStartScreen();
             }
-        } else {
+        } else { // 'selection' 모드
             this.elements.selectionScreen.classList.remove('hidden');
             quizMode.reset();
             learningMode.reset();
@@ -102,6 +109,7 @@ const app = {
             return;
         }
         
+        // --- 비활성화할 요소 목록 ---
         const elementsToDisable = [
             learningMode.elements.startWordInput,
             learningMode.elements.startBtn,
@@ -111,6 +119,7 @@ const app = {
         ];
         const sheetLink = this.elements.sheetLink;
 
+        // --- 요소 비활성화 및 사용자 피드백 ---
         elementsToDisable.forEach(el => { el.disabled = true; });
         sheetLink.classList.add('pointer-events-none', 'opacity-50');
 
@@ -118,11 +127,12 @@ const app = {
         learningMode.elements.startBtn.textContent = '새로고침 중...';
 
         try {
-            await api.loadWordList(true);
+            await api.loadWordList(true); // 캐시 무시하고 강제 새로고침
             this.showToast('데이터를 성공적으로 새로고침했습니다!');
         } catch(e) {
             this.showToast('데이터 새로고침에 실패했습니다: ' + e.message, true);
         } finally {
+            // --- 요소 다시 활성화 ---
             elementsToDisable.forEach(el => { el.disabled = false; });
             sheetLink.classList.remove('pointer-events-none', 'opacity-50');
             learningMode.elements.startBtn.textContent = originalBtnText;
@@ -137,7 +147,7 @@ const app = {
             toast.style.transition = 'opacity 0.5s';
             toast.style.opacity = '0';
             setTimeout(() => toast.remove(), 500);
-        }, 3500); // 오류 메시지가 길 수 있으므로 표시 시간을 늘립니다.
+        }, 2500);
     },
     toggleVoiceSet() {
         const btn = this.elements.ttsToggleBtn;
@@ -181,12 +191,14 @@ const app = {
         const exactMatchIndex = wordList.findIndex(item => item.word.toLowerCase() === lowerCaseWord);
 
         if (exactMatchIndex !== -1) {
+            // 단어가 있으면, 기존 방식대로 검색 실행
             this.changeMode('learning');
             setTimeout(() => {
                 learningMode.elements.startWordInput.value = word;
                 learningMode.elements.startBtn.click();
-            }, 50);
+            }, 50); // 약간의 딜레이는 뷰 전환을 위해 유지
         } else {
+            // 단어가 없으면, 추천 단어 목록을 계산하여 바로 표시
             const suggestions = wordList.map((item, index) => ({
                 word: item.word,
                 index,
@@ -246,24 +258,27 @@ const api = {
         }
     },
     async speak(text, contentType = 'word') {
+        const voiceSets = {
+            'UK': { 'word': { languageCode: 'en-GB', name: 'en-GB-Wavenet-D', ssmlGender: 'MALE' }, 'sample': { languageCode: 'en-GB', name: 'en-GB-Journey-D', ssmlGender: 'MALE' } },
+            'US': { 'word': { languageCode: 'en-US', name: 'en-US-Wavenet-F', ssmlGender: 'FEMALE' }, 'sample': { languageCode: 'en-US', name: 'en-US-Journey-F', ssmlGender: 'FEMALE' } }
+        };
         if (!text || !text.trim() || app.state.isSpeaking) return;
-        if (app.state.audioContext.state === 'suspended') {
-            app.state.audioContext.resume();
-        }
+        if (app.state.audioContext.state === 'suspended') app.state.audioContext.resume();
         app.state.isSpeaking = true;
-
+        
+        const textWithoutEmoji = text.replace(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u, '');
+        const processedText = textWithoutEmoji.replace(/\bsb\b/g, 'somebody').replace(/\bsth\b/g, 'something');
+        const voiceConfig = voiceSets[app.state.currentVoiceSet][contentType];
+        
         try {
+            // Apps Script 백엔드를 호출하여 TTS 요청
             const data = await this.fetchFromGoogleSheet('getTTS', {
-                text: text,
-                voiceSet: app.state.currentVoiceSet,
-                contentType: contentType
+                text: processedText,
+                voiceConfig: voiceConfig
             });
 
-            if (data.error) {
-                throw new Error(data.message);
-            }
-            if (!data.audioContent) {
-                throw new Error('서버로부터 음성 데이터를 받지 못했습니다.');
+            if (!data.success || !data.audioContent) {
+                throw new Error(data.message || '오디오 데이터를 받지 못했습니다.');
             }
 
             const byteCharacters = atob(data.audioContent);
@@ -273,25 +288,28 @@ const api = {
             source.buffer = audioBuffer;
             source.connect(app.state.audioContext.destination);
             source.start(0);
-            source.onended = () => {
-                app.state.isSpeaking = false;
-            };
+            source.onended = () => { app.state.isSpeaking = false; };
         } catch (error) {
             console.error('TTS 재생에 실패했습니다:', error);
-            // 서버에서 받은 실제 오류 메시지를 사용자에게 보여주어 디버깅을 돕습니다.
-            app.showToast(`발음 재생 실패: ${error.message}`, true);
             app.state.isSpeaking = false;
         }
     },
     async fetchFromGoogleSheet(action, params = {}) {
-        const url = new URL(app.config.SCRIPT_URL);
-        url.searchParams.append('action', action);
-        for (const key in params) {
-            if (params[key]) {
-                url.searchParams.append(key, params[key]);
-            }
-        }
-        const response = await fetch(url);
+        const url = app.config.SCRIPT_URL;
+        const payload = {
+            action: action,
+            ...params
+        };
+
+        const response = await fetch(url, {
+            method: 'POST',
+            // Apps Script에서 POST 요청을 제대로 처리하기 위한 헤더 설정
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify(payload),
+            // CORS 문제를 피하기 위해 mode: 'no-cors'를 사용하지 않습니다.
+            // 대신 Apps Script가 올바른 JSON 응답을 반환하도록 해야 합니다.
+        });
+
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const data = await response.json();
         if (data.error) throw new Error(data.message);
@@ -351,17 +369,20 @@ const ui = {
                     span.textContent = englishPhrase;
                     span.className = 'cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors interactive-word';
 
+                    // Left-click handler
                     span.onclick = () => {
                         clearTimeout(app.state.longPressTimer);
                         api.speak(englishPhrase, 'word');
                         this.copyToClipboard(englishPhrase);
                     };
 
+                    // Right-click handler
                     span.oncontextmenu = (e) => {
                         e.preventDefault();
                         this.showWordContextMenu(e, englishPhrase);
                     };
 
+                    // Long-press handlers for touch devices
                     let touchMove = false;
                     span.addEventListener('touchstart', (e) => {
                         touchMove = false;
@@ -409,7 +430,7 @@ const ui = {
             tooltip.classList.remove('hidden');
             const translatedText = await api.translateText(sentence);
             tooltip.textContent = translatedText;
-        }, 1000);
+        }, 1000); // 1초 디바운스
     },
     handleSentenceMouseOut() {
         clearTimeout(app.state.translateDebounceTimeout);
@@ -421,6 +442,7 @@ const ui = {
             const p = document.createElement('p');
             p.className = 'p-2 rounded transition-colors cursor-pointer hover:bg-gray-200 sample-sentence';
 
+            // --- EVENT LISTENERS on the <p> element (sentence container) ---
             p.onclick = () => api.speak(p.textContent, 'sample');
             p.addEventListener('mouseover', (e) => {
                 if (e.target.classList.contains('interactive-word')) {
@@ -431,6 +453,7 @@ const ui = {
             });
             p.addEventListener('mouseout', this.handleSentenceMouseOut);
 
+            // --- HELPER to process text parts (words, bold text, etc.) ---
             const processTextInto = (targetElement, text) => {
                 const parts = text.split(/([,\s\.'])/g).filter(part => part);
 
@@ -472,6 +495,7 @@ const ui = {
                 });
             };
 
+            // --- MAIN LOGIC to build the sentence content ---
             const sentenceParts = sentence.split(/(\*.*?\*)/g);
             sentenceParts.forEach(part => {
                 if (part.startsWith('*') && part.endsWith('*')) {
@@ -490,6 +514,7 @@ const ui = {
         event.preventDefault();
         const menu = app.elements.wordContextMenu;
 
+        // "이 앱" 메뉴 보이기/숨기기 처리
         app.elements.searchAppContextBtn.style.display = options.hideAppSearch ? 'none' : 'block';
         
         const touch = event.touches ? event.touches[0] : null;
@@ -826,6 +851,7 @@ const learningMode = {
         this.elements.prevBtn.addEventListener('click', () => this.navigate(-1));
         this.elements.sampleBtn.addEventListener('click', () => this.handleFlip());
 
+        // 단어 카드 클릭 이벤트
         this.elements.wordDisplay.addEventListener('click', () => {
             const word = app.state.wordList[this.state.currentIndex]?.word;
             if (word) {
@@ -834,6 +860,7 @@ const learningMode = {
             }
         });
 
+        // 단어 카드 우클릭/길게 누르기 이벤트
         this.elements.wordDisplay.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             const wordData = app.state.wordList[this.state.currentIndex];
@@ -919,6 +946,7 @@ const learningMode = {
         this.elements.loader.classList.add('hidden');
         this.elements.appContainer.classList.remove('hidden');
         this.elements.fixedButtons.classList.remove('hidden');
+        // 학습 앱이 시작되면 새로고침 버튼을 숨김
         app.elements.refreshBtn.classList.add('hidden');
         this.displayWord(this.state.currentIndex);
     },
@@ -1031,7 +1059,7 @@ const learningMode = {
     },
     handleTouchStart(e) {
         if (!this.isLearningModeActive()) return;
-        if (e.target.closest('#word-display')) return;
+        if (e.target.closest('#word-display')) return; // 단어 카드 자체의 터치는 위에서 처리
         this.state.touchstartX = e.changedTouches[0].screenX;
         this.state.touchstartY = e.changedTouches[0].screenY;
     },
@@ -1044,13 +1072,15 @@ const learningMode = {
         const deltaX = e.changedTouches[0].screenX - this.state.touchstartX;
         const deltaY = e.changedTouches[0].screenY - this.state.touchstartY;
         
+        // 수평 스와이프 (좌/우) 로 이전/다음 단어 이동
         if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
             this.navigate(deltaX > 0 ? -1 : 1);
         } 
+        // 수직 스와이프 (위) 이고, 앱 화면 바깥쪽일 경우 다음 단어로 이동
         else if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 50) {
             if (!e.target.closest('#learning-app-container')) {
-                if (deltaY < 0) {
-                    this.navigate(1);
+                if (deltaY < 0) { // 위로 스와이프
+                    this.navigate(1); // 다음 단어로 이동
                 }
             }
         }
@@ -1061,4 +1091,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
