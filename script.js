@@ -3,6 +3,7 @@
 // ================================================================
 const app = {
     config: {
+        TTS_API_KEY: "AIzaSyAJmQBGY4H9DVMlhMtvAAVMi_4N7__DfKA",
         SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxtkBmzSHFOOwIOrjkbxXsHAKIBkimjuUjVOWEoUEi0vgxKclHlo4PTGnSTUSF29Ydg/exec"
     },
     state: {
@@ -14,7 +15,6 @@ const app = {
         wordList: [],
         isWordListReady: false,
         longPressTimer: null, // 길게 누르기 타이머
-        audioCache: {}, // 미리 불러온 오디오 데이터를 저장할 캐시
     },
     elements: {
         selectionScreen: document.getElementById('selection-screen'),
@@ -35,7 +35,12 @@ const app = {
         searchEtymContextBtn: document.getElementById('search-etym-context-btn'),
         searchLongmanContextBtn: document.getElementById('search-longman-context-btn'),
     },
-    init() {
+    async init() {
+        try {
+            await audioCache.init();
+        } catch (e) {
+            console.error("오디오 캐시를 초기화할 수 없습니다.", e);
+        }
         this.bindGlobalEvents();
         api.loadWordList();
         quizMode.init();
@@ -53,6 +58,7 @@ const app = {
             }
         }, { once: true });
         
+        // 컨텍스트 메뉴 바깥쪽 클릭 시 메뉴 숨기기
         document.addEventListener('click', (e) => {
             if (!this.elements.wordContextMenu.contains(e.target)) {
                 ui.hideWordContextMenu();
@@ -60,6 +66,7 @@ const app = {
         });
     },
     changeMode(mode, options = {}) {
+        // 모든 버튼을 기본적으로 숨김 처리
         this.elements.selectionScreen.classList.add('hidden');
         this.elements.quizModeContainer.classList.add('hidden');
         this.elements.learningModeContainer.classList.add('hidden');
@@ -77,18 +84,23 @@ const app = {
             this.elements.learningModeContainer.classList.remove('hidden');
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.ttsToggleBtn.classList.remove('hidden');
+            // 학습 모드 시작 화면에서만 새로고침 버튼 표시
             this.elements.refreshBtn.classList.remove('hidden');
 
+            // 학습 모드로 전환 시, 항상 학습 앱 컨테이너(단어 카드)는 숨기고 시작 화면을 표시하도록 준비
             learningMode.elements.appContainer.classList.add('hidden');
             learningMode.elements.loader.classList.add('hidden');
             learningMode.elements.startScreen.classList.remove('hidden');
 
+            // 검색 결과에 따라 UI 분기
             if (options.suggestions) {
+                // 바로 제안 목록을 표시
                 learningMode.displaySuggestions(options.suggestions);
             } else {
+                // 기본 시작 화면(입력창)을 표시
                 learningMode.resetStartScreen();
             }
-        } else { 
+        } else { // 'selection' 모드
             this.elements.selectionScreen.classList.remove('hidden');
             quizMode.reset();
             learningMode.reset();
@@ -102,6 +114,7 @@ const app = {
             return;
         }
         
+        // --- 비활성화할 요소 목록 ---
         const elementsToDisable = [
             learningMode.elements.startWordInput,
             learningMode.elements.startBtn,
@@ -111,6 +124,7 @@ const app = {
         ];
         const sheetLink = this.elements.sheetLink;
 
+        // --- 요소 비활성화 및 사용자 피드백 ---
         elementsToDisable.forEach(el => { el.disabled = true; });
         sheetLink.classList.add('pointer-events-none', 'opacity-50');
 
@@ -118,11 +132,12 @@ const app = {
         learningMode.elements.startBtn.textContent = '새로고침 중...';
 
         try {
-            await api.loadWordList(true);
+            await api.loadWordList(true); // 캐시 무시하고 강제 새로고침
             this.showToast('데이터를 성공적으로 새로고침했습니다!');
         } catch(e) {
             this.showToast('데이터 새로고침에 실패했습니다: ' + e.message, true);
         } finally {
+            // --- 요소 다시 활성화 ---
             elementsToDisable.forEach(el => { el.disabled = false; });
             sheetLink.classList.remove('pointer-events-none', 'opacity-50');
             learningMode.elements.startBtn.textContent = originalBtnText;
@@ -149,8 +164,6 @@ const app = {
             btn.classList.toggle('hover:bg-indigo-800', this.state.currentVoiceSet === 'UK');
             btn.classList.toggle('bg-red-500', this.state.currentVoiceSet === 'US');
             btn.classList.toggle('hover:bg-red-600', this.state.currentVoiceSet === 'US');
-            // 음성 설정이 바뀌었으므로 오디오 캐시를 초기화합니다.
-            this.state.audioCache = {};
         }, 250);
     },
     showFatalError(message) {
@@ -177,26 +190,91 @@ const app = {
     },
     searchWordInLearningMode(word) {
         if (!word) return;
+
         const wordList = this.state.wordList;
         const lowerCaseWord = word.toLowerCase();
         const exactMatchIndex = wordList.findIndex(item => item.word.toLowerCase() === lowerCaseWord);
+
         if (exactMatchIndex !== -1) {
+            // 단어가 있으면, 기존 방식대로 검색 실행
             this.changeMode('learning');
             setTimeout(() => {
                 learningMode.elements.startWordInput.value = word;
                 learningMode.elements.startBtn.click();
-            }, 50);
+            }, 50); // 약간의 딜레이는 뷰 전환을 위해 유지
         } else {
+            // 단어가 없으면, 추천 단어 목록을 계산하여 바로 표시
             const suggestions = wordList.map((item, index) => ({
                 word: item.word,
                 index,
                 distance: utils.levenshteinDistance(lowerCaseWord, item.word.toLowerCase())
             })).sort((a, b) => a.distance - b.distance).slice(0, 5);
+            
             this.changeMode('learning', { suggestions: suggestions });
         }
         ui.hideWordContextMenu();
     },
 };
+
+// ================================================================
+// Audio Cache Module (Using IndexedDB)
+// ================================================================
+const audioCache = {
+    db: null,
+    dbName: 'ttsAudioCacheDB',
+    storeName: 'audioStore',
+    init() {
+        return new Promise((resolve, reject) => {
+            if (!('indexedDB' in window)) {
+                console.warn('IndexedDB not supported, TTS caching disabled.');
+                return resolve();
+            }
+            const request = indexedDB.open(this.dbName, 1);
+            request.onupgradeneeded = event => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(this.storeName)) {
+                    db.createObjectStore(this.storeName);
+                }
+            };
+            request.onsuccess = event => {
+                this.db = event.target.result;
+                resolve();
+            };
+            request.onerror = event => {
+                console.error("IndexedDB error:", event.target.error);
+                reject(event.target.error);
+            };
+        });
+    },
+    getAudio(key) {
+        return new Promise((resolve, reject) => {
+            if (!this.db) {
+                return resolve(null); // DB가 없으면 캐시된 데이터가 없는 것으로 처리
+            }
+            const transaction = this.db.transaction([this.storeName], 'readonly');
+            const store = transaction.objectStore(this.storeName);
+            const request = store.get(key);
+            request.onsuccess = () => {
+                resolve(request.result); // ArrayBuffer 또는 undefined
+            };
+            request.onerror = (event) => {
+                console.error("IndexedDB get error:", event.target.error);
+                reject(event.target.error);
+            };
+        });
+    },
+    saveAudio(key, audioData) {
+        if (!this.db) return;
+        try {
+            const transaction = this.db.transaction([this.storeName], 'readwrite');
+            const store = transaction.objectStore(this.storeName);
+            store.put(audioData, key);
+        } catch (e) {
+            console.error("IndexedDB save error:", e);
+        }
+    }
+};
+
 
 // ================================================================
 // API Module
@@ -207,6 +285,7 @@ const api = {
             localStorage.removeItem('wordListCache');
             app.state.isWordListReady = false;
         }
+
         if (!force) {
             try {
                 const cachedData = localStorage.getItem('wordListCache');
@@ -222,7 +301,9 @@ const api = {
                 localStorage.removeItem('wordListCache');
             }
         }
+        
         if (app.state.isWordListReady && !force) return;
+
         try {
             const data = await this.fetchFromGoogleSheet('getWords', { forceRefresh: force });
             if(data.error) throw new Error(data.message);
@@ -242,100 +323,73 @@ const api = {
         }
     },
     async speak(text, contentType = 'word') {
-        if (!text || !text.trim() || app.state.isSpeaking) return;
-        if (app.state.audioContext.state === 'suspended') app.state.audioContext.resume();
-
-        const cacheKey = `${app.state.currentVoiceSet}_${contentType}_${text}`;
-        
-        // 1. 캐시에 미리 불러온 오디오가 있는지 확인
-        if (app.state.audioCache[cacheKey]) {
-            app.state.isSpeaking = true;
-            try {
-                const source = app.state.audioContext.createBufferSource();
-                source.buffer = app.state.audioCache[cacheKey];
-                source.connect(app.state.audioContext.destination);
-                source.start(0);
-                source.onended = () => { app.state.isSpeaking = false; };
-            } catch (error) {
-                console.error('캐시된 오디오 재생 실패:', error);
-                app.state.isSpeaking = false;
-            }
-            return; // 캐시에서 재생했으므로 함수 종료
-        }
-
-        // 2. 캐시에 없으면 네트워크 요청 (기존 로직)
-        app.state.isSpeaking = true;
         const voiceSets = {
             'UK': { 'word': { languageCode: 'en-GB', name: 'en-GB-Wavenet-D', ssmlGender: 'MALE' }, 'sample': { languageCode: 'en-GB', name: 'en-GB-Journey-D', ssmlGender: 'MALE' } },
             'US': { 'word': { languageCode: 'en-US', name: 'en-US-Wavenet-F', ssmlGender: 'FEMALE' }, 'sample': { languageCode: 'en-US', name: 'en-US-Journey-F', ssmlGender: 'FEMALE' } }
         };
+
+        if (!text || !text.trim() || app.state.isSpeaking) return;
+        if (app.state.audioContext.state === 'suspended') app.state.audioContext.resume();
+        
+        app.state.isSpeaking = true;
         const textWithoutEmoji = text.replace(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u, '');
         const processedText = textWithoutEmoji.replace(/\bsb\b/g, 'somebody').replace(/\bsth\b/g, 'something');
         const voiceConfig = voiceSets[app.state.currentVoiceSet][contentType];
         
-        try {
-            const data = await this.fetchFromGoogleSheet('getTTS', {
-                text: processedText,
-                voiceConfig: voiceConfig
-            });
-            if (!data.success || !data.audioContent) {
-                throw new Error(data.message || '오디오 데이터를 받지 못했습니다.');
-            }
-            const byteCharacters = atob(data.audioContent);
-            const byteArray = new Uint8Array(byteCharacters.length).map((_, i) => byteCharacters.charCodeAt(i));
-            const audioBuffer = await app.state.audioContext.decodeAudioData(byteArray.buffer);
-            
-            // 3. 새로 받아온 오디오 데이터를 캐시에 저장
-            app.state.audioCache[cacheKey] = audioBuffer;
+        // 캐시를 위한 고유 키 생성 (텍스트 + 목소리 설정)
+        const cacheKey = `${processedText}|${voiceConfig.languageCode}|${voiceConfig.name}`;
 
-            // 4. 즉시 재생
+        const playAudio = async (audioArrayBuffer) => {
+            const audioBuffer = await app.state.audioContext.decodeAudioData(audioArrayBuffer);
             const source = app.state.audioContext.createBufferSource();
             source.buffer = audioBuffer;
             source.connect(app.state.audioContext.destination);
             source.start(0);
             source.onended = () => { app.state.isSpeaking = false; };
+        };
+
+        try {
+            // 1. IndexedDB에서 오디오 캐시 확인
+            const cachedAudio = await audioCache.getAudio(cacheKey);
+            if (cachedAudio) {
+                await playAudio(cachedAudio.slice(0)); // 버퍼 복사본으로 재생
+                return;
+            }
+
+            // 2. 캐시 없으면 API 호출
+            const TTS_URL = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${app.config.TTS_API_KEY}`;
+            const response = await fetch(TTS_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ input: { text: processedText }, voice: voiceConfig, audioConfig: { audioEncoding: 'MP3' } })
+            });
+            if (!response.ok) throw new Error(`TTS API Error: ${(await response.json()).error.message}`);
+            
+            const data = await response.json();
+            const byteCharacters = atob(data.audioContent);
+            const byteArray = new Uint8Array(byteCharacters.length).map((_, i) => byteCharacters.charCodeAt(i));
+            const audioArrayBuffer = byteArray.buffer;
+            
+            // 3. 받아온 오디오를 캐시에 저장
+            audioCache.saveAudio(cacheKey, audioArrayBuffer.slice(0)); // 버퍼 복사본 저장
+            
+            // 4. 오디오 재생
+            await playAudio(audioArrayBuffer);
+
         } catch (error) {
-            console.error('TTS 재생에 실패했습니다:', error);
+            console.error('TTS 재생 또는 캐싱에 실패했습니다:', error);
             app.state.isSpeaking = false;
         }
     },
-    // 백그라운드에서 오디오를 미리 로드하여 캐시에 저장하는 함수
-    async prefetchAudio(text, contentType = 'word') {
-        if (!text || !text.trim() || !app.state.audioContext) return;
-        const cacheKey = `${app.state.currentVoiceSet}_${contentType}_${text}`;
-        if (app.state.audioCache[cacheKey]) return; // 이미 캐시에 있으면 실행 안함
-
-        const voiceSets = {
-            'UK': { 'word': { languageCode: 'en-GB', name: 'en-GB-Wavenet-D', ssmlGender: 'MALE' }, 'sample': { languageCode: 'en-GB', name: 'en-GB-Journey-D', ssmlGender: 'MALE' } },
-            'US': { 'word': { languageCode: 'en-US', name: 'en-US-Wavenet-F', ssmlGender: 'FEMALE' }, 'sample': { languageCode: 'en-US', name: 'en-US-Journey-F', ssmlGender: 'FEMALE' } }
-        };
-        const textWithoutEmoji = text.replace(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u, '');
-        const processedText = textWithoutEmoji.replace(/\bsb\b/g, 'somebody').replace(/\bsth\b/g, 'something');
-        const voiceConfig = voiceSets[app.state.currentVoiceSet][contentType];
-        try {
-            const data = await this.fetchFromGoogleSheet('getTTS', {
-                text: processedText,
-                voiceConfig: voiceConfig
-            });
-            if (data.success && data.audioContent) {
-                const byteCharacters = atob(data.audioContent);
-                const byteArray = new Uint8Array(byteCharacters.length).map((_, i) => byteCharacters.charCodeAt(i));
-                const audioBuffer = await app.state.audioContext.decodeAudioData(byteArray.buffer);
-                app.state.audioCache[cacheKey] = audioBuffer;
-            }
-        } catch (error) {
-            // 프리페치는 백그라운드 작업이므로 사용자에게 오류를 표시하지 않고 콘솔에만 기록합니다.
-            console.error('오디오 프리페치 실패:', text, error);
-        }
-    },
     async fetchFromGoogleSheet(action, params = {}) {
-        const url = app.config.SCRIPT_URL;
-        const payload = { action: action, ...params };
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify(payload),
-        });
+        const url = new URL(app.config.SCRIPT_URL);
+        url.searchParams.append('action', action);
+        for (const key in params) {
+            if (params[key]) {
+                url.searchParams.append(key, params[key]);
+            }
+        }
+        const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const data = await response.json();
         if (data.error) throw new Error(data.message);
@@ -394,15 +448,21 @@ const ui = {
                     const span = document.createElement('span');
                     span.textContent = englishPhrase;
                     span.className = 'cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors interactive-word';
+
+                    // Left-click handler
                     span.onclick = () => {
                         clearTimeout(app.state.longPressTimer);
                         api.speak(englishPhrase, 'word');
                         this.copyToClipboard(englishPhrase);
                     };
+
+                    // Right-click handler
                     span.oncontextmenu = (e) => {
                         e.preventDefault();
                         this.showWordContextMenu(e, englishPhrase);
                     };
+
+                    // Long-press handlers for touch devices
                     let touchMove = false;
                     span.addEventListener('touchstart', (e) => {
                         touchMove = false;
@@ -440,15 +500,17 @@ const ui = {
         app.state.translateDebounceTimeout = setTimeout(async () => {
             const tooltip = app.elements.translationTooltip;
             const targetRect = event.target.getBoundingClientRect();
+
             Object.assign(tooltip.style, {
                 left: `${targetRect.left + window.scrollX}px`,
                 top: `${targetRect.bottom + window.scrollY + 5}px`
             });
+
             tooltip.textContent = '번역 중...';
             tooltip.classList.remove('hidden');
             const translatedText = await api.translateText(sentence);
             tooltip.textContent = translatedText;
-        }, 1000);
+        }, 1000); // 1초 디바운스
     },
     handleSentenceMouseOut() {
         clearTimeout(app.state.translateDebounceTimeout);
@@ -459,6 +521,8 @@ const ui = {
         sentences.filter(s => s.trim()).forEach(sentence => {
             const p = document.createElement('p');
             p.className = 'p-2 rounded transition-colors cursor-pointer hover:bg-gray-200 sample-sentence';
+
+            // --- EVENT LISTENERS on the <p> element (sentence container) ---
             p.onclick = () => api.speak(p.textContent, 'sample');
             p.addEventListener('mouseover', (e) => {
                 if (e.target.classList.contains('interactive-word')) {
@@ -468,24 +532,30 @@ const ui = {
                 this.handleSentenceMouseOver(e, p.textContent);
             });
             p.addEventListener('mouseout', this.handleSentenceMouseOut);
+
+            // --- HELPER to process text parts (words, bold text, etc.) ---
             const processTextInto = (targetElement, text) => {
                 const parts = text.split(/([,\s\.'])/g).filter(part => part);
+
                 parts.forEach(part => {
                     if (/[a-zA-Z]/.test(part)) {
                         const span = document.createElement('span');
                         span.textContent = part;
                         span.className = 'hover:bg-yellow-200 rounded-sm transition-colors interactive-word';
+                        
                         span.onclick = (e) => { 
                             e.stopPropagation(); 
                             clearTimeout(app.state.longPressTimer); 
                             api.speak(part, 'word'); 
                             this.copyToClipboard(part); 
                         };
+                        
                         span.oncontextmenu = (e) => { 
                             e.preventDefault(); 
                             e.stopPropagation(); 
                             this.showWordContextMenu(e, part); 
                         };
+                        
                         let touchMove = false;
                         span.addEventListener('touchstart', (e) => { 
                             e.stopPropagation(); 
@@ -497,12 +567,15 @@ const ui = {
                         }, { passive: true });
                         span.addEventListener('touchmove', (e) => { e.stopPropagation(); touchMove = true; clearTimeout(app.state.longPressTimer); });
                         span.addEventListener('touchend', (e) => { e.stopPropagation(); clearTimeout(app.state.longPressTimer); });
+                        
                         targetElement.appendChild(span);
                     } else {
                         targetElement.appendChild(document.createTextNode(part));
                     }
                 });
             };
+
+            // --- MAIN LOGIC to build the sentence content ---
             const sentenceParts = sentence.split(/(\*.*?\*)/g);
             sentenceParts.forEach(part => {
                 if (part.startsWith('*') && part.endsWith('*')) {
@@ -513,35 +586,46 @@ const ui = {
                     processTextInto(p, part);
                 }
             });
+
             containerElement.appendChild(p);
         });
     },
     showWordContextMenu(event, word, options = {}) {
         event.preventDefault();
         const menu = app.elements.wordContextMenu;
+
+        // "이 앱" 메뉴 보이기/숨기기 처리
         app.elements.searchAppContextBtn.style.display = options.hideAppSearch ? 'none' : 'block';
+        
         const touch = event.touches ? event.touches[0] : null;
         const x = touch ? touch.clientX : event.clientX;
         const y = touch ? touch.clientY : event.clientY;
+
         menu.style.top = `${y}px`;
         menu.style.left = `${x}px`;
         menu.classList.remove('hidden');
+
         const encodedWord = encodeURIComponent(word);
+
         app.elements.searchAppContextBtn.onclick = () => {
             app.searchWordInLearningMode(word);
         };
+        
         app.elements.searchDaumContextBtn.onclick = () => {
             window.open(`https://dic.daum.net/search.do?q=${encodedWord}`, 'daum_dictionary_window');
             this.hideWordContextMenu();
         };
+        
         app.elements.searchNaverContextBtn.onclick = () => {
             window.open(`https://en.dict.naver.com/#/search?query=${encodedWord}`, 'naver_dictionary_window');
             this.hideWordContextMenu();
         };
+
         app.elements.searchEtymContextBtn.onclick = () => {
             window.open(`https://www.etymonline.com/search?q=${encodedWord}`, 'etymonline_window');
             this.hideWordContextMenu();
         };
+
         app.elements.searchLongmanContextBtn.onclick = () => {
             window.open(`https://www.ldoceonline.com/dictionary/${encodedWord}`, 'longman_dictionary_window');
             this.hideWordContextMenu();
@@ -726,9 +810,6 @@ const quizMode = {
         this.elements.sampleBtn.style.display = 'block';
         this.elements.explanationBtn.textContent = '보충자료';
         this.elements.explanationBtn.style.display = (question.explanation && question.explanation.trim()) ? 'block' : 'none';
-
-        // 퀴즈 단어 발음 미리 불러오기
-        api.prefetchAudio(question.word, 'word');
     },
     checkAnswer(selectedLi, selectedChoice) {
         this.elements.choices.classList.add('disabled');
@@ -760,9 +841,11 @@ const quizMode = {
             app.showNoSampleMessage();
             return;
         }
+
         const isFrontVisible = !this.elements.cardFront.classList.contains('hidden');
         this.elements.explanationBtn.textContent = '보충자료';
         this.elements.sampleBtn.textContent = '예문';
+
         if (isFrontVisible) {
             const frontHeight = this.elements.cardFront.offsetHeight;
             this.elements.cardBack.style.minHeight = `${frontHeight}px`;
@@ -847,6 +930,8 @@ const learningMode = {
         this.elements.nextBtn.addEventListener('click', () => this.navigate(1));
         this.elements.prevBtn.addEventListener('click', () => this.navigate(-1));
         this.elements.sampleBtn.addEventListener('click', () => this.handleFlip());
+
+        // 단어 카드 클릭 이벤트
         this.elements.wordDisplay.addEventListener('click', () => {
             const word = app.state.wordList[this.state.currentIndex]?.word;
             if (word) {
@@ -854,6 +939,8 @@ const learningMode = {
                 ui.copyToClipboard(word);
             }
         });
+
+        // 단어 카드 우클릭/길게 누르기 이벤트
         this.elements.wordDisplay.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             const wordData = app.state.wordList[this.state.currentIndex];
@@ -861,6 +948,7 @@ const learningMode = {
                 ui.showWordContextMenu(e, wordData.word, { hideAppSearch: true });
             }
         });
+
         let wordDisplayTouchMove = false;
         this.elements.wordDisplay.addEventListener('touchstart', (e) => {
             wordDisplayTouchMove = false;
@@ -879,6 +967,7 @@ const learningMode = {
         this.elements.wordDisplay.addEventListener('touchend', () => {
             clearTimeout(app.state.longPressTimer);
         });
+
         document.addEventListener('mousedown', this.handleMiddleClick.bind(this));
         document.addEventListener('keydown', this.handleKeyDown.bind(this));
         document.addEventListener('touchstart', this.handleTouchStart.bind(this), { passive: true });
@@ -937,6 +1026,7 @@ const learningMode = {
         this.elements.loader.classList.add('hidden');
         this.elements.appContainer.classList.remove('hidden');
         this.elements.fixedButtons.classList.remove('hidden');
+        // 학습 앱이 시작되면 새로고침 버튼을 숨김
         app.elements.refreshBtn.classList.add('hidden');
         this.displayWord(this.state.currentIndex);
     },
@@ -973,16 +1063,16 @@ const learningMode = {
         const wordData = app.state.wordList[index];
         if (!wordData) return;
         
-        // 단어가 표시되는 즉시 발음을 미리 불러옵니다.
-        api.prefetchAudio(wordData.word, 'word');
-
         const wordText = wordData.word;
         const pronText = wordData.pronunciation ? `<span class="pronunciation-inline">${wordData.pronunciation}</span>` : '';
         this.elements.wordDisplay.innerHTML = `${wordText} ${pronText}`;
+        
         ui.adjustFontSize(this.elements.wordDisplay);
+        
         this.elements.meaningDisplay.innerHTML = wordData.meaning.replace(/\n/g, '<br>');
         ui.renderInteractiveText(this.elements.explanationDisplay, wordData.explanation);
         this.elements.explanationContainer.classList.toggle('hidden', !wordData.explanation || !wordData.explanation.trim());
+        
         switch(wordData.sampleSource) {
             case 'manual':
                 this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png';
@@ -1005,15 +1095,18 @@ const learningMode = {
     async handleFlip() {
         const isBackVisible = this.elements.cardBack.classList.contains('is-slid-up');
         const wordData = app.state.wordList[this.state.currentIndex];
+
         if (!isBackVisible) {
             if (wordData.sampleSource === 'none') {
                 app.showNoSampleMessage();
                 return;
             }
+            
             this.elements.backTitle.textContent = wordData.word;
             ui.displaySentences(wordData.sample.split('\n'), this.elements.backContent);
             this.elements.cardBack.classList.add('is-slid-up');
             this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/5-remove-cat_icon-icons.com_76681.png';
+
         } else {
             this.elements.cardBack.classList.remove('is-slid-up');
             this.displayWord(this.state.currentIndex);
@@ -1046,7 +1139,7 @@ const learningMode = {
     },
     handleTouchStart(e) {
         if (!this.isLearningModeActive()) return;
-        if (e.target.closest('#word-display')) return;
+        if (e.target.closest('#word-display')) return; // 단어 카드 자체의 터치는 위에서 처리
         this.state.touchstartX = e.changedTouches[0].screenX;
         this.state.touchstartY = e.changedTouches[0].screenY;
     },
@@ -1058,13 +1151,16 @@ const learningMode = {
         }
         const deltaX = e.changedTouches[0].screenX - this.state.touchstartX;
         const deltaY = e.changedTouches[0].screenY - this.state.touchstartY;
+        
+        // 수평 스와이프 (좌/우) 로 이전/다음 단어 이동
         if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
             this.navigate(deltaX > 0 ? -1 : 1);
         } 
+        // 수직 스와이프 (위) 이고, 앱 화면 바깥쪽일 경우 다음 단어로 이동
         else if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 50) {
             if (!e.target.closest('#learning-app-container')) {
-                if (deltaY < 0) {
-                    this.navigate(1);
+                if (deltaY < 0) { // 위로 스와이프
+                    this.navigate(1); // 다음 단어로 이동
                 }
             }
         }
@@ -1075,4 +1171,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
