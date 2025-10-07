@@ -735,9 +735,9 @@ const dashboard = {
 
         const srsLevels = [
             { name: '새 단어 (New)', min: 0, max: 0, count: 0, color: 'bg-gray-400' },
-            { name: '학습 중 (Learning)', min: 1, max: 4, count: 0, color: 'bg-blue-500' },
-            { name: '익숙함 (Familiar)', min: 5, max: 6, count: 0, color: 'bg-green-500' },
-            { name: '암기 완료 (Mastered)', min: 7, max: Infinity, count: 0, color: 'bg-purple-600' }
+            { name: '학습 중 (Learning)', min: 1, max: 1, count: 0, color: 'bg-blue-500' },
+            { name: '익숙함 (Familiar)', min: 2, max: 2, count: 0, color: 'bg-green-500' },
+            { name: '암기 완료 (Mastered)', min: 3, max: Infinity, count: 0, color: 'bg-purple-600' }
         ];
 
         wordList.forEach(word => {
