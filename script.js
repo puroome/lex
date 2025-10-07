@@ -10,10 +10,10 @@ const app = {
         currentVoiceSet: 'UK',
         isSpeaking: false,
         audioContext: null,
-        translateDebounceTimeout: null, // 디바운스 타이머 ID
+        translateDebounceTimeout: null, 
         wordList: [],
         isWordListReady: false,
-        longPressTimer: null, // 길게 누르기 타이머
+        longPressTimer: null,
     },
     elements: {
         selectionScreen: document.getElementById('selection-screen'),
@@ -56,7 +56,7 @@ const app = {
         document.getElementById('select-quiz-btn').addEventListener('click', () => this.navigateTo('quiz'));
         document.getElementById('select-learning-btn').addEventListener('click', () => this.navigateTo('learning'));
         document.getElementById('select-dashboard-btn').addEventListener('click', () => this.navigateTo('dashboard'));
-        document.getElementById('select-wrong-answers-btn').addEventListener('click', () => this.navigateTo('wrong-answers'));
+        document.getElementById('select-mistakes-btn').addEventListener('click', () => this.navigateTo('mistakeReview'));
 
         this.elements.homeBtn.addEventListener('click', () => this.navigateTo('selection'));
         this.elements.refreshBtn.addEventListener('click', () => this.forceReload());
@@ -83,17 +83,16 @@ const app = {
             const target = e.target;
             const isInteractiveTrigger = target.closest('.interactive-word, #word-display');
             const isCustomContextMenu = target.closest('#word-context-menu');
-
             if (!isInteractiveTrigger && !isCustomContextMenu) {
                 e.preventDefault();
             }
         });
     },
     navigateTo(mode, options = {}) {
-        if (history.state?.mode === mode && JSON.stringify(history.state?.options) === JSON.stringify(options)) return;
+        if (history.state?.mode === mode && mode !== 'learning') return;
 
         const newPath = mode === 'selection' 
-            ? window.location.pathname + window.location.search 
+            ? window.location.pathname + window.location.search
             : `#${mode}`;
 
         history.pushState({ mode, options }, '', newPath);
@@ -104,7 +103,6 @@ const app = {
         this.elements.quizModeContainer.classList.add('hidden');
         this.elements.learningModeContainer.classList.add('hidden');
         this.elements.dashboardContainer.classList.add('hidden');
-
         this.elements.homeBtn.classList.add('hidden');
         this.elements.refreshBtn.classList.add('hidden');
         this.elements.ttsToggleBtn.classList.add('hidden');
@@ -116,23 +114,35 @@ const app = {
         };
 
         if (mode === 'quiz') {
-            this.elements.quizModeContainer.classList.remove('hidden');
             showCommonButtons();
-            quizMode.start();
+            this.elements.quizModeContainer.classList.remove('hidden');
+            quizMode.reset();
         } else if (mode === 'learning') {
-            this.elements.learningModeContainer.classList.remove('hidden');
             showCommonButtons();
             this.elements.refreshBtn.classList.remove('hidden');
+            this.elements.learningModeContainer.classList.remove('hidden');
             learningMode.elements.appContainer.classList.add('hidden');
             learningMode.elements.loader.classList.add('hidden');
             learningMode.elements.startScreen.classList.remove('hidden');
-            learningMode.start(options);
-        } else if (mode === 'wrong-answers') {
-            this.navigateTo('learning', { isWrongAnswersMode: true });
+            if (options.suggestions && options.title) {
+                learningMode.displaySuggestions(options.suggestions, options.title);
+            } else {
+                learningMode.resetStartScreen();
+            }
         } else if (mode === 'dashboard') {
-            this.elements.dashboardContainer.classList.remove('hidden');
             this.elements.homeBtn.classList.remove('hidden');
+            this.elements.dashboardContainer.classList.remove('hidden');
             dashboard.show();
+        } else if (mode === 'mistakeReview') {
+            const mistakeWords = mistakeLog.get();
+            if (mistakeWords.length === 0) {
+                this.showToast('오답 노트에 단어가 없습니다.', true);
+                this.navigateTo('selection');
+                return;
+            }
+            showCommonButtons();
+            this.elements.learningModeContainer.classList.remove('hidden');
+            learningMode.startMistakeReview(mistakeWords);
         } else { // 'selection' 모드
             this.elements.selectionScreen.classList.remove('hidden');
             quizMode.reset();
@@ -141,9 +151,10 @@ const app = {
     },
     async forceReload() {
         const isLearningStartScreen = !learningMode.elements.startScreen.classList.contains('hidden');
+        const isSelectionScreen = !this.elements.selectionScreen.classList.contains('hidden');
 
-        if (!isLearningStartScreen && !this.elements.selectionScreen.classList.contains('hidden')) {
-             this.showToast('데이터 새로고침은 학습/선택 화면에서만 가능합니다.', true);
+        if (!isLearningStartScreen && !isSelectionScreen) {
+            this.showToast('새로고침은 시작 또는 학습 모드 선택 화면에서만 가능합니다.', true);
             return;
         }
         
@@ -155,15 +166,10 @@ const app = {
             this.elements.refreshBtn,
         ];
         const sheetLink = this.elements.sheetLink;
-
-        elementsToDisable.forEach(el => { el.disabled = true; });
+        elementsToDisable.forEach(el => { if(el) el.disabled = true; });
         sheetLink.classList.add('pointer-events-none', 'opacity-50');
-        
-        let originalBtnText = '';
-        if (isLearningStartScreen) {
-            originalBtnText = learningMode.elements.startBtn.textContent;
-            learningMode.elements.startBtn.textContent = '새로고침 중...';
-        }
+        const originalBtnText = learningMode.elements.startBtn.textContent;
+        learningMode.elements.startBtn.textContent = '새로고침 중...';
 
         try {
             await api.loadWordList(true);
@@ -171,11 +177,9 @@ const app = {
         } catch(e) {
             this.showToast('데이터 새로고침에 실패했습니다: ' + e.message, true);
         } finally {
-            elementsToDisable.forEach(el => { el.disabled = false; });
+            elementsToDisable.forEach(el => { if(el) el.disabled = false; });
             sheetLink.classList.remove('pointer-events-none', 'opacity-50');
-            if (isLearningStartScreen) {
-                learningMode.elements.startBtn.textContent = originalBtnText;
-            }
+            learningMode.elements.startBtn.textContent = originalBtnText;
         }
     },
     showToast(message, isError = false) {
@@ -225,132 +229,127 @@ const app = {
     },
     searchWordInLearningMode(word) {
         if (!word) return;
-        this.navigateTo('learning', { startWord: word });
+        const wordList = this.state.wordList;
+        const lowerCaseWord = word.toLowerCase();
+        const exactMatchIndex = wordList.findIndex(item => item.word.toLowerCase() === lowerCaseWord);
+        if (exactMatchIndex !== -1) {
+            this.navigateTo('learning');
+            setTimeout(() => {
+                learningMode.state.isMistakeMode = false;
+                learningMode.state.currentWordList = app.state.wordList;
+                learningMode.state.currentIndex = exactMatchIndex;
+                learningMode.launchApp();
+            }, 50);
+            ui.hideWordContextMenu();
+            return;
+        }
+        const explanationMatches = wordList
+            .map((item, index) => ({ word: item.word, index }))
+            .filter((_, index) => 
+                wordList[index].explanation && 
+                wordList[index].explanation.toLowerCase().includes(lowerCaseWord)
+            );
+        if (explanationMatches.length > 0) {
+            const title = `'<strong>${word}</strong>'(이)가 설명에 포함된 단어입니다.`;
+            this.navigateTo('learning', { suggestions: explanationMatches, title: title });
+            ui.hideWordContextMenu();
+            return;
+        }
+        const levenshteinSuggestions = wordList.map((item, index) => ({
+            word: item.word,
+            index,
+            distance: utils.levenshteinDistance(lowerCaseWord, item.word.toLowerCase())
+        }))
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 5);
+        const title = `입력하신 단어를 찾을 수 없습니다.<br>혹시 이 단어를 찾으시나요?`;
+        this.navigateTo('learning', { suggestions: levenshteinSuggestions, title: title });
+        ui.hideWordContextMenu();
     },
 };
 
-// ================================================================
-// Audio Cache Module (Using IndexedDB)
-// ================================================================
 const audioCache = {
-    db: null,
-    dbName: 'ttsAudioCacheDB',
-    storeName: 'audioStore',
+    db: null, dbName: 'ttsAudioCacheDB', storeName: 'audioStore',
     init() {
         return new Promise((resolve, reject) => {
-            if (!('indexedDB' in window)) {
-                console.warn('IndexedDB not supported, TTS caching disabled.');
-                return resolve();
-            }
+            if (!('indexedDB' in window)) { console.warn('IndexedDB not supported, TTS caching disabled.'); return resolve(); }
             const request = indexedDB.open(this.dbName, 1);
-            request.onupgradeneeded = event => {
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains(this.storeName)) {
-                    db.createObjectStore(this.storeName);
-                }
-            };
-            request.onsuccess = event => {
-                this.db = event.target.result;
-                resolve();
-            };
-            request.onerror = event => {
-                console.error("IndexedDB error:", event.target.error);
-                reject(event.target.error);
-            };
+            request.onupgradeneeded = event => { const db = event.target.result; if (!db.objectStoreNames.contains(this.storeName)) { db.createObjectStore(this.storeName); } };
+            request.onsuccess = event => { this.db = event.target.result; resolve(); };
+            request.onerror = event => { console.error("IndexedDB error:", event.target.error); reject(event.target.error); };
         });
     },
     getAudio(key) {
         return new Promise((resolve, reject) => {
-            if (!this.db) {
-                return resolve(null); // DB가 없으면 캐시된 데이터가 없는 것으로 처리
-            }
+            if (!this.db) return resolve(null);
             const transaction = this.db.transaction([this.storeName], 'readonly');
             const store = transaction.objectStore(this.storeName);
             const request = store.get(key);
-            request.onsuccess = () => {
-                resolve(request.result); // ArrayBuffer 또는 undefined
-            };
-            request.onerror = (event) => {
-                console.error("IndexedDB get error:", event.target.error);
-                reject(event.target.error);
-            };
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = (event) => { console.error("IndexedDB get error:", event.target.error); reject(event.target.error); };
         });
     },
     saveAudio(key, audioData) {
         if (!this.db) return;
-        try {
-            const transaction = this.db.transaction([this.storeName], 'readwrite');
-            const store = transaction.objectStore(this.storeName);
-            store.put(audioData, key);
-        } catch (e) {
-            console.error("IndexedDB save error:", e);
-        }
+        try { const transaction = this.db.transaction([this.storeName], 'readwrite'); transaction.objectStore(this.storeName).put(audioData, key); } 
+        catch (e) { console.error("IndexedDB save error:", e); }
     }
 };
 
-// ================================================================
-// Translation Cache Module (Using IndexedDB)
-// ================================================================
 const translationDBCache = {
-    db: null,
-    dbName: 'translationCacheDB',
-    storeName: 'translationStore',
+    db: null, dbName: 'translationCacheDB', storeName: 'translationStore',
     init() {
         return new Promise((resolve, reject) => {
-            if (!('indexedDB' in window)) {
-                console.warn('IndexedDB not supported, translation caching disabled.');
-                return resolve();
-            }
+            if (!('indexedDB' in window)) { console.warn('IndexedDB not supported, translation caching disabled.'); return resolve(); }
             const request = indexedDB.open(this.dbName, 1);
-            request.onupgradeneeded = event => {
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains(this.storeName)) {
-                    db.createObjectStore(this.storeName);
-                }
-            };
-            request.onsuccess = event => {
-                this.db = event.target.result;
-                resolve();
-            };
-            request.onerror = event => {
-                console.error("IndexedDB error:", event.target.error);
-                reject(event.target.error);
-            };
+            request.onupgradeneeded = event => { const db = event.target.result; if (!db.objectStoreNames.contains(this.storeName)) { db.createObjectStore(this.storeName); } };
+            request.onsuccess = event => { this.db = event.target.result; resolve(); };
+            request.onerror = event => { console.error("IndexedDB error:", event.target.error); reject(event.target.error); };
         });
     },
     get(key) {
         return new Promise((resolve, reject) => {
-            if (!this.db) {
-                return resolve(null);
-            }
+            if (!this.db) return resolve(null);
             const transaction = this.db.transaction([this.storeName], 'readonly');
             const store = transaction.objectStore(this.storeName);
             const request = store.get(key);
-            request.onsuccess = () => {
-                resolve(request.result); // string 또는 undefined
-            };
-            request.onerror = (event) => {
-                console.error("IndexedDB get error:", event.target.error);
-                reject(event.target.error);
-            };
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = (event) => { console.error("IndexedDB get error:", event.target.error); reject(event.target.error); };
         });
     },
     save(key, data) {
         if (!this.db) return;
-        try {
-            const transaction = this.db.transaction([this.storeName], 'readwrite');
-            const store = transaction.objectStore(this.storeName);
-            store.put(data, key);
-        } catch (e) {
-            console.error("IndexedDB save error:", e);
-        }
+        try { const transaction = this.db.transaction([this.storeName], 'readwrite'); transaction.objectStore(this.storeName).put(data, key); }
+        catch (e) { console.error("IndexedDB save error:", e); }
     }
 };
 
+const mistakeLog = {
+    KEY: 'mistakeLog',
+    get() {
+        return JSON.parse(localStorage.getItem(this.KEY)) || [];
+    },
+    add(word) {
+        const mistakes = this.get();
+        if (!mistakes.includes(word)) {
+            mistakes.push(word);
+            localStorage.setItem(this.KEY, JSON.stringify(mistakes));
+            app.showToast('오답 노트에 추가되었습니다.');
+        }
+    },
+    remove(word) {
+        let mistakes = this.get();
+        const index = mistakes.indexOf(word);
+        if (index > -1) {
+            mistakes.splice(index, 1);
+            localStorage.setItem(this.KEY, JSON.stringify(mistakes));
+        }
+    },
+    clear() {
+        localStorage.removeItem(this.KEY);
+    }
+};
 
-// ================================================================
-// API Module
-// ================================================================
 const api = {
     async loadWordList(force = false) {
         if (force) {
@@ -452,7 +451,7 @@ const api = {
         const url = new URL(app.config.SCRIPT_URL);
         url.searchParams.append('action', action);
         for (const key in params) {
-            if (params[key] !== undefined) {
+            if (params[key]) {
                 url.searchParams.append(key, params[key]);
             }
         }
@@ -465,10 +464,7 @@ const api = {
     async translateText(text) {
         try {
             const cachedTranslation = await translationDBCache.get(text);
-            if (cachedTranslation) {
-                return cachedTranslation;
-            }
-    
+            if (cachedTranslation) return cachedTranslation;
             const data = await this.fetchFromGoogleSheet('translateText', { text });
             if (data.success) {
                 translationDBCache.save(text, data.translatedText);
@@ -479,12 +475,17 @@ const api = {
             console.error('Translation fetch error:', error);
             return '번역 오류';
         }
+    },
+    async updateSRSData(word, isCorrect) {
+        try {
+            await this.fetchFromGoogleSheet('updateSRSData', { word, isCorrect: isCorrect.toString() });
+        } catch (error) {
+            console.error('SRS 데이터 업데이트 실패:', error);
+            app.showToast('학습 상태 업데이트에 실패했습니다.', true);
+        }
     }
 };
 
-// ================================================================
-// UI Module
-// ================================================================
 const ui = {
     adjustFontSize(element) {
         element.style.fontSize = '';
@@ -495,6 +496,20 @@ const ui = {
         const minFontSize = 16;
         while (element.scrollWidth > containerWidth && currentFontSize > minFontSize) {
             element.style.fontSize = `${--currentFontSize}px`;
+        }
+    },
+    adjustFontSizeForSingleLine(element) {
+        element.style.whiteSpace = 'nowrap';
+        element.style.fontSize = '';
+        let currentFontSize = parseFloat(window.getComputedStyle(element).fontSize);
+        const container = element.parentElement;
+        const containerStyle = window.getComputedStyle(container);
+        const containerWidth = container.clientWidth - parseFloat(containerStyle.paddingLeft) - parseFloat(containerStyle.paddingRight);
+        const minFontSize = 14;
+
+        while (element.scrollWidth > containerWidth && currentFontSize > minFontSize) {
+            currentFontSize -= 1;
+            element.style.fontSize = `${currentFontSize}px`;
         }
     },
     async copyToClipboard(text) {
@@ -578,7 +593,7 @@ const ui = {
             tooltip.classList.remove('hidden');
             const translatedText = await api.translateText(sentence);
             tooltip.textContent = translatedText;
-        }, 1000); // 1초 디바운스
+        }, 1000); 
     },
     handleSentenceMouseOut() {
         clearTimeout(app.state.translateDebounceTimeout);
@@ -641,7 +656,7 @@ const ui = {
                 });
             };
 
-            const sentenceParts = sentence.split(/(\*[^*]+\*)/g);
+            const sentenceParts = sentence.split(/(\*.*?\*)/g);
             sentenceParts.forEach(part => {
                 if (part.startsWith('*') && part.endsWith('*')) {
                     const strong = document.createElement('strong');
@@ -676,22 +691,22 @@ const ui = {
         };
         
         app.elements.searchDaumContextBtn.onclick = () => {
-            window.open(`https://dic.daum.net/search.do?q=${encodedWord}`, '_blank');
+            window.open(`https://dic.daum.net/search.do?q=${encodedWord}`, 'daum_dictionary_window');
             this.hideWordContextMenu();
         };
         
         app.elements.searchNaverContextBtn.onclick = () => {
-            window.open(`https://en.dict.naver.com/#/search?query=${encodedWord}`, '_blank');
+            window.open(`https://en.dict.naver.com/#/search?query=${encodedWord}`, 'naver_dictionary_window');
             this.hideWordContextMenu();
         };
 
         app.elements.searchEtymContextBtn.onclick = () => {
-            window.open(`https://www.etymonline.com/search?q=${encodedWord}`, '_blank');
+            window.open(`https://www.etymonline.com/search?q=${encodedWord}`, 'etymonline_window');
             this.hideWordContextMenu();
         };
 
         app.elements.searchLongmanContextBtn.onclick = () => {
-            window.open(`https://www.ldoceonline.com/dictionary/${encodedWord}`, '_blank');
+            window.open(`https://www.ldoceonline.com/dictionary/${encodedWord}`, 'longman_dictionary_window');
             this.hideWordContextMenu();
         };
     },
@@ -700,9 +715,6 @@ const ui = {
     }
 };
 
-// ================================================================
-// Utility Module
-// ================================================================
 const utils = {
     levenshteinDistance(a = '', b = '') {
         const track = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
@@ -718,48 +730,84 @@ const utils = {
     }
 };
 
-// ================================================================
-// Wrong Answers (오답 노트) Module
-// ================================================================
-const wrongAnswers = {
-    KEY: 'wrongAnswerList',
-    getList() {
-        return JSON.parse(localStorage.getItem(this.KEY) || '[]');
+const dashboard = {
+    elements: {
+        container: document.getElementById('dashboard-container'),
+        content: document.getElementById('dashboard-content'),
     },
-    add(word) {
-        const list = this.getList();
-        if (!list.includes(word)) {
-            list.push(word);
-            localStorage.setItem(this.KEY, JSON.stringify(list));
+    init() {},
+    async show() {
+        if (!app.state.isWordListReady) {
+            this.elements.content.innerHTML = `<div class="text-center p-10"><div class="loader mx-auto"></div><p class="mt-4 text-gray-600">단어 목록을 동기화하는 중...</p></div>`;
+            await quizMode.waitForWordList();
         }
+        this.render();
     },
-    remove(word) {
-        let list = this.getList();
-        list = list.filter(w => w !== word);
-        localStorage.setItem(this.KEY, JSON.stringify(list));
+    render() {
+        const wordList = app.state.wordList;
+        const totalWords = wordList.length;
+
+        const srsLevels = [
+            { name: '새 단어 (New)', min: 0, max: 0, count: 0, color: 'bg-gray-400' },
+            { name: '학습 중 (Learning)', min: 1, max: 1, count: 0, color: 'bg-blue-500' },
+            { name: '익숙함 (Familiar)', min: 2, max: 2, count: 0, color: 'bg-green-500' },
+            { name: '암기 완료 (Mastered)', min: 3, max: Infinity, count: 0, color: 'bg-purple-600' }
+        ];
+
+        wordList.forEach(word => {
+            const level = word.srsLevel || 0;
+            const category = srsLevels.find(cat => level >= cat.min && level <= cat.max);
+            if (category) category.count++;
+        });
+
+        let contentHTML = `
+            <div class="bg-gray-50 p-4 rounded-lg shadow-inner text-center">
+                <p class="text-lg text-gray-600">총 단어 수</p>
+                <p class="text-4xl font-bold text-gray-800">${totalWords}</p>
+            </div>
+            <div>
+                <h2 class="text-xl font-bold text-gray-700 mb-3 text-center">학습 단계별 분포</h2>
+                <div class="space-y-4">
+        `;
+
+        srsLevels.forEach(level => {
+            const percentage = totalWords > 0 ? ((level.count / totalWords) * 100).toFixed(1) : 0;
+            contentHTML += `
+                <div class="w-full">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-base font-semibold text-gray-700">${level.name}</span>
+                        <span class="text-sm font-medium text-gray-500">${level.count}개 (${percentage}%)</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-4">
+                        <div class="${level.color} h-4 rounded-full" style="width: ${percentage}%"></div>
+                    </div>
+                </div>
+            `;
+        });
+
+        contentHTML += `</div></div>`;
+        this.elements.content.innerHTML = contentHTML;
     }
 };
 
-
-// ================================================================
-// Quiz Mode Module
-// ================================================================
 const quizMode = {
     state: {
         currentQuiz: {},
         quizBatch: [],
         isFetching: false,
         isFinished: false,
-        currentQuizType: null,
     },
     elements: {},
     init() {
         this.elements = {
-            container: document.getElementById('quiz-mode-container'),
-            typeSelection: document.getElementById('quiz-type-selection'),
+            quizSelectionScreen: document.getElementById('quiz-selection-screen'),
+            startMeaningQuizBtn: document.getElementById('start-meaning-quiz-btn'),
+            startBlankQuizBtn: document.getElementById('start-blank-quiz-btn'),
             loader: document.getElementById('quiz-loader'),
             loaderText: document.getElementById('quiz-loader-text'),
             contentContainer: document.getElementById('quiz-content-container'),
+            cardFront: document.getElementById('quiz-card-front'),
+            cardBack: document.getElementById('quiz-card-back'),
             questionDisplay: document.getElementById('quiz-question-display'),
             choices: document.getElementById('quiz-choices'),
             finishedScreen: document.getElementById('quiz-finished-screen'),
@@ -768,50 +816,28 @@ const quizMode = {
         this.bindEvents();
     },
     bindEvents() {
-        this.elements.questionDisplay.addEventListener('click', (e) => {
-            if (e.target.id === 'quiz-word') {
-                api.speak(e.target.textContent, 'word');
-                ui.copyToClipboard(e.target.textContent);
-            }
-        });
+        this.elements.startMeaningQuizBtn.addEventListener('click', () => this.start('MULTIPLE_CHOICE_MEANING'));
+        this.elements.startBlankQuizBtn.addEventListener('click', () => this.start('FILL_IN_THE_BLANK'));
         
-        this.elements.typeSelection.addEventListener('click', (e) => {
-            const btn = e.target.closest('.quiz-type-btn');
-            if (btn) {
-                this.state.currentQuizType = btn.dataset.quizType;
-                this.startQuizSession();
-            }
-        });
-
         document.addEventListener('keydown', (e) => {
             const isQuizModeActive = !this.elements.contentContainer.classList.contains('hidden') && !this.elements.choices.classList.contains('disabled');
             if (!isQuizModeActive) return;
-
-            const keyNum = parseInt(e.key);
-            if (!isNaN(keyNum) && keyNum >= 1 && keyNum <= 4) {
-                // keyNum is 1, 2, 3, or 4.
-                // The corresponding element is at index keyNum in the children list
-                // (since PASS is at index 0).
-                const choiceElement = this.elements.choices.children[keyNum];
-                if (choiceElement) {
-                    e.preventDefault();
-                    choiceElement.click();
-                }
+            // 키보드 1~4번으로 선택지 제어
+            const choiceIndex = parseInt(e.key) - 1;
+            if (choiceIndex >= 0 && choiceIndex < 4 && this.elements.choices.children[choiceIndex + 1]) { // +1 for PASS button
+                e.preventDefault();
+                this.elements.choices.children[choiceIndex + 1].click();
             }
         });
     },
-    start() {
-        this.reset();
-        this.elements.typeSelection.classList.remove('hidden');
-    },
-    async startQuizSession() {
-        this.elements.typeSelection.classList.add('hidden');
+    async start(quizType) {
+        this.elements.quizSelectionScreen.classList.add('hidden');
         this.showLoader(true);
         if (!app.state.isWordListReady) {
             this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
             await this.waitForWordList();
         }
-        await this.fetchQuizBatch();
+        await this.fetchQuizBatch(quizType);
         this.displayNextQuiz();
     },
     async waitForWordList() {
@@ -828,22 +854,21 @@ const quizMode = {
         this.state.quizBatch = [];
         this.state.isFetching = false;
         this.state.isFinished = false;
-        this.state.currentQuizType = null;
+        this.elements.quizSelectionScreen.classList.remove('hidden');
         this.elements.loader.classList.add('hidden');
         this.elements.contentContainer.classList.add('hidden');
         this.elements.finishedScreen.classList.add('hidden');
-        this.elements.typeSelection.classList.add('hidden');
     },
-    async fetchQuizBatch() {
+    async fetchQuizBatch(quizType) {
         if (this.state.isFetching || this.state.isFinished) return;
         this.state.isFetching = true;
-        this.elements.loaderText.textContent = "퀴즈 데이터를 불러오는 중...";
         try {
-            const data = await api.fetchFromGoogleSheet('getQuiz', { quizType: this.state.currentQuizType });
+            // 보기를 4개(정답1+오답3)로 요청
+            const data = await api.fetchFromGoogleSheet('getQuiz', { quizType: quizType, choiceCount: 4 });
             if (data.finished) {
                 this.state.isFinished = true;
                 if (this.state.quizBatch.length === 0) {
-                    this.showFinishedScreen(data.message || "모든 단어 학습을 완료했습니다!");
+                    this.showFinishedScreen(data.message || "오늘 복습할 단어를 모두 학습했습니다!");
                 }
                 return;
             }
@@ -861,7 +886,7 @@ const quizMode = {
     },
     displayNextQuiz() {
         if (!this.state.isFetching && this.state.quizBatch.length <= 3) {
-            this.fetchQuizBatch();
+            this.fetchQuizBatch(this.state.currentQuiz.type);
         }
         if (this.state.quizBatch.length === 0) {
             if(this.state.isFetching) {
@@ -871,9 +896,6 @@ const quizMode = {
                     if(this.state.quizBatch.length > 0) {
                         clearInterval(checker);
                         this.displayNextQuiz();
-                    } else if (this.state.isFinished) {
-                        clearInterval(checker);
-                        this.showFinishedScreen("모든 단어 학습을 완료했습니다!");
                     }
                 }, 100)
             } 
@@ -887,86 +909,89 @@ const quizMode = {
         this.showLoader(false);
         this.renderQuiz(nextQuiz);
     },
-    renderQuiz(quiz) {
+    renderQuiz(quizData) {
+        this.elements.cardFront.classList.remove('hidden');
+        this.elements.cardBack.classList.add('hidden');
+        
+        const { type, question, choices, answer } = quizData;
         const questionDisplay = this.elements.questionDisplay;
         questionDisplay.innerHTML = '';
-    
-        if (quiz.type === 'MULTIPLE_CHOICE_MEANING') {
-            const wordEl = document.createElement('h1');
-            wordEl.id = 'quiz-word';
-            wordEl.className = 'text-3xl sm:text-4xl font-bold text-center text-gray-800 w-full';
-            wordEl.title = '클릭하여 발음 듣기';
-            wordEl.textContent = quiz.question.word;
-            questionDisplay.appendChild(wordEl);
+        questionDisplay.classList.remove('justify-start');
+        questionDisplay.classList.add('items-center', 'justify-center');
+
+        if (type === 'FILL_IN_THE_BLANK') {
+            questionDisplay.classList.remove('items-center', 'justify-center');
+            questionDisplay.classList.add('justify-start');
+            
+            const p = document.createElement('p');
+            p.className = 'text-xl sm:text-2xl text-left text-gray-800 leading-relaxed w-full';
+            
+            let processedText = question.sentence_with_blank.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
+            p.innerHTML = processedText.replace(/\n/g, ' ');
+
+            questionDisplay.appendChild(p);
+            ui.adjustFontSizeForSingleLine(p);
+        } else { // MULTIPLE_CHOICE_MEANING
+            questionDisplay.innerHTML = `<h1 class="text-3xl sm:text-4xl font-bold text-center text-gray-800" title="클릭하여 발음 듣기 및 복사">${question.word}</h1>`;
+            const wordEl = questionDisplay.querySelector('h1');
+            wordEl.addEventListener('click', () => {
+                api.speak(question.word, 'word');
+                ui.copyToClipboard(question.word);
+            });
             ui.adjustFontSize(wordEl);
-        } else if (quiz.type === 'FILL_IN_THE_BLANK') {
-            const sentenceEl = document.createElement('h1');
-            sentenceEl.className = 'text-2xl font-semibold text-gray-800 leading-relaxed';
-            sentenceEl.innerHTML = quiz.question.sentence_with_blank.replace(/\n/g, '<br>');
-            questionDisplay.appendChild(sentenceEl);
         }
 
         this.elements.choices.innerHTML = '';
-
-        // PASS 버튼 추가
-        const passLi = document.createElement('li');
-        passLi.className = 'choice-item border-2 border-red-500 bg-red-500 text-white p-4 rounded-lg cursor-pointer text-center font-bold transition-all hover:bg-red-600';
-        passLi.textContent = 'PASS';
-        passLi.onclick = () => this.handlePass(passLi);
-        this.elements.choices.appendChild(passLi);
         
-        // 선택지 버튼들 추가
-        quiz.choices.forEach((choice, index) => {
+        const passLi = document.createElement('li');
+        passLi.className = 'choice-item bg-red-500 hover:bg-red-600 text-white font-bold p-3 rounded-lg cursor-pointer flex justify-center items-center transition-all text-center text-lg';
+        passLi.textContent = 'PASS';
+        passLi.onclick = () => this.handlePass();
+        this.elements.choices.appendChild(passLi);
+
+        choices.forEach((choice, index) => {
             const li = document.createElement('li');
-            li.className = 'choice-item border-2 border-gray-300 p-4 rounded-lg cursor-pointer flex items-start transition-all';
+            li.className = 'choice-item border-2 border-gray-300 p-3 rounded-lg cursor-pointer flex items-start transition-all';
             li.innerHTML = `<span class="font-bold mr-3">${index + 1}.</span> <span>${choice}</span>`;
-            li.onclick = () => this.checkAnswer(li, choice);
+            li.onclick = () => this.checkAnswer(li, choice, answer);
             this.elements.choices.appendChild(li);
         });
 
         this.elements.choices.classList.remove('disabled');
     },
-    handlePass(passLi) {
+    handlePass() {
         this.elements.choices.classList.add('disabled');
         const word = this.state.currentQuiz.question.word_info.word;
-
-        // PASS를 오답으로 처리
-        passLi.classList.add('incorrect');
-
-        // SRS 데이터 업데이트 및 오답 노트에 추가
-        api.fetchFromGoogleSheet('updateSRSData', { word: word, isCorrect: false });
-        wrongAnswers.add(word);
-        
-        // 정답 표시
-        const correctAnswerEl = Array.from(this.elements.choices.children).find(li => {
-            const choiceTextEl = li.querySelector('span:last-child');
-            return choiceTextEl && choiceTextEl.textContent === this.state.currentQuiz.answer;
-        });
-        correctAnswerEl?.classList.add('correct');
-        
-        setTimeout(() => this.displayNextQuiz(), 1500);
+        // PASS는 오답으로 처리
+        api.updateSRSData(word, false);
+        mistakeLog.add(word);
+        // 시각적 피드백 없이 바로 다음 문제로
+        setTimeout(() => this.displayNextQuiz(), 300);
     },
-    checkAnswer(selectedLi, selectedChoice) {
+    checkAnswer(selectedLi, selectedChoice, correctAnswer) {
         this.elements.choices.classList.add('disabled');
-        const isCorrect = selectedChoice === this.state.currentQuiz.answer;
-        const word = this.state.currentQuiz.question.word_info.word;
-
-        selectedLi.classList.add(isCorrect ? 'correct' : 'incorrect');
-
-        api.fetchFromGoogleSheet('updateSRSData', { word: word, isCorrect: isCorrect });
         
-        if (isCorrect) {
-            wrongAnswers.remove(word);
-        } else {
-            wrongAnswers.add(word);
-            const correctAnswerEl = Array.from(this.elements.choices.children).find(li => li.querySelector('span:last-child').textContent === this.state.currentQuiz.answer);
+        const isCorrect = selectedChoice === correctAnswer;
+        selectedLi.classList.add(isCorrect ? 'correct' : 'incorrect');
+        
+        const word = this.state.currentQuiz.question.word_info.word;
+        api.updateSRSData(word, isCorrect);
+
+        if (!isCorrect) {
+            mistakeLog.add(word);
+            const correctAnswerEl = Array.from(this.elements.choices.children).find(li => li.querySelector('span:last-child')?.textContent === correctAnswer);
             correctAnswerEl?.classList.add('correct');
+        } else {
+            mistakeLog.remove(word);
         }
+        
         setTimeout(() => this.displayNextQuiz(), 1500);
     },
     showLoader(isLoading) {
         this.elements.loader.classList.toggle('hidden', !isLoading);
+        this.elements.quizSelectionScreen.classList.add('hidden');
         this.elements.contentContainer.classList.toggle('hidden', isLoading);
+        this.elements.finishedScreen.classList.add('hidden');
     },
     showFinishedScreen(message) {
         this.showLoader(false);
@@ -976,16 +1001,14 @@ const quizMode = {
     }
 };
 
-// ================================================================
-// Learning Mode Module
-// ================================================================
 const learningMode = {
     state: {
         currentIndex: 0,
-        currentWordList: [],
         touchstartX: 0,
         touchstartY: 0,
-        isWrongAnswersMode: false,
+        lastWheelTime: 0,
+        isMistakeMode: false,
+        currentWordList: [],
     },
     elements: {},
     init() {
@@ -1017,8 +1040,8 @@ const learningMode = {
         this.bindEvents();
     },
     bindEvents() {
-        this.elements.startBtn.addEventListener('click', () => this.handleStartFromInput());
-        this.elements.startWordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.handleStartFromInput(); });
+        this.elements.startBtn.addEventListener('click', () => this.start());
+        this.elements.startWordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.start(); });
         this.elements.startWordInput.addEventListener('input', (e) => {
             const originalValue = e.target.value;
             const sanitizedValue = originalValue.replace(/[^a-zA-Z\s'-]/g, '');
@@ -1065,52 +1088,28 @@ const learningMode = {
             clearTimeout(app.state.longPressTimer);
         });
 
+        document.addEventListener('mousedown', this.handleMiddleClick.bind(this));
         document.addEventListener('keydown', this.handleKeyDown.bind(this));
         document.addEventListener('touchstart', this.handleTouchStart.bind(this), { passive: true });
         document.addEventListener('touchend', this.handleTouchEnd.bind(this));
     },
-    async start(options = {}) {
-        this.state.isWrongAnswersMode = options.isWrongAnswersMode || false;
-        
-        if (this.state.isWrongAnswersMode) {
-            this.elements.startScreen.classList.add('hidden');
-            this.elements.loader.classList.remove('hidden');
-            this.elements.loaderText.textContent = "오답 노트를 불러오는 중...";
-            await this.waitForWordList();
-            
-            const wrongWords = wrongAnswers.getList();
-            this.state.currentWordList = app.state.wordList.filter(w => wrongWords.includes(w.word));
-            
-            if (this.state.currentWordList.length === 0) {
-                this.showError("오답 노트에 단어가 없습니다.", true);
-                return;
-            }
-            this.state.currentIndex = 0;
-            this.launchApp();
-
-        } else if (options.startWord) {
-             this.elements.startScreen.classList.add('hidden');
-             this.elements.loader.classList.remove('hidden');
-             this.elements.loaderText.textContent = "단어를 찾는 중...";
-             await this.waitForWordList();
-             this.findAndDisplayWord(options.startWord);
-        } else {
-             this.resetStartScreen();
-             this.elements.startScreen.classList.remove('hidden');
-        }
-    },
-    handleStartFromInput() {
-        const startWord = this.elements.startWordInput.value.trim();
-        app.navigateTo('learning', { startWord: startWord || null });
-    },
-    async findAndDisplayWord(startWord) {
+    async start() {
+        this.state.isMistakeMode = false;
         this.state.currentWordList = app.state.wordList;
+
+        this.elements.startScreen.classList.add('hidden');
+        this.elements.loader.classList.remove('hidden');
+        if (!app.state.isWordListReady) {
+            this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
+            await this.waitForWordList();
+        }
+        const startWord = this.elements.startWordInput.value.trim();
         const wordList = this.state.currentWordList;
         if (wordList.length === 0) {
             this.showError("학습할 단어가 없습니다.");
             return;
         }
-
+    
         if (!startWord) {
             this.state.currentIndex = 0;
             this.launchApp();
@@ -1146,7 +1145,7 @@ const learningMode = {
         }))
         .sort((a, b) => a.distance - b.distance)
         .slice(0, 5)
-        .filter(s => s.distance < s.word.length / 2 + 1); 
+        .filter(s => s.distance < s.word.length / 2 + 1);
     
         if (levenshteinSuggestions.length > 0) {
             const title = `입력하신 단어를 찾을 수 없습니다.<br>혹시 이 단어를 찾으시나요?`;
@@ -1158,10 +1157,6 @@ const learningMode = {
     },
     async waitForWordList() {
         return new Promise(resolve => {
-            if (app.state.isWordListReady) {
-                resolve();
-                return;
-            }
             const interval = setInterval(() => {
                 if(app.state.isWordListReady) {
                     clearInterval(interval);
@@ -1170,13 +1165,9 @@ const learningMode = {
             }, 100);
         });
     },
-    showError(message, isWrongAnswerModeError = false) {
-        this.elements.loader.classList.remove('hidden');
+    showError(message) {
         this.elements.loader.querySelector('.loader').style.display = 'none';
         this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">오류 발생</p><p class="text-sm text-gray-600 mt-2 break-all">${message}</p>`;
-        if (isWrongAnswerModeError) {
-             setTimeout(() => app.navigateTo('selection'), 3000);
-        }
     },
     launchApp() {
         this.elements.startScreen.classList.add('hidden');
@@ -1213,7 +1204,6 @@ const learningMode = {
             btn.textContent = word;
             btn.onclick = () => {
                 this.state.currentIndex = index;
-                this.state.currentWordList = app.state.wordList;
                 this.launchApp();
             };
             this.elements.suggestionsList.appendChild(btn);
@@ -1238,14 +1228,14 @@ const learningMode = {
         
         switch(wordData.sampleSource) {
             case 'manual':
-                this.elements.sampleBtnImg.src = 'https://i.imgur.com/7aJm3j2.png';
+                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png';
                 break;
             case 'ai':
-                this.elements.sampleBtnImg.src = 'https://i.imgur.com/Ndc2g8q.png';
+                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/3-search-cat_icon-icons.com_76679.png';
                 break;
             case 'none':
             default:
-                this.elements.sampleBtnImg.src = 'https://i.imgur.com/2Y0sJk0.png';
+                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
                 break;
         }
     },
@@ -1268,15 +1258,41 @@ const learningMode = {
             this.elements.backTitle.textContent = wordData.word;
             ui.displaySentences(wordData.sample.split('\n'), this.elements.backContent);
             this.elements.cardBack.classList.add('is-slid-up');
-            this.elements.sampleBtnImg.src = 'https://i.imgur.com/tVv2sBf.png';
+            this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/5-remove-cat_icon-icons.com_76681.png';
 
         } else {
             this.elements.cardBack.classList.remove('is-slid-up');
             this.displayWord(this.state.currentIndex);
         }
     },
+    async startMistakeReview(mistakeWords) {
+        this.elements.startScreen.classList.add('hidden');
+        this.elements.loader.classList.remove('hidden');
+        if (!app.state.isWordListReady) {
+            this.elements.loaderText.textContent = "단어 목록 동기화 중...";
+            await this.waitForWordList();
+        }
+        
+        this.state.isMistakeMode = true;
+        this.state.currentWordList = app.state.wordList.filter(wordObj => mistakeWords.includes(wordObj.word));
+        this.state.currentIndex = 0;
+        
+        if (this.state.currentWordList.length === 0) {
+            this.showError("오답 노트를 불러올 수 없습니다.");
+            setTimeout(() => app.navigateTo('selection'), 2000);
+            return;
+        }
+        
+        this.launchApp();
+    },
     isLearningModeActive() {
         return !this.elements.appContainer.classList.contains('hidden');
+    },
+    handleMiddleClick(e) {
+        if (this.isLearningModeActive() && e.button === 1) {
+            e.preventDefault();
+            this.elements.sampleBtn.click();
+        }
     },
     handleKeyDown(e) {
         if (!this.isLearningModeActive() || document.activeElement.tagName.match(/INPUT|TEXTAREA/)) return;
@@ -1284,14 +1300,19 @@ const learningMode = {
         if (keyMap[e.key] !== undefined) {
             e.preventDefault();
             this.navigate(keyMap[e.key]);
-        } else if (e.key === 'Enter' || e.key === ' ') {
+        } else if (e.key === 'Enter') {
             e.preventDefault();
             this.handleFlip();
-        } 
+        } else if (e.key === ' ') {
+            e.preventDefault();
+            if (!this.elements.cardBack.classList.contains('is-slid-up')) {
+                api.speak(this.elements.wordDisplay.textContent, 'word');
+            }
+        }
     },
     handleTouchStart(e) {
         if (!this.isLearningModeActive()) return;
-        if (e.target.closest('#word-display')) return; 
+        if (e.target.closest('#word-display')) return;
         this.state.touchstartX = e.changedTouches[0].screenX;
         this.state.touchstartY = e.changedTouches[0].screenY;
     },
@@ -1310,86 +1331,11 @@ const learningMode = {
         else if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 50) {
             if (!e.target.closest('#learning-app-container')) {
                 if (deltaY < 0) { 
-                    this.navigate(1);
+                    this.navigate(1); 
                 }
             }
         }
         this.state.touchstartX = this.state.touchstartY = 0;
-    }
-};
-
-// ================================================================
-// Dashboard Module
-// ================================================================
-const dashboard = {
-    elements: {
-        container: null,
-        totalWordsEl: null,
-        chartContainer: null,
-    },
-    chart: null,
-    init() {
-        this.elements.container = document.getElementById('dashboard-container');
-        this.elements.totalWordsEl = document.getElementById('total-words');
-        this.elements.chartContainer = document.getElementById('srs-chart-container');
-    },
-    async show() {
-        if (!app.state.isWordListReady) {
-            this.elements.totalWordsEl.textContent = '...';
-            await learningMode.waitForWordList();
-        }
-        
-        const wordList = app.state.wordList;
-        this.elements.totalWordsEl.textContent = wordList.length;
-
-        const srsCounts = wordList.reduce((acc, word) => {
-            const level = word.srsLevel || 0;
-            acc[level] = (acc[level] || 0) + 1;
-            return acc;
-        }, {});
-
-        const labels = Object.keys(srsCounts).sort((a,b) => a-b).map(level => `Level ${level}`);
-        const data = Object.keys(srsCounts).sort((a,b) => a-b).map(level => srsCounts[level]);
-
-        this.renderChart(labels, data);
-    },
-    renderChart(labels, data) {
-        if (this.chart) {
-            this.chart.destroy();
-        }
-        this.elements.chartContainer.innerHTML = '<canvas id="srs-chart"></canvas>';
-        const ctx = document.getElementById('srs-chart').getContext('2d');
-        
-        this.chart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: '단어 수',
-                    data: data,
-                    backgroundColor: 'rgba(54, 162, 235, 0.6)',
-                    borderColor: 'rgba(54, 162, 235, 1)',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            stepSize: 10
-                        }
-                    }
-                },
-                plugins: {
-                    legend: {
-                        display: false
-                    }
-                }
-            }
-        });
     }
 };
 
