@@ -913,7 +913,41 @@ const quizMode = {
         questionDisplay.innerHTML = '';
 
         if (type === 'FILL_IN_THE_BLANK') {
-            questionDisplay.innerHTML = `<p class="text-xl sm:text-2xl text-center text-gray-800 leading-relaxed">${question.sentence_with_blank}</p>`;
+            const sentence = question.sentence_with_blank;
+            questionDisplay.innerHTML = ''; // 이전 내용을 지웁니다.
+
+            const p = document.createElement('p');
+            // 2. 왼쪽 정렬을 위해 text-left 클래스를 사용합니다.
+            p.className = 'text-xl sm:text-2xl text-left text-gray-800 leading-relaxed';
+
+            // 문장의 시작 부분에서 이모지를 찾기 위한 정규식입니다.
+            const emojiRegex = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u;
+            const emojiMatch = sentence.match(emojiRegex);
+            
+            if (emojiMatch) {
+                // 이모지가 있는 경우, flexbox를 사용하여 정렬합니다.
+                p.classList.add('flex', 'items-baseline');
+                
+                const emoji = emojiMatch[1];
+                const restOfSentence = sentence.substring(emojiMatch[0].length);
+                
+                const emojiSpan = document.createElement('span');
+                emojiSpan.className = 'inline-block mr-2'; // 이모지와 텍스트 사이의 간격
+                emojiSpan.textContent = emoji;
+
+                const textSpan = document.createElement('span');
+                // 1. '*'로 둘러싸인 텍스트를 <strong> 태그로 변환합니다.
+                textSpan.innerHTML = restOfSentence.replace(/\*([^*]+)\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+                
+                p.appendChild(emojiSpan);
+                p.appendChild(textSpan);
+            } else {
+                // 이모지가 없는 경우, 텍스트만 처리합니다.
+                // 1. '*'로 둘러싸인 텍스트를 <strong> 태그로 변환합니다.
+                p.innerHTML = sentence.replace(/\*([^*]+)\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+            }
+            
+            questionDisplay.appendChild(p);
         } else { // MULTIPLE_CHOICE_MEANING
             questionDisplay.innerHTML = `<h1 class="text-3xl sm:text-4xl font-bold text-center text-gray-800" title="클릭하여 발음 듣기 및 복사">${question.word}</h1>`;
             const wordEl = questionDisplay.querySelector('h1');
@@ -1364,4 +1398,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
