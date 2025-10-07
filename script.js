@@ -460,9 +460,21 @@ const api = {
         if (data.error) throw new Error(data.message);
         return data;
     },
+    // [MODIFIED] 로컬 캐시를 업데이트하는 로직 추가
     async updateSRSData(word, isCorrect) {
         try {
-            await this.fetchFromGoogleSheet('updateSRSData', { word, isCorrect });
+            const response = await this.fetchFromGoogleSheet('updateSRSData', { word, isCorrect });
+            if (response.success && response.updatedWord) {
+                // 앱의 단어 목록(app.state.wordList)에서 해당 단어를 찾아 업데이트합니다.
+                const wordIndex = app.state.wordList.findIndex(w => w.word === word);
+                if (wordIndex !== -1) {
+                    app.state.wordList[wordIndex].srsLevel = response.updatedWord.srsLevel;
+                    app.state.wordList[wordIndex].nextReview = response.updatedWord.nextReview;
+                }
+                // localStorage 캐시도 새로운 정보로 덮어씁니다.
+                const cachePayload = { timestamp: Date.now(), words: app.state.wordList };
+                localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
+            }
         } catch (error) {
             console.error('SRS 데이터 업데이트 실패:', error);
             app.showToast('학습 상태 업데이트에 실패했습니다.', true);
@@ -721,7 +733,7 @@ const dashboard = {
             { name: '새 단어 (New)', min: 0, max: 0, count: 0, color: 'bg-gray-400' },
             { name: '학습 중 (Learning)', min: 1, max: 1, count: 0, color: 'bg-blue-500' },
             { name: '익숙함 (Familiar)', min: 2, max: 2, count: 0, color: 'bg-green-500' },
-            { name: '학습 완료 (Learned)', min: 3, max: Infinity, count: 0, color: 'bg-purple-600' } // [MODIFIED] 텍스트 변경
+            { name: '학습 완료 (Learned)', min: 3, max: Infinity, count: 0, color: 'bg-purple-600' }
         ];
 
         wordList.forEach(word => {
@@ -792,13 +804,12 @@ const quizMode = {
         document.addEventListener('keydown', (e) => {
             const isQuizModeActive = !this.elements.contentContainer.classList.contains('hidden') && !this.elements.choices.classList.contains('disabled');
             if (!isQuizModeActive) return;
-            // Allow numbers 1-4 for choices, key "0" or "p" for PASS
             if (e.key.toLowerCase() === 'p' || e.key === '0') {
                  e.preventDefault();
                  const passButton = this.elements.choices.children[0];
                  if(passButton) passButton.click();
             } else {
-                const choiceIndex = parseInt(e.key); // 1-based index
+                const choiceIndex = parseInt(e.key);
                 if (choiceIndex >= 1 && choiceIndex <= 4 && this.elements.choices.children[choiceIndex]) {
                     e.preventDefault();
                     this.elements.choices.children[choiceIndex].click();
@@ -861,7 +872,7 @@ const quizMode = {
     },
     displayNextQuiz() {
         if (!this.state.isFetching && this.state.quizBatch.length <= 3) {
-            this.fetchQuizBatch(this.state.currentQuiz.type); // Fetch more of the same type
+            this.fetchQuizBatch(this.state.currentQuiz.type);
         }
         if (this.state.quizBatch.length === 0) {
             if(this.state.isFetching) {
@@ -899,7 +910,7 @@ const quizMode = {
             processedText = processedText.replace(/＿＿＿＿/g, '<span style="white-space: nowrap;">＿＿＿＿</span>');
             p.innerHTML = processedText.replace(/\n/g, '<br>');
             questionDisplay.appendChild(p);
-        } else { // MULTIPLE_CHOICE_MEANING
+        } else {
             questionDisplay.innerHTML = `<h1 class="text-3xl sm:text-4xl font-bold text-center text-gray-800" title="클릭하여 발음 듣기 및 복사">${question.word}</h1>`;
             const wordEl = questionDisplay.querySelector('h1');
             wordEl.addEventListener('click', () => {
@@ -911,14 +922,12 @@ const quizMode = {
 
         this.elements.choices.innerHTML = '';
 
-        // "PASS" 버튼 생성
         const passLi = document.createElement('li');
         passLi.className = 'choice-item border-2 border-red-500 bg-red-500 hover:bg-red-600 text-white p-4 rounded-lg cursor-pointer flex items-center justify-center transition-all font-bold text-lg';
         passLi.innerHTML = `<span>PASS</span>`;
-        passLi.onclick = () => this.checkAnswer(passLi, 'USER_PASSED', answer); // "USER_PASSED"는 정답과 절대 같을 수 없는 임의의 값
+        passLi.onclick = () => this.checkAnswer(passLi, 'USER_PASSED', answer);
         this.elements.choices.appendChild(passLi);
         
-        // 선택지 버튼들 생성
         choices.forEach((choice, index) => {
             const li = document.createElement('li');
             li.className = 'choice-item border-2 border-gray-300 p-4 rounded-lg cursor-pointer flex items-start transition-all';
@@ -929,18 +938,18 @@ const quizMode = {
 
         this.elements.choices.classList.remove('disabled');
     },
-    checkAnswer(selectedLi, selectedChoice, correctAnswer) {
+    // [MODIFIED] async/await 추가
+    async checkAnswer(selectedLi, selectedChoice, correctAnswer) {
         this.elements.choices.classList.add('disabled');
         
         const isCorrect = selectedChoice === correctAnswer;
         selectedLi.classList.add(isCorrect ? 'correct' : 'incorrect');
         
         const word = this.state.currentQuiz.question.word_info.word;
-        api.updateSRSData(word, isCorrect);
+        await api.updateSRSData(word, isCorrect);
 
         if (!isCorrect) {
             mistakeLog.add(word);
-            // 오답일 경우 정답 선택지를 찾아서 표시
             const correctAnswerEl = Array.from(this.elements.choices.children).find(li => {
                 const choiceSpan = li.querySelector('span:last-child');
                 return choiceSpan && choiceSpan.textContent === correctAnswer;
