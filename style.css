@@ -31,33 +31,49 @@ body {
     transform: rotateY(-180deg);
 }
 
-/* UX 개선 스타일 */
+/* --- Main Menu --- */
+.menu-btn {
+    @apply cursor-pointer flex flex-col items-center;
+}
+.menu-img {
+    @apply w-full h-36 object-cover rounded-2xl shadow-lg transition-all duration-300 transform group-hover:shadow-2xl group-hover:scale-105;
+}
+.menu-text {
+    @apply mt-3 font-semibold text-gray-700 text-lg;
+}
+#select-learning-btn:hover .menu-img { @apply -rotate-2; }
+#select-quiz-btn:hover .menu-img { @apply rotate-2; }
+#select-stats-btn:hover .menu-img { @apply -rotate-2; }
+#select-notes-btn:hover .menu-img { @apply rotate-2; }
+
+
+/* --- Quiz UX --- */
 .choice-item:hover { transform: scale(1.02); }
-.choice-item.submitting { background-color: #e2e8f0; } /* Tailwind gray-200 */
 .correct { background-color: #28a745 !important; color: white !important; transform: scale(1.05); border-color: #28a745; }
 .incorrect { background-color: #dc3545 !important; color: white !important; border-color: #dc3545; }
-.disabled { pointer-events: none; opacity: 0.7; }
+#quiz-choices.disabled .choice-item {
+    pointer-events: none;
+    opacity: 0.6;
+}
+#quiz-choices.disabled .choice-item.correct,
+#quiz-choices.disabled .choice-item.incorrect {
+    opacity: 1;
+}
 
-/* 단어 위 텍스트 선택 방지 (터치 시 기본 메뉴 비활성화) */
+
+/* Interactive word styling */
 .interactive-word {
     -webkit-user-select: none; /* Safari */
     -moz-user-select: none;    /* Firefox */
     -ms-user-select: none;     /* IE/Edge */
     user-select: none;         /* Standard */
 }
-
 #word-display:hover, #quiz-word:hover, .interactive-word:hover { color: #1e40af; cursor: pointer; }
-#word-display.word-clicked, #quiz-word.word-clicked, .interactive-word.word-clicked {
-    background-color: #d1fae5; /* Tailwind green-100 */
-    transition: background-color 0.1s;
-    border-radius: 0.375rem;
-}
 .sample-sentence:hover { background-color: #f0f4f8; cursor: pointer; }
 
 #word-display, #quiz-word {
     white-space: nowrap;
 }
-
 .pronunciation-inline {
     font-size: 60%;
     opacity: 0.8;
@@ -66,16 +82,14 @@ body {
     vertical-align: middle;
 }
 
+/* Learning Mode Flip Card */
 #learning-app-container .relative {
     overflow: hidden;
     border-radius: 1rem;
 }
 #learning-card-back {
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    top: 0; left: 0; right: 0; bottom: 0;
     transform: translateY(100%);
     opacity: 0;
     transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.3s ease-in-out;
@@ -88,7 +102,12 @@ body {
     opacity: 1;
     pointer-events: auto;
 }
-
 #learning-card-front {
-    min-height: 45vh; /* 화면 높이의 45%를 최소 높이로 지정 */
+    min-height: 45vh;
+}
+
+/* Blank Quiz Sentence Styling */
+#blank-quiz-sentence .blank {
+    @apply inline-block bg-gray-300 text-transparent rounded-md px-2 py-1 mx-1 select-none;
+    min-width: 80px;
 }
