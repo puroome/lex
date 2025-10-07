@@ -116,7 +116,7 @@ const app = {
         if (mode === 'quiz') {
             showCommonButtons();
             this.elements.quizModeContainer.classList.remove('hidden');
-            quizMode.start();
+            quizMode.reset();
         } else if (mode === 'learning') {
             showCommonButtons();
             this.elements.refreshBtn.classList.remove('hidden');
@@ -788,6 +788,9 @@ const quizMode = {
     elements: {},
     init() {
         this.elements = {
+            quizSelectionScreen: document.getElementById('quiz-selection-screen'),
+            startMeaningQuizBtn: document.getElementById('start-meaning-quiz-btn'),
+            startBlankQuizBtn: document.getElementById('start-blank-quiz-btn'),
             loader: document.getElementById('quiz-loader'),
             loaderText: document.getElementById('quiz-loader-text'),
             contentContainer: document.getElementById('quiz-content-container'),
@@ -806,6 +809,8 @@ const quizMode = {
         this.bindEvents();
     },
     bindEvents() {
+        this.elements.startMeaningQuizBtn.addEventListener('click', () => this.start('MULTIPLE_CHOICE_MEANING'));
+        this.elements.startBlankQuizBtn.addEventListener('click', () => this.start('FILL_IN_THE_BLANK'));
         this.elements.passBtn.addEventListener('click', () => this.displayNextQuiz());
         this.elements.sampleBtn.addEventListener('click', () => this.handleFlip('sample'));
         this.elements.explanationBtn.addEventListener('click', () => this.handleFlip('explanation'));
@@ -820,13 +825,14 @@ const quizMode = {
             }
         });
     },
-    async start() {
-        this.reset();
+    async start(quizType) {
+        this.elements.quizSelectionScreen.classList.add('hidden');
+        this.showLoader(true);
         if (!app.state.isWordListReady) {
             this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
             await this.waitForWordList();
         }
-        await this.fetchQuizBatch();
+        await this.fetchQuizBatch(quizType);
         this.displayNextQuiz();
     },
     async waitForWordList() {
@@ -843,17 +849,16 @@ const quizMode = {
         this.state.quizBatch = [];
         this.state.isFetching = false;
         this.state.isFinished = false;
-        this.showLoader(true);
-        this.elements.loader.querySelector('.loader').style.display = 'block';
-        this.elements.loaderText.textContent = "퀴즈 데이터를 불러오는 중...";
+        this.elements.quizSelectionScreen.classList.remove('hidden');
+        this.elements.loader.classList.add('hidden');
         this.elements.contentContainer.classList.add('hidden');
         this.elements.finishedScreen.classList.add('hidden');
     },
-    async fetchQuizBatch() {
+    async fetchQuizBatch(quizType) {
         if (this.state.isFetching || this.state.isFinished) return;
         this.state.isFetching = true;
         try {
-            const data = await api.fetchFromGoogleSheet('getQuiz');
+            const data = await api.fetchFromGoogleSheet('getQuiz', { quizType });
             if (data.finished) {
                 this.state.isFinished = true;
                 if (this.state.quizBatch.length === 0) {
@@ -875,7 +880,7 @@ const quizMode = {
     },
     displayNextQuiz() {
         if (!this.state.isFetching && this.state.quizBatch.length <= 3) {
-            this.fetchQuizBatch();
+            this.fetchQuizBatch(this.state.currentQuiz.type); // Fetch more of the same type
         }
         if (this.state.quizBatch.length === 0) {
             if(this.state.isFetching) {
@@ -964,6 +969,7 @@ const quizMode = {
     },
     showLoader(isLoading) {
         this.elements.loader.classList.toggle('hidden', !isLoading);
+        this.elements.quizSelectionScreen.classList.add('hidden');
         this.elements.contentContainer.classList.toggle('hidden', isLoading);
         this.elements.finishedScreen.classList.add('hidden');
     },
