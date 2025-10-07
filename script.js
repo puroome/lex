@@ -55,7 +55,21 @@ const app = {
     bindGlobalEvents() {
         document.getElementById('select-quiz-btn').addEventListener('click', () => this.navigateTo('quiz'));
         document.getElementById('select-learning-btn').addEventListener('click', () => this.navigateTo('learning'));
-        document.getElementById('select-dashboard-btn').addEventListener('click', () => this.navigateTo('dashboard'));
+        
+        // [MODIFIED] '학습 통계' 버튼 클릭 시, 데이터를 새로고침하고 화면으로 이동하도록 변경
+        document.getElementById('select-dashboard-btn').addEventListener('click', async () => {
+            this.navigateTo('dashboard');
+            // 화면이 전환될 시간을 잠시 기다립니다.
+            await new Promise(resolve => setTimeout(resolve, 10)); 
+            dashboard.elements.content.innerHTML = `<div class="text-center p-10"><div class="loader mx-auto"></div><p class="mt-4 text-gray-600">최신 통계를 불러오는 중...</p></div>`;
+            try {
+                await api.loadWordList(true); // 시트에서 최신 데이터를 강제로 다시 불러옵니다.
+                dashboard.render(); // 새로 불러온 데이터로 통계 화면을 다시 그립니다.
+            } catch (e) {
+                dashboard.elements.content.innerHTML = `<div class="p-8 text-center text-red-600">통계 데이터를 불러오는데 실패했습니다: ${e.message}</div>`;
+            }
+        });
+
         document.getElementById('select-mistakes-btn').addEventListener('click', () => this.navigateTo('mistakeReview'));
 
         this.elements.homeBtn.addEventListener('click', () => this.navigateTo('selection'));
@@ -132,7 +146,7 @@ const app = {
         } else if (mode === 'dashboard') {
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.dashboardContainer.classList.remove('hidden');
-            dashboard.show();
+            // dashboard.show()는 click 이벤트 핸들러가 처리하므로 여기서는 화면 컨테이너만 보여줍니다.
         } else if (mode === 'mistakeReview') {
             const mistakeWords = mistakeLog.get();
             if (mistakeWords.length === 0) {
@@ -169,7 +183,7 @@ const app = {
         elementsToDisable.forEach(el => { if(el) el.disabled = true; });
         sheetLink.classList.add('pointer-events-none', 'opacity-50');
         const originalBtnText = learningMode.elements.startBtn.textContent;
-        learningMode.elements.startBtn.textContent = '새로고침 중...';
+        if(learningMode.elements.startBtn) learningMode.elements.startBtn.textContent = '새로고침 중...';
 
         try {
             await api.loadWordList(true);
@@ -179,7 +193,7 @@ const app = {
         } finally {
             elementsToDisable.forEach(el => { if(el) el.disabled = false; });
             sheetLink.classList.remove('pointer-events-none', 'opacity-50');
-            learningMode.elements.startBtn.textContent = originalBtnText;
+            if(learningMode.elements.startBtn) learningMode.elements.startBtn.textContent = originalBtnText;
         }
     },
     showToast(message, isError = false) {
@@ -460,7 +474,6 @@ const api = {
         if (data.error) throw new Error(data.message);
         return data;
     },
-    // [MODIFIED] 로컬 캐시를 업데이트하고, 변경 사항을 알리는 이벤트를 발생시키는 로직 추가
     async updateSRSData(word, isCorrect) {
         try {
             const response = await this.fetchFromGoogleSheet('updateSRSData', { word, isCorrect });
@@ -473,7 +486,6 @@ const api = {
                 const cachePayload = { timestamp: Date.now(), words: app.state.wordList };
                 localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
                 
-                // 데이터가 업데이트되었음을 앱 전체에 알립니다.
                 document.dispatchEvent(new CustomEvent('wordListUpdated'));
             }
         } catch (error) {
@@ -718,10 +730,8 @@ const dashboard = {
         container: document.getElementById('dashboard-container'),
         content: document.getElementById('dashboard-content'),
     },
-    // [MODIFIED] 데이터 변경을 감지하여 화면을 다시 그리는 이벤트 리스너 추가
     init() {
         document.addEventListener('wordListUpdated', () => {
-            // 대시보드 화면이 보일 때만 화면을 다시 그립니다.
             if (!this.elements.container.classList.contains('hidden')) {
                 this.render();
             }
