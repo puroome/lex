@@ -15,33 +15,27 @@ const app = {
         isWordListReady: false,
         longPressTimer: null,
     },
-    elements: {}, // DOM 요소를 저장할 객체 (init에서 초기화)
-    
-    cacheElements() {
-        this.elements = {
-            selectionScreen: document.getElementById('selection-screen'),
-            homeBtn: document.getElementById('home-btn'),
-            refreshBtn: document.getElementById('refresh-btn'),
-            ttsToggleBtn: document.getElementById('tts-toggle-btn'),
-            ttsToggleText: document.getElementById('tts-toggle-text'),
-            quizModeContainer: document.getElementById('quiz-mode-container'),
-            learningModeContainer: document.getElementById('learning-mode-container'),
-            dashboardContainer: document.getElementById('dashboard-container'),
-            translationTooltip: document.getElementById('translation-tooltip'),
-            imeWarning: document.getElementById('ime-warning'),
-            noSampleMessage: document.getElementById('no-sample-message'),
-            sheetLink: document.getElementById('sheet-link'),
-            wordContextMenu: document.getElementById('word-context-menu'),
-            searchAppContextBtn: document.getElementById('search-app-context-btn'),
-            searchDaumContextBtn: document.getElementById('search-daum-context-btn'),
-            searchNaverContextBtn: document.getElementById('search-naver-context-btn'),
-            searchEtymContextBtn: document.getElementById('search-etym-context-btn'),
-            searchLongmanContextBtn: document.getElementById('search-longman-context-btn'),
-        };
+    elements: {
+        selectionScreen: document.getElementById('selection-screen'),
+        homeBtn: document.getElementById('home-btn'),
+        refreshBtn: document.getElementById('refresh-btn'),
+        ttsToggleBtn: document.getElementById('tts-toggle-btn'),
+        ttsToggleText: document.getElementById('tts-toggle-text'),
+        quizModeContainer: document.getElementById('quiz-mode-container'),
+        learningModeContainer: document.getElementById('learning-mode-container'),
+        dashboardContainer: document.getElementById('dashboard-container'),
+        translationTooltip: document.getElementById('translation-tooltip'),
+        imeWarning: document.getElementById('ime-warning'),
+        noSampleMessage: document.getElementById('no-sample-message'),
+        sheetLink: document.getElementById('sheet-link'),
+        wordContextMenu: document.getElementById('word-context-menu'),
+        searchAppContextBtn: document.getElementById('search-app-context-btn'),
+        searchDaumContextBtn: document.getElementById('search-daum-context-btn'),
+        searchNaverContextBtn: document.getElementById('search-naver-context-btn'),
+        searchEtymContextBtn: document.getElementById('search-etym-context-btn'),
+        searchLongmanContextBtn: document.getElementById('search-longman-context-btn'),
     },
-
     async init() {
-        this.cacheElements(); // DOM 요소들을 먼저 캐싱합니다.
         try {
             await audioCache.init();
             await translationDBCache.init();
@@ -74,7 +68,7 @@ const app = {
         }, { once: true });
         
         document.addEventListener('click', (e) => {
-            if (this.elements.wordContextMenu && !this.elements.wordContextMenu.contains(e.target)) {
+            if (!this.elements.wordContextMenu.contains(e.target)) {
                 ui.hideWordContextMenu();
             }
         });
@@ -151,7 +145,6 @@ const app = {
             learningMode.startMistakeReview(mistakeWords);
         } else { // 'selection' 모드
             this.elements.selectionScreen.classList.remove('hidden');
-            this.elements.refreshBtn.classList.remove('hidden');
             quizMode.reset();
             learningMode.reset();
         }
@@ -275,6 +268,9 @@ const app = {
     },
 };
 
+// ================================================================
+// Audio Cache Module (Using IndexedDB)
+// ================================================================
 const audioCache = {
     db: null, dbName: 'ttsAudioCacheDB', storeName: 'audioStore',
     init() {
@@ -303,6 +299,9 @@ const audioCache = {
     }
 };
 
+// ================================================================
+// Translation Cache Module (Using IndexedDB)
+// ================================================================
 const translationDBCache = {
     db: null, dbName: 'translationCacheDB', storeName: 'translationStore',
     init() {
@@ -332,7 +331,7 @@ const translationDBCache = {
 };
 
 // ================================================================
-// Mistake Log Module (Using LocalStorage)
+// Mistake Log Module (Using localStorage)
 // ================================================================
 const mistakeLog = {
     KEY: 'mistakeLog',
@@ -359,6 +358,7 @@ const mistakeLog = {
         localStorage.removeItem(this.KEY);
     }
 };
+
 
 // ================================================================
 // API Module
@@ -465,7 +465,7 @@ const api = {
         url.searchParams.append('action', action);
         for (const key in params) {
             if (params[key]) {
-                url.searchParams.append(key, String(params[key]));
+                url.searchParams.append(key, params[key]);
             }
         }
         const response = await fetch(url);
@@ -491,7 +491,7 @@ const api = {
     },
     async updateSRSData(word, isCorrect) {
         try {
-            await this.fetchFromGoogleSheet('updateSRSData', { word, isCorrect });
+            await this.fetchFromGoogleSheet('updateSRSData', { word, isCorrect: isCorrect.toString() });
         } catch (error) {
             console.error('SRS 데이터 업데이트 실패:', error);
             app.showToast('학습 상태 업데이트에 실패했습니다.', true);
@@ -739,11 +739,11 @@ const utils = {
 // Dashboard Module
 // ================================================================
 const dashboard = {
-    elements: {},
-    init() {
-        this.elements.container = document.getElementById('dashboard-container');
-        this.elements.content = document.getElementById('dashboard-content');
+    elements: {
+        container: document.getElementById('dashboard-container'),
+        content: document.getElementById('dashboard-content'),
     },
+    init() {},
     async show() {
         if (!app.state.isWordListReady) {
             this.elements.content.innerHTML = `<div class="text-center p-10"><div class="loader mx-auto"></div><p class="mt-4 text-gray-600">단어 목록을 동기화하는 중...</p></div>`;
@@ -797,6 +797,7 @@ const dashboard = {
         this.elements.content.innerHTML = contentHTML;
     }
 };
+
 
 // ================================================================
 // Quiz Mode Module
@@ -903,11 +904,9 @@ const quizMode = {
         this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">퀴즈를 가져올 수 없습니다.</p><p class="text-sm text-gray-600 mt-2 break-all">${message}</p>`;
     },
     displayNextQuiz() {
-        // This is the pre-fetch logic to keep the quiz queue full
-        if (!this.state.isFetching && this.state.quizBatch.length <= 3 && this.state.currentQuiz.type) {
-            this.fetchQuizBatch(this.state.currentQuiz.type);
+        if (!this.state.isFetching && this.state.quizBatch.length <= 3) {
+            this.fetchQuizBatch(this.state.currentQuiz.type); // Fetch more of the same type
         }
-
         if (this.state.quizBatch.length === 0) {
             if(this.state.isFetching) {
                 this.elements.loaderText.textContent = "다음 퀴즈를 준비 중입니다...";
@@ -940,13 +939,38 @@ const quizMode = {
 
         if (type === 'FILL_IN_THE_BLANK') {
             const sentence = question.sentence_with_blank;
+            questionDisplay.innerHTML = ''; // 이전 내용을 지웁니다.
+
             const p = document.createElement('p');
             p.className = 'text-xl sm:text-2xl text-left text-gray-800 leading-relaxed';
-            let processedText = sentence.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
-            processedText = processedText.replace(/＿＿＿＿/g, '<span style="white-space: nowrap;">＿＿＿＿</span>');
-            p.innerHTML = processedText.replace(/\n/g, '<br>');
-            questionDisplay.appendChild(p);
 
+            const emojiRegex = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u;
+            const emojiMatch = sentence.match(emojiRegex);
+            
+            if (emojiMatch) {
+                p.classList.add('flex', 'items-baseline');
+                
+                const emoji = emojiMatch[1];
+                const restOfSentence = sentence.substring(emojiMatch[0].length);
+                
+                const emojiSpan = document.createElement('span');
+                emojiSpan.className = 'inline-block mr-2';
+                emojiSpan.textContent = emoji;
+
+                const textSpan = document.createElement('span');
+                let processedText = restOfSentence.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
+                processedText = processedText.replace(/＿＿＿＿/g, '<span style="white-space: nowrap;">＿＿＿＿</span>');
+                textSpan.innerHTML = processedText.replace(/\n/g, '<br>');
+                
+                p.appendChild(emojiSpan);
+                p.appendChild(textSpan);
+            } else {
+                let processedText = sentence.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
+                processedText = processedText.replace(/＿＿＿＿/g, '<span style="white-space: nowrap;">＿＿＿＿</span>');
+                p.innerHTML = processedText.replace(/\n/g, '<br>');
+            }
+            
+            questionDisplay.appendChild(p);
         } else { // MULTIPLE_CHOICE_MEANING
             questionDisplay.innerHTML = `<h1 class="text-3xl sm:text-4xl font-bold text-center text-gray-800" title="클릭하여 발음 듣기 및 복사">${question.word}</h1>`;
             const wordEl = questionDisplay.querySelector('h1');
@@ -970,7 +994,7 @@ const quizMode = {
         this.elements.passBtn.style.display = 'block';
         this.elements.passBtn.disabled = false;
         
-        const hasSample = quizData.question.word_info.sample && quizData.question.word_info.sample.trim() !== '';
+        const hasSample = question.word_info.sample && question.word_info.sample.trim() !== '';
         this.elements.sampleBtn.textContent = '예문';
         this.elements.sampleBtn.classList.toggle('bg-purple-500', hasSample);
         this.elements.sampleBtn.classList.toggle('hover:bg-purple-600', hasSample);
@@ -978,7 +1002,7 @@ const quizMode = {
         this.elements.sampleBtn.classList.toggle('cursor-not-allowed', !hasSample);
         this.elements.sampleBtn.style.display = 'block';
         this.elements.explanationBtn.textContent = '보충자료';
-        this.elements.explanationBtn.style.display = (quizData.question.word_info.explanation && quizData.question.word_info.explanation.trim()) ? 'block' : 'none';
+        this.elements.explanationBtn.style.display = (question.word_info.explanation && question.word_info.explanation.trim()) ? 'block' : 'none';
     },
     checkAnswer(selectedLi, selectedChoice, correctAnswer) {
         this.elements.choices.classList.add('disabled');
@@ -1013,8 +1037,8 @@ const quizMode = {
         this.elements.finishedMessage.textContent = message;
     },
     async handleFlip(type) {
-        const wordInfo = this.state.currentQuiz.question.word_info;
-        if (type === 'sample' && (!wordInfo.sample || !wordInfo.sample.trim())) {
+        const question = this.state.currentQuiz.question.word_info;
+        if (type === 'sample' && (!question.sample || !question.sample.trim())) {
             app.showNoSampleMessage();
             return;
         }
@@ -1308,7 +1332,7 @@ const learningMode = {
         const wordData = this.state.currentWordList[this.state.currentIndex];
 
         if (!isBackVisible) {
-            if (wordData.sampleSource === 'none' || !wordData.sample) {
+            if (wordData.sampleSource === 'none') {
                 app.showNoSampleMessage();
                 return;
             }
@@ -1364,7 +1388,7 @@ const learningMode = {
         } else if (e.key === ' ') {
             e.preventDefault();
             if (!this.elements.cardBack.classList.contains('is-slid-up')) {
-                api.speak(this.elements.wordDisplay.textContent, 'word');
+                api.speak(this.elements.wordDisplay.textContent.split(' ')[0], 'word');
             }
         }
     },
@@ -1400,4 +1424,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
