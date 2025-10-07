@@ -4,21 +4,16 @@
 const app = {
     config: {
         TTS_API_KEY: "AIzaSyAJmQBGY4H9DVMlhMtvAAVMi_4N7__DfKA",
-        SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxtkBmzSHFOOwIOrjkbxXsHAKIBkimjuUjVOWEoUEi0vgxKclHlo4PTGnSTUSF29Ydg/exec",
-        // SRS Level 8 is considered "learned"
-        SRS_LEVEL_LEARNED: 8,
-        // SRS intervals in days for each level (0 to 7)
-        SRS_INTERVALS: [0, 1, 2, 4, 8, 16, 30, 60] 
+        SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxtkBmzSHFOOwIOrjkbxXsHAKIBkimjuUjVOWEoUEi0vgxKclHlo4PTGnSTUSF29Ydg/exec"
     },
     state: {
         currentVoiceSet: 'UK',
         isSpeaking: false,
         audioContext: null,
-        translateDebounceTimeout: null,
+        translateDebounceTimeout: null, 
         wordList: [],
         isWordListReady: false,
         longPressTimer: null,
-        srsChartInstance: null,
     },
     elements: {
         selectionScreen: document.getElementById('selection-screen'),
@@ -28,8 +23,7 @@ const app = {
         ttsToggleText: document.getElementById('tts-toggle-text'),
         quizModeContainer: document.getElementById('quiz-mode-container'),
         learningModeContainer: document.getElementById('learning-mode-container'),
-        statsScreen: document.getElementById('stats-screen'),
-        notesScreen: document.getElementById('notes-screen'),
+        dashboardContainer: document.getElementById('dashboard-container'),
         translationTooltip: document.getElementById('translation-tooltip'),
         imeWarning: document.getElementById('ime-warning'),
         noSampleMessage: document.getElementById('no-sample-message'),
@@ -46,29 +40,27 @@ const app = {
             await audioCache.init();
             await translationDBCache.init();
         } catch (e) {
-            console.error("캐시 초기화 실패.", e);
+            console.error("캐시를 초기화할 수 없습니다.", e);
         }
         this.bindGlobalEvents();
-        api.loadWordList(); 
+        api.loadWordList();
         quizMode.init();
         learningMode.init();
-        statsMode.init();
-        notesMode.init();
+        dashboard.init();
 
         const initialMode = window.location.hash.replace('#', '') || 'selection';
         history.replaceState({ mode: initialMode, options: {} }, '', window.location.href);
         this._renderMode(initialMode);
     },
     bindGlobalEvents() {
-        document.getElementById('select-learning-btn').addEventListener('click', () => this.navigateTo('learning'));
         document.getElementById('select-quiz-btn').addEventListener('click', () => this.navigateTo('quiz'));
-        document.getElementById('select-stats-btn').addEventListener('click', () => this.navigateTo('stats'));
-        document.getElementById('select-notes-btn').addEventListener('click', () => this.navigateTo('notes'));
+        document.getElementById('select-learning-btn').addEventListener('click', () => this.navigateTo('learning'));
+        document.getElementById('select-dashboard-btn').addEventListener('click', () => this.navigateTo('dashboard'));
+        document.getElementById('select-mistakes-btn').addEventListener('click', () => this.navigateTo('mistakeReview'));
 
         this.elements.homeBtn.addEventListener('click', () => this.navigateTo('selection'));
         this.elements.refreshBtn.addEventListener('click', () => this.forceReload());
         this.elements.ttsToggleBtn.addEventListener('click', this.toggleVoiceSet.bind(this));
-        
         document.body.addEventListener('click', () => {
             if (!this.state.audioContext) {
                 this.state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -76,7 +68,7 @@ const app = {
         }, { once: true });
         
         document.addEventListener('click', (e) => {
-            if (this.elements.wordContextMenu && !this.elements.wordContextMenu.contains(e.target)) {
+            if (!this.elements.wordContextMenu.contains(e.target)) {
                 ui.hideWordContextMenu();
             }
         });
@@ -97,62 +89,98 @@ const app = {
         });
     },
     navigateTo(mode, options = {}) {
-        if (history.state?.mode === mode && JSON.stringify(history.state?.options) === JSON.stringify(options)) return;
-        const newPath = mode === 'selection' ? window.location.pathname + window.location.search : `#${mode}`;
+        if (history.state?.mode === mode && mode !== 'learning') return;
+
+        const newPath = mode === 'selection' 
+            ? window.location.pathname + window.location.search
+            : `#${mode}`;
+
         history.pushState({ mode, options }, '', newPath);
         this._renderMode(mode, options);
     },
     _renderMode(mode, options = {}) {
-        [this.elements.selectionScreen, this.elements.quizModeContainer, this.elements.learningModeContainer, this.elements.statsScreen, this.elements.notesScreen].forEach(el => el.classList.add('hidden'));
-        [this.elements.homeBtn, this.elements.refreshBtn, this.elements.ttsToggleBtn].forEach(el => el.classList.add('hidden'));
+        this.elements.selectionScreen.classList.add('hidden');
+        this.elements.quizModeContainer.classList.add('hidden');
+        this.elements.learningModeContainer.classList.add('hidden');
+        this.elements.dashboardContainer.classList.add('hidden');
+        this.elements.homeBtn.classList.add('hidden');
+        this.elements.refreshBtn.classList.add('hidden');
+        this.elements.ttsToggleBtn.classList.add('hidden');
         learningMode.elements.fixedButtons.classList.add('hidden');
 
-        const showTopButtons = () => {
+        const showCommonButtons = () => {
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.ttsToggleBtn.classList.remove('hidden');
         };
 
-        switch(mode) {
-            case 'quiz':
-                this.elements.quizModeContainer.classList.remove('hidden');
-                showTopButtons();
-                quizMode.start();
-                break;
-            case 'learning':
-                this.elements.learningModeContainer.classList.remove('hidden');
-                showTopButtons();
-                this.elements.refreshBtn.classList.remove('hidden');
-                learningMode.start(options);
-                break;
-            case 'stats':
-                this.elements.statsScreen.classList.remove('hidden');
-                this.elements.homeBtn.classList.remove('hidden');
-                statsMode.show();
-                break;
-            case 'notes':
-                this.elements.notesScreen.classList.remove('hidden');
-                this.elements.homeBtn.classList.remove('hidden');
-                notesMode.show();
-                break;
-            default: // selection
-                this.elements.selectionScreen.classList.remove('hidden');
-                this.elements.refreshBtn.classList.remove('hidden');
-                quizMode.reset();
-                learningMode.reset();
-                break;
+        if (mode === 'quiz') {
+            showCommonButtons();
+            this.elements.quizModeContainer.classList.remove('hidden');
+            quizMode.reset();
+        } else if (mode === 'learning') {
+            showCommonButtons();
+            this.elements.refreshBtn.classList.remove('hidden');
+            this.elements.learningModeContainer.classList.remove('hidden');
+            learningMode.elements.appContainer.classList.add('hidden');
+            learningMode.elements.loader.classList.add('hidden');
+            learningMode.elements.startScreen.classList.remove('hidden');
+            if (options.suggestions && options.title) {
+                learningMode.displaySuggestions(options.suggestions, options.title);
+            } else {
+                learningMode.resetStartScreen();
+            }
+        } else if (mode === 'dashboard') {
+            this.elements.homeBtn.classList.remove('hidden');
+            this.elements.dashboardContainer.classList.remove('hidden');
+            dashboard.show();
+        } else if (mode === 'mistakeReview') {
+            const mistakeWords = mistakeLog.get();
+            if (mistakeWords.length === 0) {
+                this.showToast('오답 노트에 단어가 없습니다.', true);
+                this.navigateTo('selection');
+                return;
+            }
+            showCommonButtons();
+            this.elements.learningModeContainer.classList.remove('hidden');
+            learningMode.startMistakeReview(mistakeWords);
+        } else { // 'selection' 모드
+            this.elements.selectionScreen.classList.remove('hidden');
+            this.elements.refreshBtn.classList.remove('hidden');
+            quizMode.reset();
+            learningMode.reset();
         }
     },
     async forceReload() {
-        this.showToast('데이터 새로고침 중...');
+        const isLearningStartScreen = !learningMode.elements.startScreen.classList.contains('hidden');
+        const isSelectionScreen = !this.elements.selectionScreen.classList.contains('hidden');
+
+        if (!isLearningStartScreen && !isSelectionScreen) {
+            this.showToast('새로고침은 시작 또는 학습 모드 선택 화면에서만 가능합니다.', true);
+            return;
+        }
+        
+        const elementsToDisable = [
+            learningMode.elements.startWordInput,
+            learningMode.elements.startBtn,
+            this.elements.homeBtn,
+            this.elements.ttsToggleBtn,
+            this.elements.refreshBtn,
+        ];
+        const sheetLink = this.elements.sheetLink;
+        elementsToDisable.forEach(el => { if(el) el.disabled = true; });
+        sheetLink.classList.add('pointer-events-none', 'opacity-50');
+        const originalBtnText = learningMode.elements.startBtn.textContent;
+        learningMode.elements.startBtn.textContent = '새로고침 중...';
+
         try {
-            await api.loadWordList(true); // force reload
+            await api.loadWordList(true);
             this.showToast('데이터를 성공적으로 새로고침했습니다!');
-            // If in a mode that depends on wordList, refresh it
-            if (history.state?.mode === 'stats') statsMode.show();
-            if (history.state?.mode === 'notes') notesMode.show();
-            if (history.state?.mode === 'quiz') quizMode.start();
         } catch(e) {
             this.showToast('데이터 새로고침에 실패했습니다: ' + e.message, true);
+        } finally {
+            elementsToDisable.forEach(el => { if(el) el.disabled = false; });
+            sheetLink.classList.remove('pointer-events-none', 'opacity-50');
+            learningMode.elements.startBtn.textContent = originalBtnText;
         }
     },
     showToast(message, isError = false) {
@@ -204,28 +232,30 @@ const app = {
         if (!word) return;
         const wordList = this.state.wordList;
         const lowerCaseWord = word.toLowerCase();
-        
         const exactMatchIndex = wordList.findIndex(item => item.word.toLowerCase() === lowerCaseWord);
         if (exactMatchIndex !== -1) {
-            this.navigateTo('learning', { startIndex: exactMatchIndex });
+            this.navigateTo('learning');
+            setTimeout(() => {
+                learningMode.state.isMistakeMode = false;
+                learningMode.state.currentWordList = app.state.wordList;
+                learningMode.state.currentIndex = exactMatchIndex;
+                learningMode.launchApp();
+            }, 50);
             ui.hideWordContextMenu();
             return;
         }
-    
         const explanationMatches = wordList
             .map((item, index) => ({ word: item.word, index }))
             .filter((_, index) => 
                 wordList[index].explanation && 
                 wordList[index].explanation.toLowerCase().includes(lowerCaseWord)
             );
-    
         if (explanationMatches.length > 0) {
             const title = `'<strong>${word}</strong>'(이)가 설명에 포함된 단어입니다.`;
             this.navigateTo('learning', { suggestions: explanationMatches, title: title });
             ui.hideWordContextMenu();
             return;
         }
-    
         const levenshteinSuggestions = wordList.map((item, index) => ({
             word: item.word,
             index,
@@ -233,37 +263,96 @@ const app = {
         }))
         .sort((a, b) => a.distance - b.distance)
         .slice(0, 5);
-    
         const title = `입력하신 단어를 찾을 수 없습니다.<br>혹시 이 단어를 찾으시나요?`;
         this.navigateTo('learning', { suggestions: levenshteinSuggestions, title: title });
         ui.hideWordContextMenu();
     },
 };
 
-// ================================================================
-// Audio & Translation Cache Modules (IndexedDB)
-// ================================================================
 const audioCache = {
     db: null, dbName: 'ttsAudioCacheDB', storeName: 'audioStore',
-    init() { /* same as before */ }, getAudio(key) { /* same as before */ }, saveAudio(key, audioData) { /* same as before */ }
+    init() {
+        return new Promise((resolve, reject) => {
+            if (!('indexedDB' in window)) { console.warn('IndexedDB not supported, TTS caching disabled.'); return resolve(); }
+            const request = indexedDB.open(this.dbName, 1);
+            request.onupgradeneeded = event => { const db = event.target.result; if (!db.objectStoreNames.contains(this.storeName)) { db.createObjectStore(this.storeName); } };
+            request.onsuccess = event => { this.db = event.target.result; resolve(); };
+            request.onerror = event => { console.error("IndexedDB error:", event.target.error); reject(event.target.error); };
+        });
+    },
+    getAudio(key) {
+        return new Promise((resolve, reject) => {
+            if (!this.db) return resolve(null);
+            const transaction = this.db.transaction([this.storeName], 'readonly');
+            const store = transaction.objectStore(this.storeName);
+            const request = store.get(key);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = (event) => { console.error("IndexedDB get error:", event.target.error); reject(event.target.error); };
+        });
+    },
+    saveAudio(key, audioData) {
+        if (!this.db) return;
+        try { const transaction = this.db.transaction([this.storeName], 'readwrite'); transaction.objectStore(this.storeName).put(audioData, key); } 
+        catch (e) { console.error("IndexedDB save error:", e); }
+    }
 };
+
 const translationDBCache = {
     db: null, dbName: 'translationCacheDB', storeName: 'translationStore',
-    init() { /* same as before */ }, get(key) { /* same as before */ }, save(key, data) { /* same as before */ }
+    init() {
+        return new Promise((resolve, reject) => {
+            if (!('indexedDB' in window)) { console.warn('IndexedDB not supported, translation caching disabled.'); return resolve(); }
+            const request = indexedDB.open(this.dbName, 1);
+            request.onupgradeneeded = event => { const db = event.target.result; if (!db.objectStoreNames.contains(this.storeName)) { db.createObjectStore(this.storeName); } };
+            request.onsuccess = event => { this.db = event.target.result; resolve(); };
+            request.onerror = event => { console.error("IndexedDB error:", event.target.error); reject(event.target.error); };
+        });
+    },
+    get(key) {
+        return new Promise((resolve, reject) => {
+            if (!this.db) return resolve(null);
+            const transaction = this.db.transaction([this.storeName], 'readonly');
+            const store = transaction.objectStore(this.storeName);
+            const request = store.get(key);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = (event) => { console.error("IndexedDB get error:", event.target.error); reject(event.target.error); };
+        });
+    },
+    save(key, data) {
+        if (!this.db) return;
+        try { const transaction = this.db.transaction([this.storeName], 'readwrite'); transaction.objectStore(this.storeName).put(data, key); }
+        catch (e) { console.error("IndexedDB save error:", e); }
+    }
 };
-(async () => {
-    try {
-        // Implementations for audioCache
-        audioCache.init = function() { return new Promise((resolve, reject) => { if (!('indexedDB' in window)) { console.warn('IndexedDB not supported'); return resolve(); } const request = indexedDB.open(this.dbName, 1); request.onupgradeneeded = e => { const db = e.target.result; if (!db.objectStoreNames.contains(this.storeName)) db.createObjectStore(this.storeName); }; request.onsuccess = e => { this.db = e.target.result; resolve(); }; request.onerror = e => { console.error("IndexedDB error:", e.target.error); reject(e.target.error); }; }); };
-        audioCache.getAudio = function(key) { return new Promise((resolve, reject) => { if (!this.db) return resolve(null); const request = this.db.transaction([this.storeName], 'readonly').objectStore(this.storeName).get(key); request.onsuccess = () => resolve(request.result); request.onerror = e => { console.error("IndexedDB get error:", e.target.error); reject(e.target.error); }; }); };
-        audioCache.saveAudio = function(key, audioData) { if (!this.db) return; try { this.db.transaction([this.storeName], 'readwrite').objectStore(this.storeName).put(audioData, key); } catch (e) { console.error("IndexedDB save error:", e); } };
-        // Implementations for translationDBCache
-        translationDBCache.init = function() { return new Promise((resolve, reject) => { if (!('indexedDB' in window)) { console.warn('IndexedDB not supported'); return resolve(); } const request = indexedDB.open(this.dbName, 1); request.onupgradeneeded = e => { const db = e.target.result; if (!db.objectStoreNames.contains(this.storeName)) db.createObjectStore(this.storeName); }; request.onsuccess = e => { this.db = e.target.result; resolve(); }; request.onerror = e => { console.error("IndexedDB error:", e.target.error); reject(e.target.error); }; }); };
-        translationDBCache.get = function(key) { return new Promise((resolve, reject) => { if (!this.db) return resolve(null); const request = this.db.transaction([this.storeName], 'readonly').objectStore(this.storeName).get(key); request.onsuccess = () => resolve(request.result); request.onerror = e => { console.error("IndexedDB get error:", e.target.error); reject(e.target.error); }; }); };
-        translationDBCache.save = function(key, data) { if (!this.db) return; try { this.db.transaction([this.storeName], 'readwrite').objectStore(this.storeName).put(data, key); } catch (e) { console.error("IndexedDB save error:", e); } };
-    } catch (e) { console.error("Failed to initialize cache modules:", e); }
-})();
 
+// ================================================================
+// Mistake Log Module (Using LocalStorage)
+// ================================================================
+const mistakeLog = {
+    KEY: 'mistakeLog',
+    get() {
+        return JSON.parse(localStorage.getItem(this.KEY)) || [];
+    },
+    add(word) {
+        const mistakes = this.get();
+        if (!mistakes.includes(word)) {
+            mistakes.push(word);
+            localStorage.setItem(this.KEY, JSON.stringify(mistakes));
+            app.showToast('오답 노트에 추가되었습니다.');
+        }
+    },
+    remove(word) {
+        let mistakes = this.get();
+        const index = mistakes.indexOf(word);
+        if (index > -1) {
+            mistakes.splice(index, 1);
+            localStorage.setItem(this.KEY, JSON.stringify(mistakes));
+        }
+    },
+    clear() {
+        localStorage.removeItem(this.KEY);
+    }
+};
 
 // ================================================================
 // API Module
@@ -280,7 +369,7 @@ const api = {
                 const cachedData = localStorage.getItem('wordListCache');
                 if (cachedData) {
                     const { timestamp, words } = JSON.parse(cachedData);
-                    if (Date.now() - timestamp < 3600000) { // 1 hour cache
+                    if (Date.now() - timestamp < 86400000) { // 24 hours
                         app.state.wordList = words;
                         app.state.isWordListReady = true;
                     }
@@ -309,31 +398,6 @@ const api = {
             if (!app.state.isWordListReady) {
                 app.showFatalError(error.message);
             }
-            throw error;
-        }
-    },
-    async updateWordStats(word, isCorrect) {
-        const wordObj = app.state.wordList.find(w => w.word === word);
-        if (wordObj) {
-            if (isCorrect) {
-                wordObj.srsLevel = Math.min(app.config.SRS_LEVEL_LEARNED, wordObj.srsLevel + 1);
-                wordObj.correctCount++;
-            } else {
-                wordObj.srsLevel = Math.max(0, wordObj.srsLevel - 1);
-                wordObj.incorrectCount++;
-            }
-            wordObj.lastReviewed = new Date().toISOString();
-             try {
-                localStorage.setItem('wordListCache', JSON.stringify({ timestamp: Date.now(), words: app.state.wordList }));
-            } catch (e) { console.error("스탯 업데이트 후 캐시 저장 실패:", e); }
-        }
-
-        try {
-            const res = await this.fetchFromGoogleSheet('updateWordStats', { word, isCorrect: isCorrect.toString() });
-            if (!res.success) throw new Error(res.message);
-        } catch (error) {
-            console.error(`'${word}' 상태 동기화 실패:`, error);
-            app.showToast(`'${word}' 상태 동기화 실패`, true);
         }
     },
     async speak(text, contentType = 'word') {
@@ -364,7 +428,7 @@ const api = {
         try {
             const cachedAudio = await audioCache.getAudio(cacheKey);
             if (cachedAudio) {
-                await playAudio(cachedAudio.slice(0));
+                await playAudio(cachedAudio.slice(0)); 
                 return;
             }
 
@@ -381,11 +445,12 @@ const api = {
             const byteArray = new Uint8Array(byteCharacters.length).map((_, i) => byteCharacters.charCodeAt(i));
             const audioArrayBuffer = byteArray.buffer;
             
-            audioCache.saveAudio(cacheKey, audioArrayBuffer.slice(0));
+            audioCache.saveAudio(cacheKey, audioArrayBuffer.slice(0)); 
+            
             await playAudio(audioArrayBuffer);
 
         } catch (error) {
-            console.error('TTS 재생 또는 캐싱 실패:', error);
+            console.error('TTS 재생 또는 캐싱에 실패했습니다:', error);
             app.state.isSpeaking = false;
         }
     },
@@ -393,8 +458,8 @@ const api = {
         const url = new URL(app.config.SCRIPT_URL);
         url.searchParams.append('action', action);
         for (const key in params) {
-            if (params[key] !== undefined) {
-                url.searchParams.append(key, params[key]);
+            if (params[key]) {
+                url.searchParams.append(key, String(params[key]));
             }
         }
         const response = await fetch(url);
@@ -414,8 +479,16 @@ const api = {
             }
             return '번역 실패';
         } catch (error) {
-            console.error('번역 fetch 오류:', error);
+            console.error('Translation fetch error:', error);
             return '번역 오류';
+        }
+    },
+    async updateSRSData(word, isCorrect) {
+        try {
+            await this.fetchFromGoogleSheet('updateSRSData', { word, isCorrect });
+        } catch (error) {
+            console.error('SRS 데이터 업데이트 실패:', error);
+            app.showToast('학습 상태 업데이트에 실패했습니다.', true);
         }
     }
 };
@@ -424,27 +497,219 @@ const api = {
 // UI Module
 // ================================================================
 const ui = {
-    adjustFontSize(element) { /* same as before */ },
-    async copyToClipboard(text) { /* same as before */ },
-    renderInteractiveText(targetElement, text) { /* same as before */ },
-    handleSentenceMouseOver(event, sentence) { /* same as before */ },
-    handleSentenceMouseOut() { /* same as before */ },
-    displaySentences(sentences, containerElement) { /* same as before */ },
-    showWordContextMenu(event, word, options = {}) { /* same as before */ },
-    hideWordContextMenu() { /* same as before */ }
+    adjustFontSize(element) {
+        element.style.fontSize = '';
+        let currentFontSize = parseFloat(window.getComputedStyle(element).fontSize);
+        const container = element.parentElement;
+        const containerStyle = window.getComputedStyle(container);
+        const containerWidth = container.clientWidth - parseFloat(containerStyle.paddingLeft) - parseFloat(containerStyle.paddingRight);
+        const minFontSize = 16;
+        while (element.scrollWidth > containerWidth && currentFontSize > minFontSize) {
+            element.style.fontSize = `${--currentFontSize}px`;
+        }
+    },
+    async copyToClipboard(text) {
+        if (navigator.clipboard) {
+            try { await navigator.clipboard.writeText(text); } 
+            catch (err) { console.error('클립보드 복사 실패:', err); }
+        }
+    },
+    renderInteractiveText(targetElement, text) {
+        targetElement.innerHTML = '';
+        if (!text || !text.trim()) return;
+        const regex = /(\[.*?\])|([a-zA-Z0-9'-]+(?:[\s'-]*[a-zA-Z0-9'-]+)*)/g;
+        text.split('\n').forEach(line => {
+            let lastIndex = 0;
+            let match;
+            while ((match = regex.exec(line))) {
+                if (match.index > lastIndex) {
+                    targetElement.appendChild(document.createTextNode(line.substring(lastIndex, match.index)));
+                }
+                const [_, nonClickable, englishPhrase] = match;
+                if (englishPhrase) {
+                    const span = document.createElement('span');
+                    span.textContent = englishPhrase;
+                    span.className = 'cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors interactive-word';
+
+                    span.onclick = () => {
+                        clearTimeout(app.state.longPressTimer);
+                        api.speak(englishPhrase, 'word');
+                        this.copyToClipboard(englishPhrase);
+                    };
+
+                    span.oncontextmenu = (e) => {
+                        e.preventDefault();
+                        this.showWordContextMenu(e, englishPhrase);
+                    };
+
+                    let touchMove = false;
+                    span.addEventListener('touchstart', (e) => {
+                        touchMove = false;
+                        clearTimeout(app.state.longPressTimer);
+                        app.state.longPressTimer = setTimeout(() => {
+                            if (!touchMove) {
+                                this.showWordContextMenu(e, englishPhrase);
+                            }
+                        }, 700);
+                    });
+                    span.addEventListener('touchmove', () => {
+                        touchMove = true;
+                        clearTimeout(app.state.longPressTimer);
+                    });
+                    span.addEventListener('touchend', () => {
+                        clearTimeout(app.state.longPressTimer);
+                    });
+                    targetElement.appendChild(span);
+                } else if (nonClickable) {
+                    targetElement.appendChild(document.createTextNode(nonClickable));
+                }
+                lastIndex = regex.lastIndex;
+            }
+            if (lastIndex < line.length) {
+                targetElement.appendChild(document.createTextNode(line.substring(lastIndex)));
+            }
+            targetElement.appendChild(document.createElement('br'));
+        });
+        if (targetElement.lastChild && targetElement.lastChild.tagName === 'BR') {
+            targetElement.removeChild(targetElement.lastChild);
+        }
+    },
+    handleSentenceMouseOver(event, sentence) {
+        clearTimeout(app.state.translateDebounceTimeout);
+        app.state.translateDebounceTimeout = setTimeout(async () => {
+            const tooltip = app.elements.translationTooltip;
+            const targetRect = event.target.getBoundingClientRect();
+
+            Object.assign(tooltip.style, {
+                left: `${targetRect.left + window.scrollX}px`,
+                top: `${targetRect.bottom + window.scrollY + 5}px`
+            });
+
+            tooltip.textContent = '번역 중...';
+            tooltip.classList.remove('hidden');
+            const translatedText = await api.translateText(sentence);
+            tooltip.textContent = translatedText;
+        }, 1000); 
+    },
+    handleSentenceMouseOut() {
+        clearTimeout(app.state.translateDebounceTimeout);
+        app.elements.translationTooltip.classList.add('hidden');
+    },
+    displaySentences(sentences, containerElement) {
+        containerElement.innerHTML = '';
+        sentences.filter(s => s.trim()).forEach(sentence => {
+            const p = document.createElement('p');
+            p.className = 'p-2 rounded transition-colors cursor-pointer hover:bg-gray-200 sample-sentence';
+
+            p.onclick = () => api.speak(p.textContent, 'sample');
+            p.addEventListener('mouseover', (e) => {
+                if (e.target.classList.contains('interactive-word')) {
+                    this.handleSentenceMouseOut();
+                    return;
+                }
+                this.handleSentenceMouseOver(e, p.textContent);
+            });
+            p.addEventListener('mouseout', this.handleSentenceMouseOut);
+
+            const processTextInto = (targetElement, text) => {
+                const parts = text.split(/([,\s\.'])/g).filter(part => part);
+
+                parts.forEach(part => {
+                    if (/[a-zA-Z]/.test(part)) {
+                        const span = document.createElement('span');
+                        span.textContent = part;
+                        span.className = 'hover:bg-yellow-200 rounded-sm transition-colors interactive-word';
+                        
+                        span.onclick = (e) => { 
+                            e.stopPropagation(); 
+                            clearTimeout(app.state.longPressTimer); 
+                            api.speak(part, 'word'); 
+                            this.copyToClipboard(part); 
+                        };
+                        
+                        span.oncontextmenu = (e) => { 
+                            e.preventDefault(); 
+                            e.stopPropagation(); 
+                            this.showWordContextMenu(e, part); 
+                        };
+                        
+                        let touchMove = false;
+                        span.addEventListener('touchstart', (e) => { 
+                            e.stopPropagation(); 
+                            touchMove = false; 
+                            clearTimeout(app.state.longPressTimer); 
+                            app.state.longPressTimer = setTimeout(() => { 
+                                if (!touchMove) { this.showWordContextMenu(e, part); } 
+                            }, 700); 
+                        }, { passive: true });
+                        span.addEventListener('touchmove', (e) => { e.stopPropagation(); touchMove = true; clearTimeout(app.state.longPressTimer); });
+                        span.addEventListener('touchend', (e) => { e.stopPropagation(); clearTimeout(app.state.longPressTimer); });
+                        
+                        targetElement.appendChild(span);
+                    } else {
+                        targetElement.appendChild(document.createTextNode(part));
+                    }
+                });
+            };
+
+            const sentenceParts = sentence.split(/(\*.*?\*)/g);
+            sentenceParts.forEach(part => {
+                if (part.startsWith('*') && part.endsWith('*')) {
+                    const strong = document.createElement('strong');
+                    processTextInto(strong, part.slice(1, -1));
+                    p.appendChild(strong);
+                } else if (part) {
+                    processTextInto(p, part);
+                }
+            });
+
+            containerElement.appendChild(p);
+        });
+    },
+    showWordContextMenu(event, word, options = {}) {
+        event.preventDefault();
+        const menu = app.elements.wordContextMenu;
+
+        app.elements.searchAppContextBtn.style.display = options.hideAppSearch ? 'none' : 'block';
+        
+        const touch = event.touches ? event.touches[0] : null;
+        const x = touch ? touch.clientX : event.clientX;
+        const y = touch ? touch.clientY : event.clientY;
+
+        menu.style.top = `${y}px`;
+        menu.style.left = `${x}px`;
+        menu.classList.remove('hidden');
+
+        const encodedWord = encodeURIComponent(word);
+
+        app.elements.searchAppContextBtn.onclick = () => {
+            app.searchWordInLearningMode(word);
+        };
+        
+        app.elements.searchDaumContextBtn.onclick = () => {
+            window.open(`https://dic.daum.net/search.do?q=${encodedWord}`, 'daum_dictionary_window');
+            this.hideWordContextMenu();
+        };
+        
+        app.elements.searchNaverContextBtn.onclick = () => {
+            window.open(`https://en.dict.naver.com/#/search?query=${encodedWord}`, 'naver_dictionary_window');
+            this.hideWordContextMenu();
+        };
+
+        app.elements.searchEtymContextBtn.onclick = () => {
+            window.open(`https://www.etymonline.com/search?q=${encodedWord}`, 'etymonline_window');
+            this.hideWordContextMenu();
+        };
+
+        app.elements.searchLongmanContextBtn.onclick = () => {
+            window.open(`https://www.ldoceonline.com/dictionary/${encodedWord}`, 'longman_dictionary_window');
+            this.hideWordContextMenu();
+        };
+    },
+    hideWordContextMenu() {
+        app.elements.wordContextMenu.classList.add('hidden');
+    }
 };
-(async () => {
-    try {
-        ui.adjustFontSize = function(element) { element.style.fontSize = ''; let currentFontSize = parseFloat(window.getComputedStyle(element).fontSize); const container = element.parentElement; const containerStyle = window.getComputedStyle(container); const containerWidth = container.clientWidth - parseFloat(containerStyle.paddingLeft) - parseFloat(containerStyle.paddingRight); const minFontSize = 16; while (element.scrollWidth > containerWidth && currentFontSize > minFontSize) { element.style.fontSize = `${--currentFontSize}px`; } };
-        ui.copyToClipboard = async function(text) { if (navigator.clipboard) { try { await navigator.clipboard.writeText(text); } catch (err) { console.error('클립보드 복사 실패:', err); } } };
-        ui.renderInteractiveText = function(targetElement, text) { targetElement.innerHTML = ''; if (!text || !text.trim()) return; const regex = /(\[.*?\])|([a-zA-Z0-9'-]+(?:[\s'-]*[a-zA-Z0-9'-]+)*)/g; text.split('\n').forEach(line => { let lastIndex = 0; let match; while ((match = regex.exec(line))) { if (match.index > lastIndex) { targetElement.appendChild(document.createTextNode(line.substring(lastIndex, match.index))); } const [_, nonClickable, englishPhrase] = match; if (englishPhrase) { const span = document.createElement('span'); span.textContent = englishPhrase; span.className = 'cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors interactive-word'; span.onclick = () => { clearTimeout(app.state.longPressTimer); api.speak(englishPhrase, 'word'); this.copyToClipboard(englishPhrase); }; span.oncontextmenu = (e) => { e.preventDefault(); this.showWordContextMenu(e, englishPhrase); }; let touchMove = false; span.addEventListener('touchstart', (e) => { touchMove = false; clearTimeout(app.state.longPressTimer); app.state.longPressTimer = setTimeout(() => { if (!touchMove) { this.showWordContextMenu(e, englishPhrase); } }, 700); }); span.addEventListener('touchmove', () => { touchMove = true; clearTimeout(app.state.longPressTimer); }); span.addEventListener('touchend', () => { clearTimeout(app.state.longPressTimer); }); targetElement.appendChild(span); } else if (nonClickable) { targetElement.appendChild(document.createTextNode(nonClickable)); } lastIndex = regex.lastIndex; } if (lastIndex < line.length) { targetElement.appendChild(document.createTextNode(line.substring(lastIndex))); } targetElement.appendChild(document.createElement('br')); }); if (targetElement.lastChild && targetElement.lastChild.tagName === 'BR') { targetElement.removeChild(targetElement.lastChild); } };
-        ui.handleSentenceMouseOver = function(event, sentence) { clearTimeout(app.state.translateDebounceTimeout); app.state.translateDebounceTimeout = setTimeout(async () => { const tooltip = app.elements.translationTooltip; const targetRect = event.target.getBoundingClientRect(); Object.assign(tooltip.style, { left: `${targetRect.left + window.scrollX}px`, top: `${targetRect.bottom + window.scrollY + 5}px` }); tooltip.textContent = '번역 중...'; tooltip.classList.remove('hidden'); const translatedText = await api.translateText(sentence); tooltip.textContent = translatedText; }, 1000); };
-        ui.handleSentenceMouseOut = function() { clearTimeout(app.state.translateDebounceTimeout); app.elements.translationTooltip.classList.add('hidden'); };
-        ui.displaySentences = function(sentences, containerElement) { containerElement.innerHTML = ''; sentences.filter(s => s.trim()).forEach(sentence => { const p = document.createElement('p'); p.className = 'p-2 rounded transition-colors cursor-pointer hover:bg-gray-200 sample-sentence'; p.onclick = () => api.speak(p.textContent, 'sample'); p.addEventListener('mouseover', (e) => { if (e.target.classList.contains('interactive-word')) { this.handleSentenceMouseOut(); return; } this.handleSentenceMouseOver(e, p.textContent); }); p.addEventListener('mouseout', this.handleSentenceMouseOut); const processTextInto = (targetElement, text) => { const parts = text.split(/([,\s\.'])/g).filter(part => part); parts.forEach(part => { if (/[a-zA-Z]/.test(part)) { const span = document.createElement('span'); span.textContent = part; span.className = 'hover:bg-yellow-200 rounded-sm transition-colors interactive-word'; span.onclick = (e) => { e.stopPropagation(); clearTimeout(app.state.longPressTimer); api.speak(part, 'word'); this.copyToClipboard(part); }; span.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); this.showWordContextMenu(e, part); }; let touchMove = false; span.addEventListener('touchstart', (e) => { e.stopPropagation(); touchMove = false; clearTimeout(app.state.longPressTimer); app.state.longPressTimer = setTimeout(() => { if (!touchMove) { this.showWordContextMenu(e, part); } }, 700); }, { passive: true }); span.addEventListener('touchmove', (e) => { e.stopPropagation(); touchMove = true; clearTimeout(app.state.longPressTimer); }); span.addEventListener('touchend', (e) => { e.stopPropagation(); clearTimeout(app.state.longPressTimer); }); targetElement.appendChild(span); } else { targetElement.appendChild(document.createTextNode(part)); } }); }; const sentenceParts = sentence.split(/(\*.*?\*)/g); sentenceParts.forEach(part => { if (part.startsWith('*') && part.endsWith('*')) { const strong = document.createElement('strong'); processTextInto(strong, part.slice(1, -1)); p.appendChild(strong); } else if (part) { processTextInto(p, part); } }); containerElement.appendChild(p); }); };
-        ui.showWordContextMenu = function(event, word, options = {}) { event.preventDefault(); const menu = app.elements.wordContextMenu; app.elements.searchAppContextBtn.style.display = options.hideAppSearch ? 'none' : 'block'; const touch = event.touches ? event.touches[0] : null; const x = touch ? touch.clientX : event.clientX; const y = touch ? touch.clientY : event.clientY; menu.style.top = `${y}px`; menu.style.left = `${x}px`; menu.classList.remove('hidden'); const encodedWord = encodeURIComponent(word); app.elements.searchAppContextBtn.onclick = () => { app.searchWordInLearningMode(word); }; app.elements.searchDaumContextBtn.onclick = () => { window.open(`https://dic.daum.net/search.do?q=${encodedWord}`, '_blank'); this.hideWordContextMenu(); }; app.elements.searchNaverContextBtn.onclick = () => { window.open(`https://en.dict.naver.com/#/search?query=${encodedWord}`, '_blank'); this.hideWordContextMenu(); }; app.elements.searchEtymContextBtn.onclick = () => { window.open(`https://www.etymonline.com/search?q=${encodedWord}`, '_blank'); this.hideWordContextMenu(); }; app.elements.searchLongmanContextBtn.onclick = () => { window.open(`https://www.ldoceonline.com/dictionary/${encodedWord}`, '_blank'); this.hideWordContextMenu(); }; };
-        ui.hideWordContextMenu = function() { app.elements.wordContextMenu.classList.add('hidden'); };
-    } catch (e) { console.error("Failed to initialize UI module:", e); }
-})();
 
 // ================================================================
 // Utility Module
@@ -461,13 +726,69 @@ const utils = {
             }
         }
         return track[b.length][a.length];
+    }
+};
+
+// ================================================================
+// Dashboard Module
+// ================================================================
+const dashboard = {
+    elements: {
+        container: document.getElementById('dashboard-container'),
+        content: document.getElementById('dashboard-content'),
     },
-    shuffleArray(array) {
-        for (let i = array.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [array[i], array[j]] = [array[j], array[i]];
+    init() {},
+    async show() {
+        if (!app.state.isWordListReady) {
+            this.elements.content.innerHTML = `<div class="text-center p-10"><div class="loader mx-auto"></div><p class="mt-4 text-gray-600">단어 목록을 동기화하는 중...</p></div>`;
+            await quizMode.waitForWordList();
         }
-        return array;
+        this.render();
+    },
+    render() {
+        const wordList = app.state.wordList;
+        const totalWords = wordList.length;
+
+        const srsLevels = [
+            { name: '새 단어 (New)', min: 0, max: 0, count: 0, color: 'bg-gray-400' },
+            { name: '학습 중 (Learning)', min: 1, max: 1, count: 0, color: 'bg-blue-500' },
+            { name: '익숙함 (Familiar)', min: 2, max: 2, count: 0, color: 'bg-green-500' },
+            { name: '암기 완료 (Mastered)', min: 3, max: Infinity, count: 0, color: 'bg-purple-600' }
+        ];
+
+        wordList.forEach(word => {
+            const level = word.srsLevel || 0;
+            const category = srsLevels.find(cat => level >= cat.min && level <= cat.max);
+            if (category) category.count++;
+        });
+
+        let contentHTML = `
+            <div class="bg-gray-50 p-4 rounded-lg shadow-inner text-center">
+                <p class="text-lg text-gray-600">총 단어 수</p>
+                <p class="text-4xl font-bold text-gray-800">${totalWords}</p>
+            </div>
+            <div>
+                <h2 class="text-xl font-bold text-gray-700 mb-3 text-center">학습 단계별 분포</h2>
+                <div class="space-y-4">
+        `;
+
+        srsLevels.forEach(level => {
+            const percentage = totalWords > 0 ? ((level.count / totalWords) * 100).toFixed(1) : 0;
+            contentHTML += `
+                <div class="w-full">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-base font-semibold text-gray-700">${level.name}</span>
+                        <span class="text-sm font-medium text-gray-500">${level.count}개 (${percentage}%)</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-4">
+                        <div class="${level.color} h-4 rounded-full" style="width: ${percentage}%"></div>
+                    </div>
+                </div>
+            `;
+        });
+
+        contentHTML += `</div></div>`;
+        this.elements.content.innerHTML = contentHTML;
     }
 };
 
@@ -475,270 +796,255 @@ const utils = {
 // Quiz Mode Module
 // ================================================================
 const quizMode = {
-    state: { currentQuiz: null, quizQueue: [], quizType: null },
+    state: {
+        currentQuiz: {},
+        quizBatch: [],
+        isFetching: false,
+        isFinished: false,
+        flippedContentType: null
+    },
     elements: {},
     init() {
         this.elements = {
-            selectionScreen: document.getElementById('quiz-selection-screen'),
-            wordCountInfo: document.getElementById('quiz-word-count-info'),
-            startMeaningBtn: document.getElementById('start-meaning-quiz-btn'),
-            startBlankBtn: document.getElementById('start-blank-quiz-btn'),
+            quizSelectionScreen: document.getElementById('quiz-selection-screen'),
+            startMeaningQuizBtn: document.getElementById('start-meaning-quiz-btn'),
+            startBlankQuizBtn: document.getElementById('start-blank-quiz-btn'),
             loader: document.getElementById('quiz-loader'),
             loaderText: document.getElementById('quiz-loader-text'),
-            meaningContainer: document.getElementById('meaning-quiz-container'),
-            word: document.getElementById('quiz-word'),
+            contentContainer: document.getElementById('quiz-content-container'),
+            cardFront: document.getElementById('quiz-card-front'),
+            cardBack: document.getElementById('quiz-card-back'),
+            questionDisplay: document.getElementById('quiz-question-display'),
             choices: document.getElementById('quiz-choices'),
+            backTitle: document.getElementById('quiz-back-title'),
+            backContent: document.getElementById('quiz-back-content'),
             passBtn: document.getElementById('quiz-pass-btn'),
-            blankContainer: document.getElementById('blank-quiz-container'),
-            blankSentence: document.getElementById('blank-quiz-sentence'),
-            blankInput: document.getElementById('blank-quiz-input'),
-            blankFeedback: document.getElementById('blank-quiz-feedback'),
-            blankPassBtn: document.getElementById('blank-quiz-pass-btn'),
-            blankSubmitBtn: document.getElementById('blank-quiz-submit-btn'),
+            sampleBtn: document.getElementById('quiz-sample-btn'),
+            explanationBtn: document.getElementById('quiz-explanation-btn'),
             finishedScreen: document.getElementById('quiz-finished-screen'),
-            finishedMessage: document.getElementById('quiz-finished-message'),
+            finishedMessage: document.getElementById('quiz-finished-message')
         };
         this.bindEvents();
     },
     bindEvents() {
-        this.elements.startMeaningBtn.addEventListener('click', () => this.startQuiz('meaning'));
-        this.elements.startBlankBtn.addEventListener('click', () => this.startQuiz('blank'));
-        this.elements.passBtn.addEventListener('click', () => this.handlePass());
-        this.elements.blankPassBtn.addEventListener('click', () => this.handlePass());
-        this.elements.blankSubmitBtn.addEventListener('click', () => this.checkBlankAnswer());
-        this.elements.blankInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.checkBlankAnswer(); });
-        this.elements.word.addEventListener('click', () => { if(this.state.currentQuiz) api.speak(this.state.currentQuiz.word, 'word'); });
-    },
-    async start() {
-        this.reset();
-        if (!app.state.isWordListReady) {
-            this.elements.loader.classList.remove('hidden');
-            await this.waitForWordList();
-            this.elements.loader.classList.add('hidden');
-        }
-        this.prepareReviewQueue();
-        this.elements.selectionScreen.classList.remove('hidden');
-    },
-    async waitForWordList() { return new Promise(resolve => { const i = setInterval(() => { if (app.state.isWordListReady) { clearInterval(i); resolve(); } }, 100); }); },
-    reset() {
-        this.state.quizQueue = [];
-        this.state.quizType = null;
-        this.elements.selectionScreen.classList.add('hidden');
-        this.elements.meaningContainer.classList.add('hidden');
-        this.elements.blankContainer.classList.add('hidden');
-        this.elements.finishedScreen.classList.add('hidden');
-        this.elements.loader.classList.add('hidden');
-    },
-    prepareReviewQueue() {
-        const now = new Date();
-        const wordsForReview = app.state.wordList.filter(word => {
-            if (word.srsLevel >= app.config.SRS_LEVEL_LEARNED) return false;
-            if (!word.lastReviewed) return true;
-            const lastReviewedDate = new Date(word.lastReviewed);
-            const intervalDays = app.config.SRS_INTERVALS[word.srsLevel];
-            const dueDate = new Date(lastReviewedDate.getTime() + intervalDays * 24 * 60 * 60 * 1000);
-            return now >= dueDate;
+        this.elements.startMeaningQuizBtn.addEventListener('click', () => this.start('MULTIPLE_CHOICE_MEANING'));
+        this.elements.startBlankQuizBtn.addEventListener('click', () => this.start('FILL_IN_THE_BLANK'));
+        this.elements.passBtn.addEventListener('click', () => this.displayNextQuiz());
+        this.elements.sampleBtn.addEventListener('click', () => this.handleFlip('sample'));
+        this.elements.explanationBtn.addEventListener('click', () => this.handleFlip('explanation'));
+        
+        document.addEventListener('keydown', (e) => {
+            const isQuizModeActive = !this.elements.contentContainer.classList.contains('hidden') && !this.elements.choices.classList.contains('disabled');
+            if (!isQuizModeActive) return;
+            const choiceIndex = parseInt(e.key) - 1;
+            if (choiceIndex >= 0 && choiceIndex < 5 && this.elements.choices.children[choiceIndex]) {
+                e.preventDefault();
+                this.elements.choices.children[choiceIndex].click();
+            }
         });
-        this.elements.wordCountInfo.textContent = `오늘 복습할 단어: ${wordsForReview.length}개`;
-        this.state.quizQueue = utils.shuffleArray(wordsForReview);
-        this.elements.startBlankBtn.disabled = !wordsForReview.some(w => w.sample);
     },
-    startQuiz(type) {
-        this.state.quizType = type;
-        this.elements.selectionScreen.classList.add('hidden');
-        if (this.state.quizQueue.length === 0) {
-            this.showFinishedScreen("오늘 복습할 단어가 없습니다!");
-            return;
+    async start(quizType) {
+        this.elements.quizSelectionScreen.classList.add('hidden');
+        this.showLoader(true);
+        if (!app.state.isWordListReady) {
+            this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
+            await this.waitForWordList();
         }
-        if (type === 'blank' && !this.state.quizQueue.some(w => w.sample)) {
-            this.showFinishedScreen("예문이 있는 복습 단어가 없습니다!");
-            return;
-        }
+        await this.fetchQuizBatch(quizType);
         this.displayNextQuiz();
+    },
+    async waitForWordList() {
+        return new Promise(resolve => {
+            const interval = setInterval(() => {
+                if(app.state.isWordListReady) {
+                    clearInterval(interval);
+                    resolve();
+                }
+            }, 100);
+        });
+    },
+    reset() {
+        this.state.quizBatch = [];
+        this.state.isFetching = false;
+        this.state.isFinished = false;
+        this.elements.quizSelectionScreen.classList.remove('hidden');
+        this.elements.loader.classList.add('hidden');
+        this.elements.contentContainer.classList.add('hidden');
+        this.elements.finishedScreen.classList.add('hidden');
+    },
+    async fetchQuizBatch(quizType) {
+        if (this.state.isFetching || this.state.isFinished) return;
+        this.state.isFetching = true;
+        try {
+            const data = await api.fetchFromGoogleSheet('getQuiz', { quizType });
+            if (data.finished) {
+                this.state.isFinished = true;
+                if (this.state.quizBatch.length === 0) {
+                    this.showFinishedScreen(data.message || "오늘 복습할 단어를 모두 학습했습니다!");
+                }
+                return;
+            }
+            this.state.quizBatch.push(...data.quizzes);
+        } catch (error) {
+            console.error("퀴즈 묶음 가져오기 실패:", error);
+            this.showError(error.message);
+        } finally {
+            this.state.isFetching = false;
+        }
+    },
+    showError(message) {
+        this.elements.loader.querySelector('.loader').style.display = 'none';
+        this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">퀴즈를 가져올 수 없습니다.</p><p class="text-sm text-gray-600 mt-2 break-all">${message}</p>`;
     },
     displayNextQuiz() {
-        if (this.state.quizQueue.length === 0) {
-            this.showFinishedScreen("오늘의 퀴즈를 모두 완료했습니다!");
+        if (!this.state.isFetching && this.state.quizBatch.length <= 3) {
+            this.fetchQuizBatch(this.state.currentQuiz.type); // Fetch more of the same type
+        }
+        if (this.state.quizBatch.length === 0) {
+            if(this.state.isFetching) {
+                this.elements.loaderText.textContent = "다음 퀴즈를 준비 중입니다...";
+                this.showLoader(true);
+                const checker = setInterval(() => {
+                    if(this.state.quizBatch.length > 0) {
+                        clearInterval(checker);
+                        this.displayNextQuiz();
+                    }
+                }, 100)
+            } 
+            else if (this.state.isFinished) {
+                this.showFinishedScreen("모든 단어 학습을 완료했습니다!");
+            }
             return;
         }
-        let nextWord = this.state.quizQueue.shift();
-        if(this.state.quizType === 'blank' && !nextWord.sample) {
-            // 예문 없는 단어는 통과 처리하고 다음 문제로
-            api.updateWordStats(nextWord.word, true);
-            this.displayNextQuiz();
-            return;
-        }
-        this.state.currentQuiz = nextWord;
-        this.state.quizType === 'meaning' ? this.renderMeaningQuiz() : this.renderBlankQuiz();
+        const nextQuiz = this.state.quizBatch.shift();
+        this.state.currentQuiz = nextQuiz;
+        this.showLoader(false);
+        this.renderQuiz(nextQuiz);
     },
-    renderMeaningQuiz() {
-        this.elements.meaningContainer.classList.remove('hidden');
-        this.elements.word.textContent = this.state.currentQuiz.word;
-        ui.adjustFontSize(this.elements.word);
+    renderQuiz(quizData) {
+        this.elements.cardFront.classList.remove('hidden');
+        this.elements.cardBack.classList.add('hidden');
+        this.state.flippedContentType = null;
         
-        const correctAnswer = this.state.currentQuiz.meaning;
-        const wrongAnswers = utils.shuffleArray(app.state.wordList.filter(w => w.meaning !== correctAnswer)).slice(0, 3).map(w => w.meaning);
-        const choices = utils.shuffleArray([correctAnswer, ...wrongAnswers]);
-        
+        const { type, question, choices, answer } = quizData;
+        const questionDisplay = this.elements.questionDisplay;
+        questionDisplay.innerHTML = '';
+
+        if (type === 'FILL_IN_THE_BLANK') {
+            const sentence = question.sentence_with_blank;
+            const p = document.createElement('p');
+            p.className = 'text-xl sm:text-2xl text-left text-gray-800 leading-relaxed';
+            let processedText = sentence.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
+            processedText = processedText.replace(/＿＿＿＿/g, '<span style="white-space: nowrap;">＿＿＿＿</span>');
+            p.innerHTML = processedText.replace(/\n/g, '<br>');
+            questionDisplay.appendChild(p);
+
+        } else { // MULTIPLE_CHOICE_MEANING
+            questionDisplay.innerHTML = `<h1 class="text-3xl sm:text-4xl font-bold text-center text-gray-800" title="클릭하여 발음 듣기 및 복사">${question.word}</h1>`;
+            const wordEl = questionDisplay.querySelector('h1');
+            wordEl.addEventListener('click', () => {
+                api.speak(question.word, 'word');
+                ui.copyToClipboard(question.word);
+            });
+            ui.adjustFontSize(wordEl);
+        }
+
         this.elements.choices.innerHTML = '';
-        choices.forEach(choice => {
+        choices.forEach((choice, index) => {
             const li = document.createElement('li');
-            li.className = 'choice-item border-2 border-gray-300 p-4 rounded-lg cursor-pointer transition-all';
-            li.textContent = choice;
-            li.onclick = () => this.checkMeaningAnswer(li, choice === correctAnswer);
+            li.className = 'choice-item border-2 border-gray-300 p-4 rounded-lg cursor-pointer flex items-start transition-all';
+            li.innerHTML = `<span class="font-bold mr-3">${index + 1}.</span> <span>${choice}</span>`;
+            li.onclick = () => this.checkAnswer(li, choice, answer);
             this.elements.choices.appendChild(li);
         });
-    },
-    renderBlankQuiz() {
-        this.elements.blankContainer.classList.remove('hidden');
-        this.elements.blankInput.value = '';
-        this.elements.blankFeedback.innerHTML = '';
-        this.elements.blankInput.disabled = false;
-        this.elements.blankSubmitBtn.disabled = false;
-        
-        const sentence = this.state.currentQuiz.sample.split('\n')[0]; // Use first line of sample
-        const wordToBlank = this.state.currentQuiz.word;
-        const blankedSentence = sentence.replace(new RegExp(`\\b${wordToBlank}\\b`, 'gi'), `<span class="blank">${'_'.repeat(wordToBlank.length)}</span>`);
-        this.elements.blankSentence.innerHTML = blankedSentence;
-        this.elements.blankInput.focus();
-    },
-    checkMeaningAnswer(li, isCorrect) {
-        this.elements.choices.classList.add('disabled');
-        li.classList.add(isCorrect ? 'correct' : 'incorrect');
-        if (!isCorrect) {
-            const correctLi = Array.from(this.elements.choices.children).find(el => el.textContent === this.state.currentQuiz.meaning);
-            correctLi?.classList.add('correct');
-        }
-        api.updateWordStats(this.state.currentQuiz.word, isCorrect);
-        setTimeout(() => {
-            this.elements.meaningContainer.classList.add('hidden');
-            this.elements.choices.classList.remove('disabled');
-            this.displayNextQuiz();
-        }, 1500);
-    },
-    checkBlankAnswer() {
-        const userAnswer = this.elements.blankInput.value.trim();
-        const correctAnswer = this.state.currentQuiz.word;
-        const isCorrect = userAnswer.toLowerCase() === correctAnswer.toLowerCase();
-        
-        this.elements.blankInput.disabled = true;
-        this.elements.blankSubmitBtn.disabled = true;
 
-        const feedbackEl = this.elements.blankFeedback;
-        if (isCorrect) {
-            feedbackEl.innerHTML = `<p class="text-green-600 font-bold text-lg">정답!</p>`;
+        this.elements.choices.classList.remove('disabled');
+        this.elements.passBtn.style.display = 'block';
+        this.elements.passBtn.disabled = false;
+        
+        const hasSample = quizData.question.word_info.sample && quizData.question.word_info.sample.trim() !== '';
+        this.elements.sampleBtn.textContent = '예문';
+        this.elements.sampleBtn.classList.toggle('bg-purple-500', hasSample);
+        this.elements.sampleBtn.classList.toggle('hover:bg-purple-600', hasSample);
+        this.elements.sampleBtn.classList.toggle('bg-gray-400', !hasSample);
+        this.elements.sampleBtn.classList.toggle('cursor-not-allowed', !hasSample);
+        this.elements.sampleBtn.style.display = 'block';
+        this.elements.explanationBtn.textContent = '보충자료';
+        this.elements.explanationBtn.style.display = (quizData.question.word_info.explanation && quizData.question.word_info.explanation.trim()) ? 'block' : 'none';
+    },
+    checkAnswer(selectedLi, selectedChoice, correctAnswer) {
+        this.elements.choices.classList.add('disabled');
+        this.elements.passBtn.disabled = true;
+        
+        const isCorrect = selectedChoice === correctAnswer;
+        selectedLi.classList.add(isCorrect ? 'correct' : 'incorrect');
+        
+        const word = this.state.currentQuiz.question.word_info.word;
+        api.updateSRSData(word, isCorrect);
+
+        if (!isCorrect) {
+            mistakeLog.add(word);
+            const correctAnswerEl = Array.from(this.elements.choices.children).find(li => li.querySelector('span:last-child').textContent === correctAnswer);
+            correctAnswerEl?.classList.add('correct');
         } else {
-            feedbackEl.innerHTML = `<p class="text-red-600 font-bold text-lg">오답</p><p class="text-gray-700">정답: ${correctAnswer}</p>`;
+            mistakeLog.remove(word);
         }
         
-        api.updateWordStats(correctAnswer, isCorrect);
-        setTimeout(() => {
-            this.elements.blankContainer.classList.add('hidden');
-            this.displayNextQuiz();
-        }, 2000);
+        setTimeout(() => this.displayNextQuiz(), 1500);
     },
-    handlePass() {
-        api.updateWordStats(this.state.currentQuiz.word, false);
-        this.elements.meaningContainer.classList.add('hidden');
-        this.elements.blankContainer.classList.add('hidden');
-        this.displayNextQuiz();
+    showLoader(isLoading) {
+        this.elements.loader.classList.toggle('hidden', !isLoading);
+        this.elements.quizSelectionScreen.classList.add('hidden');
+        this.elements.contentContainer.classList.toggle('hidden', isLoading);
+        this.elements.finishedScreen.classList.add('hidden');
     },
     showFinishedScreen(message) {
-        this.reset();
+        this.showLoader(false);
+        this.elements.contentContainer.classList.add('hidden');
         this.elements.finishedScreen.classList.remove('hidden');
         this.elements.finishedMessage.textContent = message;
-    }
-};
-
-// ================================================================
-// Stats Mode Module
-// ================================================================
-const statsMode = {
-    elements: {},
-    init() {
-        this.elements = {
-            totalWords: document.getElementById('stats-total-words'),
-            learnedWords: document.getElementById('stats-learned-words'),
-            chartCanvas: document.getElementById('srs-chart'),
-        };
     },
-    async show() {
-        if (!app.state.isWordListReady) {
-            await quizMode.waitForWordList();
-        }
-        this.renderStats();
-    },
-    renderStats() {
-        const wordList = app.state.wordList;
-        if (wordList.length === 0) return;
-
-        const total = wordList.length;
-        const learned = wordList.filter(w => w.srsLevel >= app.config.SRS_LEVEL_LEARNED).length;
-
-        this.elements.totalWords.textContent = total;
-        this.elements.learnedWords.textContent = `${learned} (${Math.round((learned/total)*100)}%)`;
-
-        const srsCounts = Array(app.config.SRS_LEVEL_LEARNED + 1).fill(0);
-        wordList.forEach(w => {
-            const level = Math.min(w.srsLevel, app.config.SRS_LEVEL_LEARNED);
-            srsCounts[level]++;
-        });
-        
-        const chartData = {
-            labels: srsCounts.map((_, i) => i === app.config.SRS_LEVEL_LEARNED ? '완료' : `Lv ${i}`),
-            datasets: [{
-                label: '단어 수',
-                data: srsCounts,
-                backgroundColor: 'rgba(54, 162, 235, 0.6)',
-                borderColor: 'rgba(54, 162, 235, 1)',
-                borderWidth: 1
-            }]
-        };
-
-        if (app.state.srsChartInstance) app.state.srsChartInstance.destroy();
-        app.state.srsChartInstance = new Chart(this.elements.chartCanvas, {
-            type: 'bar', data: chartData,
-            options: { scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
-        });
-    }
-};
-
-// ================================================================
-// Incorrect Notes Mode Module
-// ================================================================
-const notesMode = {
-    elements: {},
-    init() { this.elements = { listContainer: document.getElementById('notes-list') }; },
-    async show() {
-        if (!app.state.isWordListReady) await quizMode.waitForWordList();
-        this.renderNotes();
-    },
-    renderNotes() {
-        this.elements.listContainer.innerHTML = '';
-        const incorrectWords = app.state.wordList
-            .filter(w => w.incorrectCount > 0)
-            .sort((a, b) => b.incorrectCount - a.incorrectCount);
-
-        if (incorrectWords.length === 0) {
-            this.elements.listContainer.innerHTML = `<p class="text-gray-500 text-center py-8">오답 기록이 없습니다.</p>`;
+    async handleFlip(type) {
+        const wordInfo = this.state.currentQuiz.question.word_info;
+        if (type === 'sample' && (!wordInfo.sample || !wordInfo.sample.trim())) {
+            app.showNoSampleMessage();
             return;
         }
 
-        incorrectWords.forEach(word => {
-            const item = document.createElement('div');
-            item.className = 'flex justify-between items-center bg-red-50 p-3 rounded-lg cursor-pointer hover:bg-red-100 transition-colors';
-            item.innerHTML = `
-                <div>
-                    <p class="font-bold text-lg text-red-800">${word.word}</p>
-                    <p class="text-sm text-gray-600">${word.meaning.split('\n')[0]}</p>
-                </div>
-                <div class="text-right flex-shrink-0 ml-4">
-                     <p class="text-sm text-red-600">오답: <span class="font-semibold">${word.incorrectCount}</span>회</p>
-                     <p class="text-sm text-gray-500">레벨: ${word.srsLevel}</p>
-                </div>`;
-            item.onclick = () => app.navigateTo('learning', { startIndex: app.state.wordList.findIndex(w => w.word === word.word) });
-            this.elements.listContainer.appendChild(item);
-        });
+        const isFrontVisible = !this.elements.cardFront.classList.contains('hidden');
+        this.elements.explanationBtn.textContent = '보충자료';
+        this.elements.sampleBtn.textContent = '예문';
+
+        if (isFrontVisible) {
+            const frontHeight = this.elements.cardFront.offsetHeight;
+            this.elements.cardBack.style.minHeight = `${frontHeight}px`;
+            this.updateBackContent(type);
+            this.elements.cardFront.classList.add('hidden');
+            this.elements.cardBack.classList.remove('hidden');
+            this.state.flippedContentType = type;
+            (type === 'sample' ? this.elements.sampleBtn : this.elements.explanationBtn).textContent = 'BACK';
+        } else {
+            if (this.state.flippedContentType === type) {
+                this.elements.cardFront.classList.remove('hidden');
+                this.elements.cardBack.classList.add('hidden');
+                this.elements.cardBack.style.minHeight = '';
+                this.state.flippedContentType = null;
+            } else {
+                this.updateBackContent(type);
+                this.state.flippedContentType = type;
+                (type === 'sample' ? this.elements.sampleBtn : this.elements.explanationBtn).textContent = 'BACK';
+            }
+        }
+    },
+    updateBackContent(type) {
+        const { word, sample, explanation } = this.state.currentQuiz.question.word_info;
+        this.elements.backTitle.textContent = word;
+        this.elements.backContent.innerHTML = '';
+        if (type === 'sample') {
+            ui.displaySentences(sample.split('\n'), this.elements.backContent);
+        } else {
+            ui.renderInteractiveText(this.elements.backContent, explanation);
+        }
     }
 };
 
@@ -746,7 +1052,14 @@ const notesMode = {
 // Learning Mode Module
 // ================================================================
 const learningMode = {
-    state: { currentIndex: 0, touchstartX: 0, touchstartY: 0 },
+    state: {
+        currentIndex: 0,
+        touchstartX: 0,
+        touchstartY: 0,
+        lastWheelTime: 0,
+        isMistakeMode: false,
+        currentWordList: [],
+    },
     elements: {},
     init() {
         this.elements = {
@@ -759,6 +1072,7 @@ const learningMode = {
             suggestionsList: document.getElementById('learning-suggestions-list'),
             backToStartBtn: document.getElementById('learning-back-to-start-btn'),
             loader: document.getElementById('learning-loader'),
+            loaderText: document.getElementById('learning-loader-text'),
             appContainer: document.getElementById('learning-app-container'),
             cardBack: document.getElementById('learning-card-back'),
             wordDisplay: document.getElementById('word-display'),
@@ -775,72 +1089,305 @@ const learningMode = {
         };
         this.bindEvents();
     },
-    bindEvents() { /* same as before, simplified */ },
-    async start(options = {}) {
-        this.elements.appContainer.classList.add('hidden');
-        this.elements.loader.classList.add('hidden');
-        this.elements.startScreen.classList.remove('hidden');
+    bindEvents() {
+        this.elements.startBtn.addEventListener('click', () => this.start());
+        this.elements.startWordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.start(); });
+        this.elements.startWordInput.addEventListener('input', (e) => {
+            const originalValue = e.target.value;
+            const sanitizedValue = originalValue.replace(/[^a-zA-Z\s'-]/g, '');
+            if (originalValue !== sanitizedValue) app.showImeWarning();
+            e.target.value = sanitizedValue;
+        });
+        this.elements.backToStartBtn.addEventListener('click', () => this.resetStartScreen());
+        this.elements.nextBtn.addEventListener('click', () => this.navigate(1));
+        this.elements.prevBtn.addEventListener('click', () => this.navigate(-1));
+        this.elements.sampleBtn.addEventListener('click', () => this.handleFlip());
 
-        if (options.suggestions) {
-            this.displaySuggestions(options.suggestions, options.title);
-        } else if (options.startIndex !== undefined) {
-            this.state.currentIndex = options.startIndex;
-            this.launchApp();
-        } else {
-            this.resetStartScreen();
-        }
+        this.elements.wordDisplay.addEventListener('click', () => {
+            const word = this.state.currentWordList[this.state.currentIndex]?.word;
+            if (word) {
+                api.speak(word, 'word');
+                ui.copyToClipboard(word);
+            }
+        });
+
+        this.elements.wordDisplay.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const wordData = this.state.currentWordList[this.state.currentIndex];
+            if (wordData) {
+                ui.showWordContextMenu(e, wordData.word, { hideAppSearch: true });
+            }
+        });
+
+        let wordDisplayTouchMove = false;
+        this.elements.wordDisplay.addEventListener('touchstart', (e) => {
+            wordDisplayTouchMove = false;
+            clearTimeout(app.state.longPressTimer);
+            app.state.longPressTimer = setTimeout(() => {
+                const wordData = this.state.currentWordList[this.state.currentIndex];
+                if (!wordDisplayTouchMove && wordData) {
+                    ui.showWordContextMenu(e, wordData.word, { hideAppSearch: true });
+                }
+            }, 700);
+        }, { passive: true });
+        this.elements.wordDisplay.addEventListener('touchmove', () => {
+            wordDisplayTouchMove = true;
+            clearTimeout(app.state.longPressTimer);
+        });
+        this.elements.wordDisplay.addEventListener('touchend', () => {
+            clearTimeout(app.state.longPressTimer);
+        });
+
+        document.addEventListener('mousedown', this.handleMiddleClick.bind(this));
+        document.addEventListener('keydown', this.handleKeyDown.bind(this));
+        document.addEventListener('touchstart', this.handleTouchStart.bind(this), { passive: true });
+        document.addEventListener('touchend', this.handleTouchEnd.bind(this));
     },
-    async startFromInput() {
+    async start() {
+        this.state.isMistakeMode = false;
+        this.state.currentWordList = app.state.wordList;
+
         this.elements.startScreen.classList.add('hidden');
         this.elements.loader.classList.remove('hidden');
-        if (!app.state.isWordListReady) await this.waitForWordList();
-        this.elements.loader.classList.add('hidden');
-
+        if (!app.state.isWordListReady) {
+            this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
+            await this.waitForWordList();
+        }
         const startWord = this.elements.startWordInput.value.trim();
-        app.searchWordInLearningMode(startWord || app.state.wordList[0]?.word);
+        const wordList = this.state.currentWordList;
+        if (wordList.length === 0) {
+            this.showError("학습할 단어가 없습니다.");
+            return;
+        }
+    
+        if (!startWord) {
+            this.state.currentIndex = 0;
+            this.launchApp();
+            return;
+        }
+    
+        const lowerCaseStartWord = startWord.toLowerCase();
+    
+        const exactMatchIndex = wordList.findIndex(item => item.word.toLowerCase() === lowerCaseStartWord);
+        if (exactMatchIndex !== -1) {
+            this.state.currentIndex = exactMatchIndex;
+            this.launchApp();
+            return;
+        }
+    
+        const explanationMatches = wordList
+            .map((item, index) => ({ word: item.word, index }))
+            .filter((_, index) => 
+                wordList[index].explanation && 
+                wordList[index].explanation.toLowerCase().includes(lowerCaseStartWord)
+            );
+    
+        if (explanationMatches.length > 0) {
+            const title = `'<strong>${startWord}</strong>'(이)가 설명에 포함된 단어입니다.`;
+            this.displaySuggestions(explanationMatches, title);
+            return;
+        }
+    
+        const levenshteinSuggestions = wordList.map((item, index) => ({
+            word: item.word,
+            index,
+            distance: utils.levenshteinDistance(lowerCaseStartWord, item.word.toLowerCase())
+        }))
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 5)
+        .filter(s => s.distance < s.word.length / 2 + 1);
+    
+        if (levenshteinSuggestions.length > 0) {
+            const title = `입력하신 단어를 찾을 수 없습니다.<br>혹시 이 단어를 찾으시나요?`;
+            this.displaySuggestions(levenshteinSuggestions, title);
+        } else {
+            const title = `'<strong>${startWord}</strong>'에 대한 검색 결과가 없습니다.`;
+            this.displaySuggestions([], title);
+        }
+    },
+    async waitForWordList() {
+        return new Promise(resolve => {
+            const interval = setInterval(() => {
+                if(app.state.isWordListReady) {
+                    clearInterval(interval);
+                    resolve();
+                }
+            }, 100);
+        });
+    },
+    showError(message) {
+        this.elements.loader.querySelector('.loader').style.display = 'none';
+        this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">오류 발생</p><p class="text-sm text-gray-600 mt-2 break-all">${message}</p>`;
     },
     launchApp() {
         this.elements.startScreen.classList.add('hidden');
+        this.elements.loader.classList.add('hidden');
         this.elements.appContainer.classList.remove('hidden');
         this.elements.fixedButtons.classList.remove('hidden');
+        app.elements.refreshBtn.classList.add('hidden');
         this.displayWord(this.state.currentIndex);
     },
     reset() {
         this.elements.startScreen.classList.remove('hidden');
         this.elements.appContainer.classList.add('hidden');
+        this.elements.loader.classList.add('hidden');
         this.elements.fixedButtons.classList.add('hidden');
         this.resetStartScreen();
     },
-    resetStartScreen() { /* same as before */ },
-    displaySuggestions(suggestions, title) { /* same as before */ },
-    displayWord(index) { /* same as before */ },
-    navigate(direction) { /* same as before */ },
-    async handleFlip() { /* same as before */ },
-    isLearningModeActive() { return !this.elements.appContainer.classList.contains('hidden'); },
-    // ... rest of event handlers
+    resetStartScreen() {
+        this.elements.startInputContainer.classList.remove('hidden');
+        this.elements.suggestionsContainer.classList.add('hidden');
+        this.elements.startWordInput.value = '';
+        this.elements.startWordInput.focus();
+    },
+    displaySuggestions(suggestions, title) {
+        this.elements.loader.classList.add('hidden');
+        this.elements.startScreen.classList.remove('hidden');
+        this.elements.startInputContainer.classList.add('hidden');
+        
+        this.elements.suggestionsTitle.innerHTML = title;
+        this.elements.suggestionsList.innerHTML = '';
+    
+        suggestions.forEach(({ word, index }) => {
+            const btn = document.createElement('button');
+            btn.className = 'w-full text-left bg-gray-100 hover:bg-gray-200 font-semibold py-3 px-4 rounded-lg transition-colors';
+            btn.textContent = word;
+            btn.onclick = () => {
+                this.state.currentIndex = index;
+                this.launchApp();
+            };
+            this.elements.suggestionsList.appendChild(btn);
+        });
+        
+        this.elements.suggestionsContainer.classList.remove('hidden');
+    },
+    displayWord(index) {
+        this.elements.cardBack.classList.remove('is-slid-up');
+        const wordData = this.state.currentWordList[index];
+        if (!wordData) return;
+        
+        const wordText = wordData.word;
+        const pronText = wordData.pronunciation ? `<span class="pronunciation-inline">${wordData.pronunciation}</span>` : '';
+        this.elements.wordDisplay.innerHTML = `${wordText} ${pronText}`;
+        
+        ui.adjustFontSize(this.elements.wordDisplay);
+        
+        this.elements.meaningDisplay.innerHTML = wordData.meaning.replace(/\n/g, '<br>');
+        ui.renderInteractiveText(this.elements.explanationDisplay, wordData.explanation);
+        this.elements.explanationContainer.classList.toggle('hidden', !wordData.explanation || !wordData.explanation.trim());
+        
+        switch(wordData.sampleSource) {
+            case 'manual':
+                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png';
+                break;
+            case 'ai':
+                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/3-search-cat_icon-icons.com_76679.png';
+                break;
+            case 'none':
+            default:
+                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
+                break;
+        }
+    },
+    navigate(direction) {
+        const len = this.state.currentWordList.length;
+        if (len === 0) return;
+        this.state.currentIndex = (this.state.currentIndex + direction + len) % len;
+        this.displayWord(this.state.currentIndex);
+    },
+    async handleFlip() {
+        const isBackVisible = this.elements.cardBack.classList.contains('is-slid-up');
+        const wordData = this.state.currentWordList[this.state.currentIndex];
+
+        if (!isBackVisible) {
+            if (wordData.sampleSource === 'none' || !wordData.sample) {
+                app.showNoSampleMessage();
+                return;
+            }
+            
+            this.elements.backTitle.textContent = wordData.word;
+            ui.displaySentences(wordData.sample.split('\n'), this.elements.backContent);
+            this.elements.cardBack.classList.add('is-slid-up');
+            this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/5-remove-cat_icon-icons.com_76681.png';
+
+        } else {
+            this.elements.cardBack.classList.remove('is-slid-up');
+            this.displayWord(this.state.currentIndex);
+        }
+    },
+    async startMistakeReview(mistakeWords) {
+        this.elements.startScreen.classList.add('hidden');
+        this.elements.loader.classList.remove('hidden');
+        if (!app.state.isWordListReady) {
+            this.elements.loaderText.textContent = "단어 목록 동기화 중...";
+            await this.waitForWordList();
+        }
+        
+        this.state.isMistakeMode = true;
+        this.state.currentWordList = app.state.wordList.filter(wordObj => mistakeWords.includes(wordObj.word));
+        this.state.currentIndex = 0;
+        
+        if (this.state.currentWordList.length === 0) {
+            this.showError("오답 노트를 불러올 수 없습니다.");
+            setTimeout(() => app.navigateTo('selection'), 2000);
+            return;
+        }
+        
+        this.launchApp();
+    },
+    isLearningModeActive() {
+        return !this.elements.appContainer.classList.contains('hidden');
+    },
+    handleMiddleClick(e) {
+        if (this.isLearningModeActive() && e.button === 1) {
+            e.preventDefault();
+            this.elements.sampleBtn.click();
+        }
+    },
+    handleKeyDown(e) {
+        if (!this.isLearningModeActive() || document.activeElement.tagName.match(/INPUT|TEXTAREA/)) return;
+        const keyMap = { 'ArrowLeft': -1, 'ArrowRight': 1 };
+        if (keyMap[e.key] !== undefined) {
+            e.preventDefault();
+            this.navigate(keyMap[e.key]);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            this.handleFlip();
+        } else if (e.key === ' ') {
+            e.preventDefault();
+            if (!this.elements.cardBack.classList.contains('is-slid-up')) {
+                api.speak(this.elements.wordDisplay.textContent, 'word');
+            }
+        }
+    },
+    handleTouchStart(e) {
+        if (!this.isLearningModeActive()) return;
+        if (e.target.closest('#word-display')) return;
+        this.state.touchstartX = e.changedTouches[0].screenX;
+        this.state.touchstartY = e.changedTouches[0].screenY;
+    },
+    handleTouchEnd(e) {
+        if (!this.isLearningModeActive() || this.state.touchstartX === 0) return;
+        if (e.target.closest('button, a, input, [onclick], .interactive-word')) {
+             this.state.touchstartX = this.state.touchstartY = 0;
+             return;
+        }
+        const deltaX = e.changedTouches[0].screenX - this.state.touchstartX;
+        const deltaY = e.changedTouches[0].screenY - this.state.touchstartY;
+        
+        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
+            this.navigate(deltaX > 0 ? -1 : 1);
+        } 
+        else if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 50) {
+            if (!e.target.closest('#learning-app-container')) {
+                if (deltaY < 0) { 
+                    this.navigate(1); 
+                }
+            }
+        }
+        this.state.touchstartX = this.state.touchstartY = 0;
+    }
 };
-(async () => {
-    try {
-        learningMode.bindEvents = function() {
-            this.elements.startBtn.addEventListener('click', () => this.startFromInput());
-            this.elements.startWordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.startFromInput(); });
-            this.elements.startWordInput.addEventListener('input', (e) => { const originalValue = e.target.value; const sanitizedValue = originalValue.replace(/[^a-zA-Z\s'-]/g, ''); if (originalValue !== sanitizedValue) app.showImeWarning(); e.target.value = sanitizedValue; });
-            this.elements.backToStartBtn.addEventListener('click', () => this.resetStartScreen());
-            this.elements.nextBtn.addEventListener('click', () => this.navigate(1));
-            this.elements.prevBtn.addEventListener('click', () => this.navigate(-1));
-            this.elements.sampleBtn.addEventListener('click', () => this.handleFlip());
-            this.elements.wordDisplay.addEventListener('click', () => { const word = app.state.wordList[this.state.currentIndex]?.word; if (word) { api.speak(word, 'word'); ui.copyToClipboard(word); } });
-            this.elements.wordDisplay.addEventListener('contextmenu', (e) => { e.preventDefault(); const wordData = app.state.wordList[this.state.currentIndex]; if (wordData) ui.showWordContextMenu(e, wordData.word, { hideAppSearch: true }); });
-            // Add other event listeners...
-        };
-        learningMode.resetStartScreen = function() { this.elements.startInputContainer.classList.remove('hidden'); this.elements.suggestionsContainer.classList.add('hidden'); this.elements.startWordInput.value = ''; this.elements.startWordInput.focus(); };
-        learningMode.displaySuggestions = function(suggestions, title) { this.elements.loader.classList.add('hidden'); this.elements.startScreen.classList.remove('hidden'); this.elements.startInputContainer.classList.add('hidden'); this.elements.suggestionsTitle.innerHTML = title; this.elements.suggestionsList.innerHTML = ''; suggestions.forEach(({ word, index }) => { const btn = document.createElement('button'); btn.className = 'w-full text-left bg-gray-100 hover:bg-gray-200 font-semibold py-3 px-4 rounded-lg transition-colors'; btn.textContent = word; btn.onclick = () => { this.state.currentIndex = index; this.launchApp(); }; this.elements.suggestionsList.appendChild(btn); }); this.elements.suggestionsContainer.classList.remove('hidden'); };
-        learningMode.displayWord = function(index) { this.elements.cardBack.classList.remove('is-slid-up'); const wordData = app.state.wordList[index]; if (!wordData) return; const wordText = wordData.word; const pronText = wordData.pronunciation ? `<span class="pronunciation-inline">${wordData.pronunciation}</span>` : ''; this.elements.wordDisplay.innerHTML = `${wordText} ${pronText}`; ui.adjustFontSize(this.elements.wordDisplay); this.elements.meaningDisplay.innerHTML = wordData.meaning.replace(/\n/g, '<br>'); ui.renderInteractiveText(this.elements.explanationDisplay, wordData.explanation); this.elements.explanationContainer.classList.toggle('hidden', !wordData.explanation || !wordData.explanation.trim()); switch(wordData.sampleSource) { case 'manual': this.elements.sampleBtnImg.src = 'https://i.imgur.com/8Yv4aF2.png'; break; case 'ai': this.elements.sampleBtnImg.src = 'https://i.imgur.com/T0fUfH7.png'; break; default: this.elements.sampleBtnImg.src = 'https://i.imgur.com/kY9N2F4.png'; break; }};
-        learningMode.navigate = function(direction) { const len = app.state.wordList.length; if (len === 0) return; this.state.currentIndex = (this.state.currentIndex + direction + len) % len; this.displayWord(this.state.currentIndex); };
-        learningMode.handleFlip = async function() { const isBackVisible = this.elements.cardBack.classList.contains('is-slid-up'); const wordData = app.state.wordList[this.state.currentIndex]; if (!isBackVisible) { if (wordData.sampleSource === 'none') { app.showNoSampleMessage(); return; } this.elements.backTitle.textContent = wordData.word; ui.displaySentences(wordData.sample.split('\n'), this.elements.backContent); this.elements.cardBack.classList.add('is-slid-up'); this.elements.sampleBtnImg.src = 'https://i.imgur.com/I2a1w2E.png'; } else { this.elements.cardBack.classList.remove('is-slid-up'); this.displayWord(this.state.currentIndex); }};
-        learningMode.waitForWordList = async function() { return new Promise(resolve => { const i = setInterval(() => { if (app.state.isWordListReady) { clearInterval(i); resolve(); } }, 100); }); };
-    } catch(e) { console.error("Failed to initialize learningMode module:", e); }
-})();
 
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
