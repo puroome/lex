@@ -56,21 +56,36 @@ const app = {
         document.getElementById('select-quiz-btn').addEventListener('click', () => this.navigateTo('quiz'));
         document.getElementById('select-learning-btn').addEventListener('click', () => this.navigateTo('learning'));
         
-        // [MODIFIED] '학습 통계' 버튼 클릭 시, 데이터를 새로고침하고 화면으로 이동하도록 변경
         document.getElementById('select-dashboard-btn').addEventListener('click', async () => {
             this.navigateTo('dashboard');
-            // 화면이 전환될 시간을 잠시 기다립니다.
             await new Promise(resolve => setTimeout(resolve, 10)); 
             dashboard.elements.content.innerHTML = `<div class="text-center p-10"><div class="loader mx-auto"></div><p class="mt-4 text-gray-600">최신 통계를 불러오는 중...</p></div>`;
             try {
-                await api.loadWordList(true); // 시트에서 최신 데이터를 강제로 다시 불러옵니다.
-                dashboard.render(); // 새로 불러온 데이터로 통계 화면을 다시 그립니다.
+                await api.loadWordList(true);
+                dashboard.render();
             } catch (e) {
                 dashboard.elements.content.innerHTML = `<div class="p-8 text-center text-red-600">통계 데이터를 불러오는데 실패했습니다: ${e.message}</div>`;
             }
         });
 
-        document.getElementById('select-mistakes-btn').addEventListener('click', () => this.navigateTo('mistakeReview'));
+        // [MODIFIED] 오답노트 버튼 클릭 시, 시트에서 직접 데이터를 불러오도록 변경
+        document.getElementById('select-mistakes-btn').addEventListener('click', async () => {
+            app.showToast('오답 노트를 불러오는 중...');
+            try {
+                await api.loadWordList(true); // 항상 최신 오답 목록을 가져옵니다.
+                const mistakeWords = app.state.wordList
+                    .filter(word => word.incorrect === 1)
+                    .map(wordObj => wordObj.word);
+
+                if (mistakeWords.length === 0) {
+                    app.showToast('오답 노트에 단어가 없습니다.', true);
+                    return;
+                }
+                this.navigateTo('mistakeReview', { mistakeWords });
+            } catch (e) {
+                app.showToast(`오답 노트 로딩 실패: ${e.message}`, true);
+            }
+        });
 
         this.elements.homeBtn.addEventListener('click', () => this.navigateTo('selection'));
         this.elements.refreshBtn.addEventListener('click', () => this.forceReload());
@@ -146,11 +161,11 @@ const app = {
         } else if (mode === 'dashboard') {
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.dashboardContainer.classList.remove('hidden');
-            // dashboard.show()는 click 이벤트 핸들러가 처리하므로 여기서는 화면 컨테이너만 보여줍니다.
         } else if (mode === 'mistakeReview') {
-            const mistakeWords = mistakeLog.get();
-            if (mistakeWords.length === 0) {
-                this.showToast('오답 노트에 단어가 없습니다.', true);
+            // [MODIFIED] 옵션에서 오답 목록을 가져와 처리
+            const mistakeWords = options.mistakeWords;
+            if (!mistakeWords || mistakeWords.length === 0) {
+                app.showToast('오답 노트에 단어가 없습니다.', true);
                 this.navigateTo('selection');
                 return;
             }
@@ -338,30 +353,8 @@ const translationDBCache = {
     }
 };
 
-const mistakeLog = {
-    KEY: 'mistakeLog',
-    get() {
-        return JSON.parse(localStorage.getItem(this.KEY)) || [];
-    },
-    add(word) {
-        const mistakes = this.get();
-        if (!mistakes.includes(word)) {
-            mistakes.push(word);
-            localStorage.setItem(this.KEY, JSON.stringify(mistakes));
-        }
-    },
-    remove(word) {
-        let mistakes = this.get();
-        const index = mistakes.indexOf(word);
-        if (index > -1) {
-            mistakes.splice(index, 1);
-            localStorage.setItem(this.KEY, JSON.stringify(mistakes));
-        }
-    },
-    clear() {
-        localStorage.removeItem(this.KEY);
-    }
-};
+// [REMOVED] mistakeLog 객체 삭제
+// const mistakeLog = { ... };
 
 const api = {
     async loadWordList(force = false) {
@@ -480,8 +473,8 @@ const api = {
             if (response.success && response.updatedWord) {
                 const wordIndex = app.state.wordList.findIndex(w => w.word === word);
                 if (wordIndex !== -1) {
-                    app.state.wordList[wordIndex].srsLevel = response.updatedWord.srsLevel;
-                    app.state.wordList[wordIndex].nextReview = response.updatedWord.nextReview;
+                    // [MODIFIED] 서버에서 받은 모든 학습 정보를 로컬 데이터에 한 번에 반영
+                    Object.assign(app.state.wordList[wordIndex], response.updatedWord);
                 }
                 const cachePayload = { timestamp: Date.now(), words: app.state.wordList };
                 localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
@@ -965,16 +958,14 @@ const quizMode = {
         
         const word = this.state.currentQuiz.question.word_info.word;
         await api.updateSRSData(word, isCorrect);
-
+        
+        // [REMOVED] mistakeLog 관련 로직 삭제
         if (!isCorrect) {
-            mistakeLog.add(word);
             const correctAnswerEl = Array.from(this.elements.choices.children).find(li => {
                 const choiceSpan = li.querySelector('span:last-child');
                 return choiceSpan && choiceSpan.textContent === correctAnswer;
             });
             correctAnswerEl?.classList.add('correct');
-        } else {
-            mistakeLog.remove(word);
         }
         
         setTimeout(() => this.displayNextQuiz(), 1500);
@@ -1260,12 +1251,9 @@ const learningMode = {
     async startMistakeReview(mistakeWords) {
         this.elements.startScreen.classList.add('hidden');
         this.elements.loader.classList.remove('hidden');
-        if (!app.state.isWordListReady) {
-            this.elements.loaderText.textContent = "단어 목록 동기화 중...";
-            await this.waitForWordList();
-        }
         
         this.state.isMistakeMode = true;
+        // 오답 목록에 해당하는 단어 객체들로 currentWordList를 구성합니다.
         this.state.currentWordList = app.state.wordList.filter(wordObj => mistakeWords.includes(wordObj.word));
         this.state.currentIndex = 0;
         
