@@ -82,7 +82,8 @@
         <div id="quiz-mode-container" class="hidden bg-white w-full p-4 rounded-2xl shadow-lg">
             <div id="quiz-selection-screen" class="text-center p-10">
                 <h1 class="text-2xl font-bold text-gray-800 mb-6">퀴즈 유형</h1>                
-                <p class="text-gray-600 mb-8">원하는 퀴즈 유형을 선택하세요.</p>
+            <p class="text-gray-600 mb-8">원하는 퀴즈 유형을 선택하세요.</p>
+                
                 <div class="flex flex-col sm:flex-row justify-center items-center sm:gap-x-12 gap-y-4">
                     <div id="start-meaning-quiz-btn" class="relative cursor-pointer overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:scale-105 hover:-rotate-2 w-44 h-44" title="뜻 맞히기">
                         <img src="https://i.imgur.com/Q9ouAc0.png" alt="뜻 맞히기 이미지" class="w-full h-full object-cover">
@@ -101,27 +102,20 @@
                 <p id="quiz-loader-text" class="mt-4 text-gray-600">퀴즈 데이터를 불러오는 중...</p>
             </div>
             <div id="quiz-content-container" class="hidden">
-                 <div class="relative">
-                    <div id="quiz-card-front" class="w-full flex flex-col" style="height: 70vh;">
-                        <div id="quiz-question-display" class="bg-green-100 p-4 rounded-lg mb-4 flex items-center justify-center overflow-hidden" style="height: 70%;">
+                <div class="relative">
+                    <div id="quiz-card-front" class="w-full">
+                        <div id="quiz-question-display" class="bg-green-100 p-4 rounded-lg mb-4 flex items-center min-h-[80px]">
                             <!-- Content will be injected by script.js -->
                         </div>
-                        <ul id="quiz-choices" class="space-y-2 overflow-y-auto" style="height: 30%;">
-                            <!-- Choices will be injected here -->
-                        </ul>
+                        <ul id="quiz-choices" class="space-y-3"></ul>
                     </div>
-                    <!-- This part is kept for element ID references but will not be shown -->
+                    <!-- The flip card functionality is removed from the UI, but the elements are kept for potential future use -->
                     <div id="quiz-card-back" class="w-full bg-gray-100 p-6 rounded-2xl hidden flex flex-col">
                         <h2 id="quiz-back-title" class="text-2xl font-bold text-gray-800 mb-4 break-all flex-shrink-0"></h2>
                         <div id="quiz-back-content" class="text-gray-700 whitespace-pre-wrap leading-relaxed overflow-y-auto flex-1"></div>
                     </div>
                 </div>
-                <!-- This container is now removed as per the request -->
-                <div id="quiz-button-container" class="hidden mt-8 flex items-center space-x-4">
-                    <button id="quiz-pass-btn"></button>
-                    <button id="quiz-sample-btn"></button>
-                    <button id="quiz-explanation-btn"></button>
-                </div>
+                <!-- Button container is removed -->
             </div>
             <div id="quiz-finished-screen" class="hidden text-center p-10">
                 <h2 class="text-3xl font-bold text-green-500 mb-4">축하합니다!</h2>
