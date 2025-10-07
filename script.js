@@ -334,7 +334,7 @@ const mistakeLog = {
         if (!mistakes.includes(word)) {
             mistakes.push(word);
             localStorage.setItem(this.KEY, JSON.stringify(mistakes));
-            app.showToast('오답 노트에 추가되었습니다.');
+            // app.showToast('오답 노트에 추가되었습니다.'); // [FIXED] 메시지 제거
         }
     },
     remove(word) {
@@ -451,7 +451,8 @@ const api = {
         const url = new URL(app.config.SCRIPT_URL);
         url.searchParams.append('action', action);
         for (const key in params) {
-            if (params[key]) {
+            // [FIXED] false나 0 같은 falsy 값이 누락되지 않도록 수정
+            if (params[key] !== undefined && params[key] !== null) {
                 url.searchParams.append(key, params[key]);
             }
         }
@@ -460,21 +461,6 @@ const api = {
         const data = await response.json();
         if (data.error) throw new Error(data.message);
         return data;
-    },
-    async translateText(text) {
-        try {
-            const cachedTranslation = await translationDBCache.get(text);
-            if (cachedTranslation) return cachedTranslation;
-            const data = await this.fetchFromGoogleSheet('translateText', { text });
-            if (data.success) {
-                translationDBCache.save(text, data.translatedText);
-                return data.translatedText;
-            }
-            return '번역 실패';
-        } catch (error) {
-            console.error('Translation fetch error:', error);
-            return '번역 오류';
-        }
     },
     async updateSRSData(word, isCorrect) {
         try {
@@ -1323,7 +1309,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
-
-
-
