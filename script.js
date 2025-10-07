@@ -1209,14 +1209,14 @@ const learningMode = {
         
         switch(wordData.sampleSource) {
             case 'manual':
-                this.elements.sampleBtnImg.src = 'https://i.imgur.com/7aJm3j2.png';
+                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png';
                 break;
             case 'ai':
-                this.elements.sampleBtnImg.src = 'https://i.imgur.com/Ndc2g8q.png';
+                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/3-search-cat_icon-icons.com_76679.png';
                 break;
             case 'none':
             default:
-                this.elements.sampleBtnImg.src = 'https://i.imgur.com/2Y0sJk0.png';
+                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
                 break;
         }
     },
@@ -1239,7 +1239,7 @@ const learningMode = {
             this.elements.backTitle.textContent = wordData.word;
             ui.displaySentences(wordData.sample.split('\n'), this.elements.backContent);
             this.elements.cardBack.classList.add('is-slid-up');
-            this.elements.sampleBtnImg.src = 'https://i.imgur.com/tVv2sBf.png';
+            this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
 
         } else {
             this.elements.cardBack.classList.remove('is-slid-up');
@@ -1323,3 +1323,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
