@@ -478,7 +478,7 @@ const api = {
     },
     async updateSRSData(word, isCorrect) {
         try {
-            await this.fetchFromGoogleSheet('updateSRSData', { word, isCorrect: isCorrect.toString() });
+            await this.fetchFromGoogleSheet('updateSRSData', { word, isCorrect });
         } catch (error) {
             console.error('SRS 데이터 업데이트 실패:', error);
             app.showToast('학습 상태 업데이트에 실패했습니다.', true);
@@ -493,21 +493,8 @@ const ui = {
         const container = element.parentElement;
         const containerStyle = window.getComputedStyle(container);
         const containerWidth = container.clientWidth - parseFloat(containerStyle.paddingLeft) - parseFloat(containerStyle.paddingRight);
-        const minFontSize = 16;
-        while (element.scrollWidth > containerWidth && currentFontSize > minFontSize) {
-            element.style.fontSize = `${--currentFontSize}px`;
-        }
-    },
-    adjustFontSizeForSingleLine(element) {
-        element.style.whiteSpace = 'nowrap';
-        element.style.fontSize = '';
-        let currentFontSize = parseFloat(window.getComputedStyle(element).fontSize);
-        const container = element.parentElement;
-        const containerStyle = window.getComputedStyle(container);
-        const containerWidth = container.clientWidth - parseFloat(containerStyle.paddingLeft) - parseFloat(containerStyle.paddingRight);
-        const minFontSize = 14;
-
-        while (element.scrollWidth > containerWidth && currentFontSize > minFontSize) {
+        const minFontSize = 14; 
+        while ((element.scrollWidth > containerWidth || element.scrollHeight > container.clientHeight) && currentFontSize > minFontSize) {
             currentFontSize -= 1;
             element.style.fontSize = `${currentFontSize}px`;
         }
@@ -790,6 +777,7 @@ const dashboard = {
     }
 };
 
+
 const quizMode = {
     state: {
         currentQuiz: {},
@@ -810,6 +798,8 @@ const quizMode = {
             cardBack: document.getElementById('quiz-card-back'),
             questionDisplay: document.getElementById('quiz-question-display'),
             choices: document.getElementById('quiz-choices'),
+            backTitle: document.getElementById('quiz-back-title'),
+            backContent: document.getElementById('quiz-back-content'),
             finishedScreen: document.getElementById('quiz-finished-screen'),
             finishedMessage: document.getElementById('quiz-finished-message')
         };
@@ -822,11 +812,11 @@ const quizMode = {
         document.addEventListener('keydown', (e) => {
             const isQuizModeActive = !this.elements.contentContainer.classList.contains('hidden') && !this.elements.choices.classList.contains('disabled');
             if (!isQuizModeActive) return;
-            // 키보드 1~4번으로 선택지 제어
-            const choiceIndex = parseInt(e.key) - 1;
-            if (choiceIndex >= 0 && choiceIndex < 4 && this.elements.choices.children[choiceIndex + 1]) { // +1 for PASS button
+            
+            const choiceIndex = parseInt(e.key);
+            if (choiceIndex >= 1 && choiceIndex <= 4 && this.elements.choices.children[choiceIndex]) {
                 e.preventDefault();
-                this.elements.choices.children[choiceIndex + 1].click();
+                this.elements.choices.children[choiceIndex].click();
             }
         });
     },
@@ -863,8 +853,7 @@ const quizMode = {
         if (this.state.isFetching || this.state.isFinished) return;
         this.state.isFetching = true;
         try {
-            // 보기를 4개(정답1+오답3)로 요청
-            const data = await api.fetchFromGoogleSheet('getQuiz', { quizType: quizType, choiceCount: 4 });
+            const data = await api.fetchFromGoogleSheet('getQuiz', { quizType });
             if (data.finished) {
                 this.state.isFinished = true;
                 if (this.state.quizBatch.length === 0) {
@@ -886,7 +875,7 @@ const quizMode = {
     },
     displayNextQuiz() {
         if (!this.state.isFetching && this.state.quizBatch.length <= 3) {
-            this.fetchQuizBatch(this.state.currentQuiz.type);
+            this.fetchQuizBatch(this.state.currentQuiz.type); // Fetch more of the same type
         }
         if (this.state.quizBatch.length === 0) {
             if(this.state.isFetching) {
@@ -913,24 +902,30 @@ const quizMode = {
         this.elements.cardFront.classList.remove('hidden');
         this.elements.cardBack.classList.add('hidden');
         
-        const { type, question, choices, answer } = quizData;
+        let { type, question, answer } = quizData;
+        let originalChoices = [...quizData.choices];
+
+        if (originalChoices.length > 4) {
+            const incorrectChoices = originalChoices.filter(c => c !== answer);
+            const selectedIncorrect = incorrectChoices.slice(0, 3);
+            const newChoices = [answer, ...selectedIncorrect];
+            for (let i = newChoices.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [newChoices[i], newChoices[j]] = [newChoices[j], newChoices[i]];
+            }
+            originalChoices = newChoices;
+        }
+
         const questionDisplay = this.elements.questionDisplay;
         questionDisplay.innerHTML = '';
-        questionDisplay.classList.remove('justify-start');
-        questionDisplay.classList.add('items-center', 'justify-center');
 
         if (type === 'FILL_IN_THE_BLANK') {
-            questionDisplay.classList.remove('items-center', 'justify-center');
-            questionDisplay.classList.add('justify-start');
-            
+            const sentence = question.sentence_with_blank;
             const p = document.createElement('p');
-            p.className = 'text-xl sm:text-2xl text-left text-gray-800 leading-relaxed w-full';
-            
-            let processedText = question.sentence_with_blank.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
-            p.innerHTML = processedText.replace(/\n/g, ' ');
-
+            const sentenceContent = sentence.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
+            p.innerHTML = sentenceContent;
             questionDisplay.appendChild(p);
-            ui.adjustFontSizeForSingleLine(p);
+            ui.adjustFontSize(p);
         } else { // MULTIPLE_CHOICE_MEANING
             questionDisplay.innerHTML = `<h1 class="text-3xl sm:text-4xl font-bold text-center text-gray-800" title="클릭하여 발음 듣기 및 복사">${question.word}</h1>`;
             const wordEl = questionDisplay.querySelector('h1');
@@ -942,31 +937,37 @@ const quizMode = {
         }
 
         this.elements.choices.innerHTML = '';
-        
+        this.elements.choices.classList.remove('disabled');
+
         const passLi = document.createElement('li');
-        passLi.className = 'choice-item bg-red-500 hover:bg-red-600 text-white font-bold p-3 rounded-lg cursor-pointer flex justify-center items-center transition-all text-center text-lg';
+        passLi.className = 'bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg text-lg transition-colors cursor-pointer text-center';
         passLi.textContent = 'PASS';
         passLi.onclick = () => this.handlePass();
         this.elements.choices.appendChild(passLi);
 
-        choices.forEach((choice, index) => {
+        originalChoices.forEach((choice, index) => {
             const li = document.createElement('li');
-            li.className = 'choice-item border-2 border-gray-300 p-3 rounded-lg cursor-pointer flex items-start transition-all';
+            li.className = 'choice-item border-2 border-gray-300 p-4 rounded-lg cursor-pointer flex items-start transition-all';
             li.innerHTML = `<span class="font-bold mr-3">${index + 1}.</span> <span>${choice}</span>`;
             li.onclick = () => this.checkAnswer(li, choice, answer);
             this.elements.choices.appendChild(li);
         });
-
-        this.elements.choices.classList.remove('disabled');
     },
     handlePass() {
         this.elements.choices.classList.add('disabled');
-        const word = this.state.currentQuiz.question.word_info.word;
-        // PASS는 오답으로 처리
+        const { question, answer } = this.state.currentQuiz;
+        const word = question.word_info.word;
+
         api.updateSRSData(word, false);
         mistakeLog.add(word);
-        // 시각적 피드백 없이 바로 다음 문제로
-        setTimeout(() => this.displayNextQuiz(), 300);
+
+        const passButton = this.elements.choices.firstChild;
+        passButton.classList.add('incorrect');
+
+        const correctAnswerEl = Array.from(this.elements.choices.children).find(li => li.querySelector('span:last-child')?.textContent === answer);
+        correctAnswerEl?.classList.add('correct');
+
+        setTimeout(() => this.displayNextQuiz(), 1500);
     },
     checkAnswer(selectedLi, selectedChoice, correctAnswer) {
         this.elements.choices.classList.add('disabled');
@@ -979,7 +980,7 @@ const quizMode = {
 
         if (!isCorrect) {
             mistakeLog.add(word);
-            const correctAnswerEl = Array.from(this.elements.choices.children).find(li => li.querySelector('span:last-child')?.textContent === correctAnswer);
+            const correctAnswerEl = Array.from(this.elements.choices.children).find(li => li.querySelector('span:last-child').textContent === correctAnswer);
             correctAnswerEl?.classList.add('correct');
         } else {
             mistakeLog.remove(word);
