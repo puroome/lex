@@ -127,8 +127,8 @@ const app = {
             learningMode.elements.loader.classList.add('hidden');
             learningMode.elements.startScreen.classList.remove('hidden');
 
-            if (options.suggestions) {
-                learningMode.displaySuggestions(options.suggestions);
+            if (options.suggestions && options.title) {
+                learningMode.displaySuggestions(options.suggestions, options.title);
             } else {
                 learningMode.resetStartScreen();
             }
@@ -219,26 +219,48 @@ const app = {
     },
     searchWordInLearningMode(word) {
         if (!word) return;
-
+    
         const wordList = this.state.wordList;
         const lowerCaseWord = word.toLowerCase();
+    
+        // Priority 1: Exact Word Match
         const exactMatchIndex = wordList.findIndex(item => item.word.toLowerCase() === lowerCaseWord);
-
         if (exactMatchIndex !== -1) {
             this._renderMode('learning');
             setTimeout(() => {
-                learningMode.elements.startWordInput.value = word;
-                learningMode.elements.startBtn.click();
+                learningMode.state.currentIndex = exactMatchIndex;
+                learningMode.launchApp();
             }, 50);
-        } else {
-            const suggestions = wordList.map((item, index) => ({
-                word: item.word,
-                index,
-                distance: utils.levenshteinDistance(lowerCaseWord, item.word.toLowerCase())
-            })).sort((a, b) => a.distance - b.distance).slice(0, 5);
-            
-            this._renderMode('learning', { suggestions: suggestions });
+            ui.hideWordContextMenu();
+            return;
         }
+    
+        // Priority 2: Explanation Match
+        const explanationMatches = wordList
+            .map((item, index) => ({ word: item.word, index }))
+            .filter((_, index) => 
+                wordList[index].explanation && 
+                wordList[index].explanation.toLowerCase().includes(lowerCaseWord)
+            );
+    
+        if (explanationMatches.length > 0) {
+            const title = `'<strong>${word}</strong>'(이)가 설명에 포함된 단어입니다.`;
+            this._renderMode('learning', { suggestions: explanationMatches, title: title });
+            ui.hideWordContextMenu();
+            return;
+        }
+    
+        // Priority 3: Levenshtein Suggestions
+        const levenshteinSuggestions = wordList.map((item, index) => ({
+            word: item.word,
+            index,
+            distance: utils.levenshteinDistance(lowerCaseWord, item.word.toLowerCase())
+        }))
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 5);
+    
+        const title = `입력하신 단어를 찾을 수 없습니다.<br>혹시 이 단어를 찾으시나요?`;
+        this._renderMode('learning', { suggestions: levenshteinSuggestions, title: title });
         ui.hideWordContextMenu();
     },
 };
@@ -988,6 +1010,7 @@ const learningMode = {
             startWordInput: document.getElementById('learning-start-word-input'),
             startBtn: document.getElementById('learning-start-btn'),
             suggestionsContainer: document.getElementById('learning-suggestions-container'),
+            suggestionsTitle: document.getElementById('learning-suggestions-title'),
             suggestionsList: document.getElementById('learning-suggestions-list'),
             backToStartBtn: document.getElementById('learning-back-to-start-btn'),
             loader: document.getElementById('learning-loader'),
@@ -1077,26 +1100,55 @@ const learningMode = {
             this.showError("학습할 단어가 없습니다.");
             return;
         }
-        let startIndex = 0;
-        if (startWord) {
-            const lowerCaseStartWord = startWord.toLowerCase();
-            const exactMatchIndex = wordList.findIndex(item => item.word.toLowerCase() === lowerCaseStartWord);
-            if (exactMatchIndex !== -1) {
-                startIndex = exactMatchIndex;
-            } else {
-                const suggestions = wordList.map((item, index) => ({
-                    word: item.word,
-                    index,
-                    distance: utils.levenshteinDistance(lowerCaseStartWord, item.word.toLowerCase())
-                })).sort((a, b) => a.distance - b.distance).slice(0, 5);
-                this.elements.loader.classList.add('hidden');
-                this.elements.startScreen.classList.remove('hidden');
-                this.displaySuggestions(suggestions);
-                return;
-            }
+    
+        // If startWord is empty, start from index 0
+        if (!startWord) {
+            this.state.currentIndex = 0;
+            this.launchApp();
+            return;
         }
-        this.state.currentIndex = startIndex;
-        this.launchApp();
+    
+        const lowerCaseStartWord = startWord.toLowerCase();
+    
+        // Priority 1: Exact Word Match
+        const exactMatchIndex = wordList.findIndex(item => item.word.toLowerCase() === lowerCaseStartWord);
+        if (exactMatchIndex !== -1) {
+            this.state.currentIndex = exactMatchIndex;
+            this.launchApp();
+            return;
+        }
+    
+        // Priority 2: Explanation Match
+        const explanationMatches = wordList
+            .map((item, index) => ({ word: item.word, index }))
+            .filter((_, index) => 
+                wordList[index].explanation && 
+                wordList[index].explanation.toLowerCase().includes(lowerCaseStartWord)
+            );
+    
+        if (explanationMatches.length > 0) {
+            const title = `'<strong>${startWord}</strong>'(이)가 설명에 포함된 단어입니다.`;
+            this.displaySuggestions(explanationMatches, title);
+            return;
+        }
+    
+        // Priority 3: Levenshtein Suggestions
+        const levenshteinSuggestions = wordList.map((item, index) => ({
+            word: item.word,
+            index,
+            distance: utils.levenshteinDistance(lowerCaseStartWord, item.word.toLowerCase())
+        }))
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 5)
+        .filter(s => s.distance < s.word.length / 2 + 1); // Filter out very dissimilar words
+    
+        if (levenshteinSuggestions.length > 0) {
+            const title = `입력하신 단어를 찾을 수 없습니다.<br>혹시 이 단어를 찾으시나요?`;
+            this.displaySuggestions(levenshteinSuggestions, title);
+        } else {
+            const title = `'<strong>${startWord}</strong>'에 대한 검색 결과가 없습니다.`;
+            this.displaySuggestions([], title); // No results
+        }
     },
     async waitForWordList() {
         return new Promise(resolve => {
@@ -1134,9 +1186,14 @@ const learningMode = {
         this.elements.startWordInput.value = '';
         this.elements.startWordInput.focus();
     },
-    displaySuggestions(suggestions) {
+    displaySuggestions(suggestions, title) {
+        this.elements.loader.classList.add('hidden');
+        this.elements.startScreen.classList.remove('hidden');
         this.elements.startInputContainer.classList.add('hidden');
+        
+        this.elements.suggestionsTitle.innerHTML = title;
         this.elements.suggestionsList.innerHTML = '';
+    
         suggestions.forEach(({ word, index }) => {
             const btn = document.createElement('button');
             btn.className = 'w-full text-left bg-gray-100 hover:bg-gray-200 font-semibold py-3 px-4 rounded-lg transition-colors';
@@ -1147,6 +1204,7 @@ const learningMode = {
             };
             this.elements.suggestionsList.appendChild(btn);
         });
+        
         this.elements.suggestionsContainer.classList.remove('hidden');
     },
     displayWord(index) {
