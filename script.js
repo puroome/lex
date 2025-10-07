@@ -15,27 +15,33 @@ const app = {
         isWordListReady: false,
         longPressTimer: null,
     },
-    elements: {
-        selectionScreen: document.getElementById('selection-screen'),
-        homeBtn: document.getElementById('home-btn'),
-        refreshBtn: document.getElementById('refresh-btn'),
-        ttsToggleBtn: document.getElementById('tts-toggle-btn'),
-        ttsToggleText: document.getElementById('tts-toggle-text'),
-        quizModeContainer: document.getElementById('quiz-mode-container'),
-        learningModeContainer: document.getElementById('learning-mode-container'),
-        dashboardContainer: document.getElementById('dashboard-container'),
-        translationTooltip: document.getElementById('translation-tooltip'),
-        imeWarning: document.getElementById('ime-warning'),
-        noSampleMessage: document.getElementById('no-sample-message'),
-        sheetLink: document.getElementById('sheet-link'),
-        wordContextMenu: document.getElementById('word-context-menu'),
-        searchAppContextBtn: document.getElementById('search-app-context-btn'),
-        searchDaumContextBtn: document.getElementById('search-daum-context-btn'),
-        searchNaverContextBtn: document.getElementById('search-naver-context-btn'),
-        searchEtymContextBtn: document.getElementById('search-etym-context-btn'),
-        searchLongmanContextBtn: document.getElementById('search-longman-context-btn'),
+    elements: {}, // DOM 요소를 저장할 객체 (init에서 초기화)
+    
+    cacheElements() {
+        this.elements = {
+            selectionScreen: document.getElementById('selection-screen'),
+            homeBtn: document.getElementById('home-btn'),
+            refreshBtn: document.getElementById('refresh-btn'),
+            ttsToggleBtn: document.getElementById('tts-toggle-btn'),
+            ttsToggleText: document.getElementById('tts-toggle-text'),
+            quizModeContainer: document.getElementById('quiz-mode-container'),
+            learningModeContainer: document.getElementById('learning-mode-container'),
+            dashboardContainer: document.getElementById('dashboard-container'),
+            translationTooltip: document.getElementById('translation-tooltip'),
+            imeWarning: document.getElementById('ime-warning'),
+            noSampleMessage: document.getElementById('no-sample-message'),
+            sheetLink: document.getElementById('sheet-link'),
+            wordContextMenu: document.getElementById('word-context-menu'),
+            searchAppContextBtn: document.getElementById('search-app-context-btn'),
+            searchDaumContextBtn: document.getElementById('search-daum-context-btn'),
+            searchNaverContextBtn: document.getElementById('search-naver-context-btn'),
+            searchEtymContextBtn: document.getElementById('search-etym-context-btn'),
+            searchLongmanContextBtn: document.getElementById('search-longman-context-btn'),
+        };
     },
+
     async init() {
+        this.cacheElements(); // DOM 요소들을 먼저 캐싱합니다.
         try {
             await audioCache.init();
             await translationDBCache.init();
@@ -68,7 +74,7 @@ const app = {
         }, { once: true });
         
         document.addEventListener('click', (e) => {
-            if (!this.elements.wordContextMenu.contains(e.target)) {
+            if (this.elements.wordContextMenu && !this.elements.wordContextMenu.contains(e.target)) {
                 ui.hideWordContextMenu();
             }
         });
@@ -733,11 +739,11 @@ const utils = {
 // Dashboard Module
 // ================================================================
 const dashboard = {
-    elements: {
-        container: document.getElementById('dashboard-container'),
-        content: document.getElementById('dashboard-content'),
+    elements: {},
+    init() {
+        this.elements.container = document.getElementById('dashboard-container');
+        this.elements.content = document.getElementById('dashboard-content');
     },
-    init() {},
     async show() {
         if (!app.state.isWordListReady) {
             this.elements.content.innerHTML = `<div class="text-center p-10"><div class="loader mx-auto"></div><p class="mt-4 text-gray-600">단어 목록을 동기화하는 중...</p></div>`;
@@ -897,7 +903,7 @@ const quizMode = {
         this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">퀴즈를 가져올 수 없습니다.</p><p class="text-sm text-gray-600 mt-2 break-all">${message}</p>`;
     },
     displayNextQuiz() {
-        if (!this.state.isFetching && this.state.quizBatch.length <= 3) {
+        if (!this.state.isFetching && this.state.quizBatch.length <= 3 && this.state.currentQuiz) {
             this.fetchQuizBatch(this.state.currentQuiz.type); // Fetch more of the same type
         }
         if (this.state.quizBatch.length === 0) {
@@ -1392,3 +1398,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
