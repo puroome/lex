@@ -460,20 +460,21 @@ const api = {
         if (data.error) throw new Error(data.message);
         return data;
     },
-    // [MODIFIED] 로컬 캐시를 업데이트하는 로직 추가
+    // [MODIFIED] 로컬 캐시를 업데이트하고, 변경 사항을 알리는 이벤트를 발생시키는 로직 추가
     async updateSRSData(word, isCorrect) {
         try {
             const response = await this.fetchFromGoogleSheet('updateSRSData', { word, isCorrect });
             if (response.success && response.updatedWord) {
-                // 앱의 단어 목록(app.state.wordList)에서 해당 단어를 찾아 업데이트합니다.
                 const wordIndex = app.state.wordList.findIndex(w => w.word === word);
                 if (wordIndex !== -1) {
                     app.state.wordList[wordIndex].srsLevel = response.updatedWord.srsLevel;
                     app.state.wordList[wordIndex].nextReview = response.updatedWord.nextReview;
                 }
-                // localStorage 캐시도 새로운 정보로 덮어씁니다.
                 const cachePayload = { timestamp: Date.now(), words: app.state.wordList };
                 localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
+                
+                // 데이터가 업데이트되었음을 앱 전체에 알립니다.
+                document.dispatchEvent(new CustomEvent('wordListUpdated'));
             }
         } catch (error) {
             console.error('SRS 데이터 업데이트 실패:', error);
@@ -717,7 +718,15 @@ const dashboard = {
         container: document.getElementById('dashboard-container'),
         content: document.getElementById('dashboard-content'),
     },
-    init() {},
+    // [MODIFIED] 데이터 변경을 감지하여 화면을 다시 그리는 이벤트 리스너 추가
+    init() {
+        document.addEventListener('wordListUpdated', () => {
+            // 대시보드 화면이 보일 때만 화면을 다시 그립니다.
+            if (!this.elements.container.classList.contains('hidden')) {
+                this.render();
+            }
+        });
+    },
     async show() {
         if (!app.state.isWordListReady) {
             this.elements.content.innerHTML = `<div class="text-center p-10"><div class="loader mx-auto"></div><p class="mt-4 text-gray-600">단어 목록을 동기화하는 중...</p></div>`;
@@ -737,7 +746,7 @@ const dashboard = {
         ];
 
         wordList.forEach(word => {
-            const level = word.srsLevel || 0;
+            const level = parseInt(word.srsLevel) || 0;
             const category = srsLevels.find(cat => level >= cat.min && level <= cat.max);
             if (category) category.count++;
         });
@@ -938,7 +947,6 @@ const quizMode = {
 
         this.elements.choices.classList.remove('disabled');
     },
-    // [MODIFIED] async/await 추가
     async checkAnswer(selectedLi, selectedChoice, correctAnswer) {
         this.elements.choices.classList.add('disabled');
         
