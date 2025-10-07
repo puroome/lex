@@ -334,7 +334,6 @@ const mistakeLog = {
         if (!mistakes.includes(word)) {
             mistakes.push(word);
             localStorage.setItem(this.KEY, JSON.stringify(mistakes));
-            // app.showToast('오답 노트에 추가되었습니다.'); // [FIXED] 메시지 제거
         }
     },
     remove(word) {
@@ -451,7 +450,6 @@ const api = {
         const url = new URL(app.config.SCRIPT_URL);
         url.searchParams.append('action', action);
         for (const key in params) {
-            // [FIXED] false나 0 같은 falsy 값이 누락되지 않도록 수정
             if (params[key] !== undefined && params[key] !== null) {
                 url.searchParams.append(key, params[key]);
             }
@@ -723,7 +721,7 @@ const dashboard = {
             { name: '새 단어 (New)', min: 0, max: 0, count: 0, color: 'bg-gray-400' },
             { name: '학습 중 (Learning)', min: 1, max: 1, count: 0, color: 'bg-blue-500' },
             { name: '익숙함 (Familiar)', min: 2, max: 2, count: 0, color: 'bg-green-500' },
-            { name: '암기 완료 (Mastered)', min: 3, max: Infinity, count: 0, color: 'bg-purple-600' }
+            { name: '학습 완료 (Learned)', min: 3, max: Infinity, count: 0, color: 'bg-purple-600' } // [MODIFIED] 텍스트 변경
         ];
 
         wordList.forEach(word => {
@@ -1309,3 +1307,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
