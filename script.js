@@ -903,9 +903,11 @@ const quizMode = {
         this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">퀴즈를 가져올 수 없습니다.</p><p class="text-sm text-gray-600 mt-2 break-all">${message}</p>`;
     },
     displayNextQuiz() {
-        if (!this.state.isFetching && this.state.quizBatch.length <= 3 && this.state.currentQuiz) {
-            this.fetchQuizBatch(this.state.currentQuiz.type); // Fetch more of the same type
+        // This is the pre-fetch logic to keep the quiz queue full
+        if (!this.state.isFetching && this.state.quizBatch.length <= 3 && this.state.currentQuiz.type) {
+            this.fetchQuizBatch(this.state.currentQuiz.type);
         }
+
         if (this.state.quizBatch.length === 0) {
             if(this.state.isFetching) {
                 this.elements.loaderText.textContent = "다음 퀴즈를 준비 중입니다...";
