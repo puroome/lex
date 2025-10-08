@@ -36,12 +36,9 @@ const app = {
         searchLongmanContextBtn: document.getElementById('search-longman-context-btn'),
     },
     async init() {
-        try {
-            await audioCache.init();
-            await translationDBCache.init();
-        } catch (e) {
-            console.error("캐시를 초기화할 수 없습니다.", e);
-        }
+        // IndexedDB 초기화 코드는 더 이상 필요 없으므로 삭제합니다.
+        // await audioCache.init();
+        // await translationDBCache.init();
         this.bindGlobalEvents();
         api.loadWordList();
         quizMode.init();
@@ -302,61 +299,70 @@ const app = {
     },
 };
 
+// ================================================================
+// Google Drive 기반 캐시 객체
+// ================================================================
+const driveCache = {
+    async get(cacheType, key) {
+        try {
+            const url = new URL(app.config.SCRIPT_URL);
+            url.searchParams.append('action', 'getCache');
+            url.searchParams.append('cacheType', cacheType);
+            url.searchParams.append('key', key);
+            
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if(data.success) {
+                return data.content;
+            }
+            return null;
+
+        } catch (error) {
+            console.error(`Drive cache get error (${cacheType}):`, error);
+            return null;
+        }
+    },
+    async save(cacheType, key, content) {
+        try {
+            const response = await fetch(app.config.SCRIPT_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' }, // Apps Script doPost는 이 헤더가 필요
+                body: JSON.stringify({
+                    action: 'saveCache',
+                    cacheType: cacheType,
+                    key: key,
+                    content: content
+                })
+            });
+            const data = await response.json();
+            if (!data.success) {
+                console.warn(`Drive cache save warning (${cacheType}):`, data.message);
+            }
+        } catch (error) {
+            console.error(`Drive cache save error (${cacheType}):`, error);
+        }
+    }
+};
+
 const audioCache = {
-    db: null, dbName: 'ttsAudioCacheDB', storeName: 'audioStore',
-    init() {
-        return new Promise((resolve, reject) => {
-            if (!('indexedDB' in window)) { console.warn('IndexedDB not supported, TTS caching disabled.'); return resolve(); }
-            const request = indexedDB.open(this.dbName, 1);
-            request.onupgradeneeded = event => { const db = event.target.result; if (!db.objectStoreNames.contains(this.storeName)) { db.createObjectStore(this.storeName); } };
-            request.onsuccess = event => { this.db = event.target.result; resolve(); };
-            request.onerror = event => { console.error("IndexedDB error:", event.target.error); reject(event.target.error); };
-        });
-    },
     getAudio(key) {
-        return new Promise((resolve, reject) => {
-            if (!this.db) return resolve(null);
-            const transaction = this.db.transaction([this.storeName], 'readonly');
-            const store = transaction.objectStore(this.storeName);
-            const request = store.get(key);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = (event) => { console.error("IndexedDB get error:", event.target.error); reject(event.target.error); };
-        });
+        return driveCache.get('sound', key);
     },
-    saveAudio(key, audioData) {
-        if (!this.db) return;
-        try { const transaction = this.db.transaction([this.storeName], 'readwrite'); transaction.objectStore(this.storeName).put(audioData, key); } 
-        catch (e) { console.error("IndexedDB save error:", e); }
+    saveAudio(key, audioDataInBase64) {
+        driveCache.save('sound', key, audioDataInBase64);
     }
 };
 
 const translationDBCache = {
-    db: null, dbName: 'translationCacheDB', storeName: 'translationStore',
-    init() {
-        return new Promise((resolve, reject) => {
-            if (!('indexedDB' in window)) { console.warn('IndexedDB not supported, translation caching disabled.'); return resolve(); }
-            const request = indexedDB.open(this.dbName, 1);
-            request.onupgradeneeded = event => { const db = event.target.result; if (!db.objectStoreNames.contains(this.storeName)) { db.createObjectStore(this.storeName); } };
-            request.onsuccess = event => { this.db = event.target.result; resolve(); };
-            request.onerror = event => { console.error("IndexedDB error:", event.target.error); reject(event.target.error); };
-        });
-    },
     get(key) {
-        return new Promise((resolve, reject) => {
-            if (!this.db) return resolve(null);
-            const transaction = this.db.transaction([this.storeName], 'readonly');
-            const store = transaction.objectStore(this.storeName);
-            const request = store.get(key);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = (event) => { console.error("IndexedDB get error:", event.target.error); reject(event.target.error); };
-        });
+        return driveCache.get('text', key);
     },
     save(key, data) {
-        if (!this.db) return;
-        try { const transaction = this.db.transaction([this.storeName], 'readwrite'); transaction.objectStore(this.storeName).put(data, key); }
-        catch (e) { console.error("IndexedDB save error:", e); }
+        driveCache.save('text', key, data);
     }
 };
+
 
 const api = {
     async loadWordList(force = false) {
@@ -417,6 +423,16 @@ const api = {
         
         const cacheKey = `${processedText}|${voiceConfig.languageCode}|${voiceConfig.name}`;
 
+        const base64ToArrayBuffer = (base64) => {
+            const binary_string = window.atob(base64);
+            const len = binary_string.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binary_string.charCodeAt(i);
+            }
+            return bytes.buffer;
+        };
+
         const playAudio = async (audioArrayBuffer) => {
             const audioBuffer = await app.state.audioContext.decodeAudioData(audioArrayBuffer);
             const source = app.state.audioContext.createBufferSource();
@@ -427,9 +443,10 @@ const api = {
         };
 
         try {
-            const cachedAudio = await audioCache.getAudio(cacheKey);
-            if (cachedAudio) {
-                await playAudio(cachedAudio.slice(0)); 
+            const cachedAudioBase64 = await audioCache.getAudio(cacheKey);
+            if (cachedAudioBase64) {
+                const audioArrayBuffer = base64ToArrayBuffer(cachedAudioBase64);
+                await playAudio(audioArrayBuffer.slice(0)); 
                 return;
             }
 
@@ -442,12 +459,11 @@ const api = {
             if (!response.ok) throw new Error(`TTS API Error: ${(await response.json()).error.message}`);
             
             const data = await response.json();
-            const byteCharacters = atob(data.audioContent);
-            const byteArray = new Uint8Array(byteCharacters.length).map((_, i) => byteCharacters.charCodeAt(i));
-            const audioArrayBuffer = byteArray.buffer;
+            const audioContentBase64 = data.audioContent;
             
-            audioCache.saveAudio(cacheKey, audioArrayBuffer.slice(0)); 
+            audioCache.saveAudio(cacheKey, audioContentBase64); 
             
+            const audioArrayBuffer = base64ToArrayBuffer(audioContentBase64);
             await playAudio(audioArrayBuffer);
 
         } catch (error) {
@@ -1359,5 +1375,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
-
