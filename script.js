@@ -34,6 +34,11 @@ const app = {
         searchNaverContextBtn: document.getElementById('search-naver-context-btn'),
         searchEtymContextBtn: document.getElementById('search-etym-context-btn'),
         searchLongmanContextBtn: document.getElementById('search-longman-context-btn'),
+        // 모드 선택 화면의 버튼들을 elements에 추가합니다.
+        selectLearningBtn: document.getElementById('select-learning-btn'),
+        selectQuizBtn: document.getElementById('select-quiz-btn'),
+        selectDashboardBtn: document.getElementById('select-dashboard-btn'),
+        selectMistakesBtn: document.getElementById('select-mistakes-btn'),
     },
     async init() {
         try {
@@ -139,7 +144,6 @@ const app = {
         this.elements.learningModeContainer.classList.add('hidden');
         this.elements.dashboardContainer.classList.add('hidden');
         this.elements.homeBtn.classList.add('hidden');
-        // refreshBtn의 가시성 제어 코드를 제거했습니다. 이제 HTML 구조에 따라 자동으로 처리됩니다.
         this.elements.ttsToggleBtn.classList.add('hidden');
         learningMode.elements.fixedButtons.classList.add('hidden');
 
@@ -154,7 +158,6 @@ const app = {
             quizMode.reset();
         } else if (mode === 'learning') {
             showCommonButtons();
-            // 학습 모드에서 refreshBtn을 보이게 하던 코드를 제거했습니다.
             this.elements.learningModeContainer.classList.remove('hidden');
             learningMode.elements.appContainer.classList.add('hidden');
             learningMode.elements.loader.classList.add('hidden');
@@ -184,26 +187,32 @@ const app = {
         }
     },
     async forceReload() {
-        const isLearningStartScreen = !learningMode.elements.startScreen.classList.contains('hidden');
+        // 새로고침은 이제 모드 선택 화면에서만 가능합니다.
         const isSelectionScreen = !this.elements.selectionScreen.classList.contains('hidden');
-
-        if (!isLearningStartScreen && !isSelectionScreen) {
-            this.showToast('새로고침은 시작 또는 학습 모드 선택 화면에서만 가능합니다.', true);
+        if (!isSelectionScreen) {
+            this.showToast('새로고침은 모드 선택 화면에서만 가능합니다.', true);
             return;
         }
         
+        // 비활성화할 요소들을 정의합니다.
         const elementsToDisable = [
-            learningMode.elements.startWordInput,
-            learningMode.elements.startBtn,
-            this.elements.homeBtn,
-            this.elements.ttsToggleBtn,
             this.elements.refreshBtn,
+            this.elements.selectDashboardBtn,
+            this.elements.selectMistakesBtn,
         ];
-        const sheetLink = this.elements.sheetLink;
+        // 스타일을 통해 비활성화할 요소들 (div, a 등)
+        const elementsToStyle = [
+             this.elements.sheetLink,
+             this.elements.selectLearningBtn,
+             this.elements.selectQuizBtn,
+        ];
+
+        // 요소들을 비활성화하고 로딩 상태를 표시합니다.
         elementsToDisable.forEach(el => { if(el) el.disabled = true; });
-        sheetLink.classList.add('pointer-events-none', 'opacity-50');
-        const originalBtnText = learningMode.elements.startBtn.textContent;
-        if(learningMode.elements.startBtn) learningMode.elements.startBtn.textContent = '새로고침 중...';
+        elementsToStyle.forEach(el => { if(el) el.classList.add('pointer-events-none', 'opacity-50'); });
+        
+        const refreshIcon = this.elements.refreshBtn.querySelector('svg');
+        if (refreshIcon) refreshIcon.classList.add('animate-spin');
 
         try {
             await api.loadWordList(true);
@@ -211,9 +220,10 @@ const app = {
         } catch(e) {
             this.showToast('데이터 새로고침에 실패했습니다: ' + e.message, true);
         } finally {
+            // 요소들을 다시 활성화합니다.
             elementsToDisable.forEach(el => { if(el) el.disabled = false; });
-            sheetLink.classList.remove('pointer-events-none', 'opacity-50');
-            if(learningMode.elements.startBtn) learningMode.elements.startBtn.textContent = originalBtnText;
+            elementsToStyle.forEach(el => { if(el) el.classList.remove('pointer-events-none', 'opacity-50'); });
+            if (refreshIcon) refreshIcon.classList.remove('animate-spin');
         }
     },
     showToast(message, isError = false) {
@@ -1191,7 +1201,6 @@ const learningMode = {
         this.elements.loader.classList.add('hidden');
         this.elements.appContainer.classList.remove('hidden');
         this.elements.fixedButtons.classList.remove('hidden');
-        app.elements.refreshBtn.classList.add('hidden');
         this.displayWord(this.state.currentIndex);
     },
     reset() {
@@ -1359,3 +1368,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
