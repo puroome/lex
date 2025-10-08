@@ -14,11 +14,11 @@
 
     <div class="fixed top-0 left-0 right-0 z-50 flex justify-center pointer-events-none">
         <div class="w-full max-w-2xl relative px-4">
-            <button id="tts-toggle-btn" class="hidden absolute top-4 left-4 bg-indigo-700 hover:bg-indigo-800 text-white font-bold p-3 rounded-full shadow-lg w-12 h-12 flex items-center justify-center text-sm pointer-events-auto" title="음성 변경 (영국/미국)">
+            <button id="tts-toggle-btn" class="hidden absolute top-4 left-4 bg-indigo-700 hover:bg-indigo-800 text-white font-bold p-3 rounded-full shadow-lg w-12 h-12 flex items-center justify-center text-sm pointer-events-auto">
                 <span id="tts-toggle-text">UK</span>
             </button>
             <!-- 학습 모드에 있던 새로고침 버튼을 제거했습니다. -->
-            <button id="home-btn" class="hidden absolute top-4 right-4 bg-gray-700 hover:bg-gray-800 text-white font-bold p-3 rounded-full shadow-lg pointer-events-auto" title="모드 선택으로 돌아가기">
+            <button id="home-btn" class="hidden absolute top-4 right-4 bg-gray-700 hover:bg-gray-800 text-white font-bold p-3 rounded-full shadow-lg pointer-events-auto">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
             </button>
         </div>
@@ -35,13 +35,13 @@
                 </defs>
             </svg>
             <!-- 요청하신 디자인에 맞게 새로고침 아이콘을 수정했습니다. -->
-            <button id="refresh-btn" class="absolute top-6 left-6 z-[110] group" title="데이터 새로고침">
+            <button id="refresh-btn" class="absolute top-6 left-6 z-[110] group">
                 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" class="w-8 h-8 transition-transform duration-500 ease-in-out group-hover:scale-110 group-hover:rotate-180">
                     <rect width="18" height="18" x="3" y="3" rx="3.5" fill="#4285F4" filter="url(#icon-shadow)"></rect>
                     <path d="M 9,8 C 7.34,8 6,9.34 6,11 H 4 C 4,8.24 6.24,6 9,6 V 3 L 13,7 L 9,11 V 8 Z M 15,13 C 16.66,13 18,11.66 18,10 H 20 C 20,12.76 17.76,15 15,15 V 18 L 11,14 L 15,11 V 13 Z" fill="white"/>
                 </svg>
             </button>
-            <a id="sheet-link" href="https://docs.google.com/spreadsheets/d/1aX-o13iqQBFEJcOQktor9KokstXfvHETA-YNOEs8ugs/edit?usp=sharing" target="_blank" class="absolute top-6 right-6 z-[110] group" title="단어 목록 시트 열기">
+            <a id="sheet-link" href="https://docs.google.com/spreadsheets/d/1aX-o13iqQBFEJcOQktor9KokstXfvHETA-YNOEs8ugs/edit?usp=sharing" target="_blank" class="absolute top-6 right-6 z-[110] group">
                 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24" class="w-8 h-8 transition-transform duration-300 ease-in-out group-hover:scale-110 group-hover:-rotate-6">
                     <rect width="18" height="18" x="3" y="3" rx="3.5" fill="#34A853" filter="url(#icon-shadow)"></rect>
                     <path d="M4.2 8.1 H19.8 V10.6 H4.2 Z M8.1 4.2 H10.6 V19.8 H8.1 Z" fill="white"></path>
@@ -53,19 +53,13 @@
             <div class="inline-block">
                 <div class="flex flex-col sm:flex-row justify-center items-center sm:gap-x-12 gap-y-4">
                     <div class="flex flex-col items-center">
-                        <div id="select-learning-btn" class="relative cursor-pointer overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:scale-105 hover:-rotate-2 w-44 h-44" title="학습 모드">
+                        <div id="select-learning-btn" class="relative cursor-pointer overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:scale-105 hover:-rotate-2 w-44 h-44">
                             <img src="https://i.imgur.com/wLzv3kG.jpeg" alt="학습 모드 이미지" class="w-full h-full object-cover">
-                            <div class="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
-                                <h3 class="text-white text-center font-bold text-lg">학습 모드</h3>
-                            </div>
                         </div>
                     </div>
                     <div class="flex flex-col items-center">
-                        <div id="select-quiz-btn" class="relative cursor-pointer overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:scale-105 hover:rotate-2 w-44 h-44" title="퀴즈 모드">
+                        <div id="select-quiz-btn" class="relative cursor-pointer overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:scale-105 hover:rotate-2 w-44 h-44">
                             <img src="https://i.imgur.com/9oREKDY.jpeg" alt="퀴즈 모드 이미지" class="w-full h-full object-cover">
-                             <div class="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
-                                <h3 class="text-white text-center font-bold text-lg">퀴즈 모드</h3>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -93,15 +87,11 @@
             <p class="text-gray-600 mb-8">원하는 퀴즈 유형을 선택하세요.</p>
                 
                 <div class="flex flex-col sm:flex-row justify-center items-center sm:gap-x-12 gap-y-4">
-                    <div id="start-meaning-quiz-btn" class="relative cursor-pointer overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:scale-105 hover:-rotate-2 w-44 h-44" title="뜻 맞히기">
+                    <div id="start-meaning-quiz-btn" class="relative cursor-pointer overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:scale-105 hover:-rotate-2 w-44 h-44">
                         <img src="https://i.imgur.com/Q9ouAc0.png" alt="뜻 맞히기 이미지" class="w-full h-full object-cover">
-                        <div class="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
-                        </div>
                     </div>
-                    <div id="start-blank-quiz-btn" class="relative cursor-pointer overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:scale-105 hover:rotate-2 w-44 h-44" title="빈칸 채우기">
+                    <div id="start-blank-quiz-btn" class="relative cursor-pointer overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:scale-105 hover:rotate-2 w-44 h-44">
                         <img src="https://i.imgur.com/JJ1s8GV.png" alt="빈칸 채우기 이미지" class="w-full h-full object-cover">
-                         <div class="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
-                        </div>
                     </div>
                 </div>
             </div>
@@ -150,7 +140,7 @@
                 <div class="relative">
                     <div id="learning-card-front" class="w-full">
                         <div id="word-header" class="bg-green-100 p-3 rounded-lg mb-4 flex items-baseline justify-center">
-                            <h1 id="word-display" class="text-3xl sm:text-4xl font-bold text-center text-gray-800" title="클릭하여 발음 듣기 및 복사"></h1>
+                            <h1 id="word-display" class="text-3xl sm:text-4xl font-bold text-center text-gray-800"></h1>
                         </div>
                         <div id="meaning-container" class="border-2 border-gray-200 p-3 rounded-lg mb-4">
                             <p class="text-gray-700 text-lg" id="meaning-display"></p>
@@ -196,4 +186,3 @@
     <script src="script.js"></script>
 </body>
 </html>
-
