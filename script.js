@@ -964,7 +964,7 @@ const quizMode = {
             correctAnswerEl?.classList.add('correct');
         }
         
-        setTimeout(() => this.displayNextQuiz(), 500);
+        setTimeout(() => this.displayNextQuiz(), 200);
     },
     showLoader(isLoading) {
         this.elements.loader.classList.toggle('hidden', !isLoading);
