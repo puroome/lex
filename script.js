@@ -68,11 +68,10 @@ const app = {
             }
         });
 
-        // [MODIFIED] 오답노트 버튼 클릭 시, 시트에서 직접 데이터를 불러오도록 변경
         document.getElementById('select-mistakes-btn').addEventListener('click', async () => {
             app.showToast('오답 노트를 불러오는 중...');
             try {
-                await api.loadWordList(true); // 항상 최신 오답 목록을 가져옵니다.
+                await api.loadWordList(true); 
                 const mistakeWords = app.state.wordList
                     .filter(word => word.incorrect === 1)
                     .map(wordObj => wordObj.word);
@@ -162,7 +161,6 @@ const app = {
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.dashboardContainer.classList.remove('hidden');
         } else if (mode === 'mistakeReview') {
-            // [MODIFIED] 옵션에서 오답 목록을 가져와 처리
             const mistakeWords = options.mistakeWords;
             if (!mistakeWords || mistakeWords.length === 0) {
                 app.showToast('오답 노트에 단어가 없습니다.', true);
@@ -353,9 +351,6 @@ const translationDBCache = {
     }
 };
 
-// [REMOVED] mistakeLog 객체 삭제
-// const mistakeLog = { ... };
-
 const api = {
     async loadWordList(force = false) {
         if (force) {
@@ -473,7 +468,6 @@ const api = {
             if (response.success && response.updatedWord) {
                 const wordIndex = app.state.wordList.findIndex(w => w.word === word);
                 if (wordIndex !== -1) {
-                    // [MODIFIED] 서버에서 받은 모든 학습 정보를 로컬 데이터에 한 번에 반영
                     Object.assign(app.state.wordList[wordIndex], response.updatedWord);
                 }
                 const cachePayload = { timestamp: Date.now(), words: app.state.wordList };
@@ -816,15 +810,18 @@ const quizMode = {
         document.addEventListener('keydown', (e) => {
             const isQuizModeActive = !this.elements.contentContainer.classList.contains('hidden') && !this.elements.choices.classList.contains('disabled');
             if (!isQuizModeActive) return;
+
+            const choiceCount = Array.from(this.elements.choices.children).filter(el => !el.textContent.includes('PASS')).length;
+            
             if (e.key.toLowerCase() === 'p' || e.key === '0') {
                  e.preventDefault();
-                 const passButton = this.elements.choices.children[0];
+                 const passButton = Array.from(this.elements.choices.children).find(el => el.textContent.includes('PASS'));
                  if(passButton) passButton.click();
             } else {
                 const choiceIndex = parseInt(e.key);
-                if (choiceIndex >= 1 && choiceIndex <= 4 && this.elements.choices.children[choiceIndex]) {
+                if (choiceIndex >= 1 && choiceIndex <= choiceCount) {
                     e.preventDefault();
-                    this.elements.choices.children[choiceIndex].click();
+                    this.elements.choices.children[choiceIndex - 1].click();
                 }
             }
         });
@@ -934,12 +931,6 @@ const quizMode = {
 
         this.elements.choices.innerHTML = '';
 
-        const passLi = document.createElement('li');
-        passLi.className = 'choice-item border-2 border-red-500 bg-red-500 hover:bg-red-600 text-white p-4 rounded-lg cursor-pointer flex items-center justify-center transition-all font-bold text-lg';
-        passLi.innerHTML = `<span>PASS</span>`;
-        passLi.onclick = () => this.checkAnswer(passLi, 'USER_PASSED', answer);
-        this.elements.choices.appendChild(passLi);
-        
         choices.forEach((choice, index) => {
             const li = document.createElement('li');
             li.className = 'choice-item border-2 border-gray-300 p-4 rounded-lg cursor-pointer flex items-start transition-all';
@@ -947,6 +938,12 @@ const quizMode = {
             li.onclick = () => this.checkAnswer(li, choice, answer);
             this.elements.choices.appendChild(li);
         });
+        
+        const passLi = document.createElement('li');
+        passLi.className = 'choice-item border-2 border-red-500 bg-red-500 hover:bg-red-600 text-white p-4 rounded-lg cursor-pointer flex items-center justify-center transition-all font-bold text-lg';
+        passLi.innerHTML = `<span>PASS</span>`;
+        passLi.onclick = () => this.checkAnswer(passLi, 'USER_PASSED', answer);
+        this.elements.choices.appendChild(passLi);
 
         this.elements.choices.classList.remove('disabled');
     },
@@ -959,7 +956,6 @@ const quizMode = {
         const word = this.state.currentQuiz.question.word_info.word;
         await api.updateSRSData(word, isCorrect);
         
-        // [REMOVED] mistakeLog 관련 로직 삭제
         if (!isCorrect) {
             const correctAnswerEl = Array.from(this.elements.choices.children).find(li => {
                 const choiceSpan = li.querySelector('span:last-child');
@@ -968,7 +964,7 @@ const quizMode = {
             correctAnswerEl?.classList.add('correct');
         }
         
-        setTimeout(() => this.displayNextQuiz(), 1500);
+        setTimeout(() => this.displayNextQuiz(), 500);
     },
     showLoader(isLoading) {
         this.elements.loader.classList.toggle('hidden', !isLoading);
@@ -1253,7 +1249,6 @@ const learningMode = {
         this.elements.loader.classList.remove('hidden');
         
         this.state.isMistakeMode = true;
-        // 오답 목록에 해당하는 단어 객체들로 currentWordList를 구성합니다.
         this.state.currentWordList = app.state.wordList.filter(wordObj => mistakeWords.includes(wordObj.word));
         this.state.currentIndex = 0;
         
