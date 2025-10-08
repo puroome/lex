@@ -139,7 +139,7 @@ const app = {
         this.elements.learningModeContainer.classList.add('hidden');
         this.elements.dashboardContainer.classList.add('hidden');
         this.elements.homeBtn.classList.add('hidden');
-        this.elements.refreshBtn.classList.add('hidden');
+        // refreshBtn의 가시성 제어 코드를 제거했습니다. 이제 HTML 구조에 따라 자동으로 처리됩니다.
         this.elements.ttsToggleBtn.classList.add('hidden');
         learningMode.elements.fixedButtons.classList.add('hidden');
 
@@ -154,7 +154,7 @@ const app = {
             quizMode.reset();
         } else if (mode === 'learning') {
             showCommonButtons();
-            this.elements.refreshBtn.classList.remove('hidden');
+            // 학습 모드에서 refreshBtn을 보이게 하던 코드를 제거했습니다.
             this.elements.learningModeContainer.classList.remove('hidden');
             learningMode.elements.appContainer.classList.add('hidden');
             learningMode.elements.loader.classList.add('hidden');
@@ -1359,5 +1359,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
-
