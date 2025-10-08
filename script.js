@@ -957,15 +957,17 @@ const quizMode = {
         questionDisplay.innerHTML = '';
 
         if (type === 'FILL_IN_THE_BLANK') {
+            questionDisplay.classList.remove('justify-center', 'items-center');
             const sentence = question.sentence_with_blank;
             const p = document.createElement('p');
-            p.className = 'text-xl sm:text-2xl text-left text-gray-800 leading-relaxed';
+            p.className = 'text-xl sm:text-2xl text-left text-gray-800 leading-relaxed quiz-sentence-indent';
             let processedText = sentence.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
             processedText = processedText.replace(/＿＿＿＿/g, '<span style="white-space: nowrap;">＿＿＿＿</span>');
             p.innerHTML = processedText.replace(/\n/g, '<br>');
             questionDisplay.appendChild(p);
         } else {
-            questionDisplay.innerHTML = `<h1 class="text-3xl sm:text-4xl font-bold text-center text-gray-800" title="클릭하여 발음 듣기 및 복사">${question.word}</h1>`;
+            questionDisplay.classList.add('justify-center', 'items-center');
+            questionDisplay.innerHTML = `<h1 class="text-3xl sm:text-4xl font-bold text-center text-gray-800">${question.word}</h1>`;
             const wordEl = questionDisplay.querySelector('h1');
             wordEl.addEventListener('click', () => {
                 api.speak(question.word, 'word');
@@ -1368,4 +1370,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
