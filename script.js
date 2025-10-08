@@ -79,7 +79,7 @@ const app = {
                         // 최근에 틀린 단어(시간 값이 더 큼)가 위로 오도록 내림차순 정렬 (b - a)
                         const dateA = a.lastIncorrect ? new Date(a.lastIncorrect) : new Date(0);
                         const dateB = b.lastIncorrect ? new Date(b.lastIncorrect) : new Date(0);
-                        return dateB - dateA;
+                        return dateA - dateB;
                     })
                     .map(wordObj => wordObj.word);
 
@@ -1331,3 +1331,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
