@@ -74,6 +74,13 @@ const app = {
                 await api.loadWordList(true); 
                 const mistakeWords = app.state.wordList
                     .filter(word => word.incorrect === 1)
+                    .sort((a, b) => {
+                        // lastIncorrect 값이 유효한 Date 객체인지 확인하고 정렬
+                        // 최근에 틀린 단어(시간 값이 더 큼)가 위로 오도록 내림차순 정렬 (b - a)
+                        const dateA = a.lastIncorrect ? new Date(a.lastIncorrect) : new Date(0);
+                        const dateB = b.lastIncorrect ? new Date(b.lastIncorrect) : new Date(0);
+                        return dateB - dateA;
+                    })
                     .map(wordObj => wordObj.word);
 
                 if (mistakeWords.length === 0) {
@@ -963,7 +970,6 @@ const quizMode = {
         
         const word = this.state.currentQuiz.question.word_info.word;
         
-        // [MODIFIED] 데이터 업데이트는 백그라운드에서 처리하고, UI는 1초 후 다음 문제로 넘어갑니다.
         api.updateSRSData(word, isCorrect).catch(e => {
              console.error("백그라운드 데이터 업데이트 실패:", e);
         });
@@ -1253,7 +1259,11 @@ const learningMode = {
         this.elements.loader.classList.remove('hidden');
         
         this.state.isMistakeMode = true;
-        this.state.currentWordList = app.state.wordList.filter(wordObj => mistakeWords.includes(wordObj.word));
+        
+        // 정렬된 mistakeWords 순서대로 currentWordList를 재구성합니다.
+        const wordMap = new Map(app.state.wordList.map(wordObj => [wordObj.word, wordObj]));
+        this.state.currentWordList = mistakeWords.map(word => wordMap.get(word));
+        
         this.state.currentIndex = 0;
         
         if (this.state.currentWordList.length === 0) {
@@ -1321,4 +1331,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
