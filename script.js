@@ -486,6 +486,34 @@ const api = {
             console.error('SRS 데이터 업데이트 실패:', error);
             app.showToast('학습 상태 업데이트에 실패했습니다.', true);
         }
+    },
+    async translateText(text) {
+        const cacheKey = `translation_${text}`;
+        try {
+            const cached = await translationDBCache.get(cacheKey);
+            if (cached) {
+                return cached;
+            }
+        } catch (e) {
+            console.error("번역 캐시 읽기 실패:", e);
+        }
+
+        try {
+            const data = await this.fetchFromGoogleSheet('translateText', { text });
+            if (data.success && data.translatedText) {
+                try {
+                    translationDBCache.save(cacheKey, data.translatedText);
+                } catch (e) {
+                    console.error("번역 캐시 저장 실패:", e);
+                }
+                return data.translatedText;
+            } else {
+                throw new Error(data.message || '번역 실패');
+            }
+        } catch (error) {
+            console.error('번역 API 호출 실패:', error);
+            return "번역 실패";
+        }
     }
 };
 
@@ -1331,4 +1359,5 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
 
