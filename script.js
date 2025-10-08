@@ -952,7 +952,6 @@ const quizMode = {
         
         const isCorrect = selectedChoice === correctAnswer;
         
-        // [MODIFIED] 즉각적인 시각적 피드백
         selectedLi.classList.add(isCorrect ? 'correct' : 'incorrect');
         if (!isCorrect) {
             const correctAnswerEl = Array.from(this.elements.choices.children).find(li => {
@@ -964,16 +963,12 @@ const quizMode = {
         
         const word = this.state.currentQuiz.question.word_info.word;
         
-        // [MODIFIED] UI 업데이트와 비동기 데이터 전송을 분리
-        // 일단 UI를 즉시 다음 단계로 넘기고, 데이터 업데이트는 백그라운드에서 수행
-        setTimeout(() => this.displayNextQuiz(), 0);
-
-        try {
-            await api.updateSRSData(word, isCorrect);
-        } catch (e) {
-            console.error("데이터 업데이트 실패 (백그라운드):", e);
-            // 사용자에게는 알리지 않음으로써 퀴즈 흐름을 방해하지 않음
-        }
+        // [MODIFIED] 데이터 업데이트는 백그라운드에서 처리하고, UI는 1초 후 다음 문제로 넘어갑니다.
+        api.updateSRSData(word, isCorrect).catch(e => {
+             console.error("백그라운드 데이터 업데이트 실패:", e);
+        });
+        
+        setTimeout(() => this.displayNextQuiz(), 1000);
     },
     showLoader(isLoading) {
         this.elements.loader.classList.toggle('hidden', !isLoading);
