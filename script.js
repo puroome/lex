@@ -34,6 +34,7 @@ const app = {
         searchNaverContextBtn: document.getElementById('search-naver-context-btn'),
         searchEtymContextBtn: document.getElementById('search-etym-context-btn'),
         searchLongmanContextBtn: document.getElementById('search-longman-context-btn'),
+        // 모드 선택 화면의 버튼들을 elements에 추가합니다.
         selectLearningBtn: document.getElementById('select-learning-btn'),
         selectQuizBtn: document.getElementById('select-quiz-btn'),
         selectDashboardBtn: document.getElementById('select-dashboard-btn'),
@@ -79,9 +80,11 @@ const app = {
                 const mistakeWords = app.state.wordList
                     .filter(word => word.incorrect === 1)
                     .sort((a, b) => {
+                        // lastIncorrect 값이 유효한 Date 객체인지 확인하고 정렬
+                        // 최근에 틀린 단어(시간 값이 더 큼)가 위로 오도록 내림차순 정렬 (b - a)
                         const dateA = a.lastIncorrect ? new Date(a.lastIncorrect) : new Date(0);
                         const dateB = b.lastIncorrect ? new Date(b.lastIncorrect) : new Date(0);
-                        return dateB - dateA;
+                        return dateA - dateB;
                     })
                     .map(wordObj => wordObj.word);
 
@@ -184,23 +187,27 @@ const app = {
         }
     },
     async forceReload() {
+        // 새로고침은 이제 모드 선택 화면에서만 가능합니다.
         const isSelectionScreen = !this.elements.selectionScreen.classList.contains('hidden');
         if (!isSelectionScreen) {
             this.showToast('새로고침은 모드 선택 화면에서만 가능합니다.', true);
             return;
         }
         
+        // 비활성화할 요소들을 정의합니다.
         const elementsToDisable = [
             this.elements.refreshBtn,
             this.elements.selectDashboardBtn,
             this.elements.selectMistakesBtn,
         ];
+        // 스타일을 통해 비활성화할 요소들 (div, a 등)
         const elementsToStyle = [
              this.elements.sheetLink,
              this.elements.selectLearningBtn,
              this.elements.selectQuizBtn,
         ];
 
+        // 요소들을 비활성화하고 로딩 상태를 표시합니다.
         elementsToDisable.forEach(el => { if(el) el.disabled = true; });
         elementsToStyle.forEach(el => { if(el) el.classList.add('pointer-events-none', 'opacity-50'); });
         
@@ -213,6 +220,7 @@ const app = {
         } catch(e) {
             this.showToast('데이터 새로고침에 실패했습니다: ' + e.message, true);
         } finally {
+            // 요소들을 다시 활성화합니다.
             elementsToDisable.forEach(el => { if(el) el.disabled = false; });
             elementsToStyle.forEach(el => { if(el) el.classList.remove('pointer-events-none', 'opacity-50'); });
             if (refreshIcon) refreshIcon.classList.remove('animate-spin');
@@ -285,6 +293,7 @@ const app = {
             .map((item, index) => ({ word: item.word, index }))
             .filter((_, index) => {
                 if (!wordList[index].explanation) return false;
+                // 발음 기호 제거
                 const cleanedExplanation = wordList[index].explanation.replace(/\[.*?\]/g, '');
                 return searchRegex.test(cleanedExplanation);
             });
@@ -483,14 +492,13 @@ const api = {
         if (data.error) throw new Error(data.message);
         return data;
     },
-    async updateSRSData(word, isCorrect, quizType) {
+    async updateSRSData(word, isCorrect) {
         try {
-            const response = await this.fetchFromGoogleSheet('updateSRSData', { word, isCorrect, quizType });
+            const response = await this.fetchFromGoogleSheet('updateSRSData', { word, isCorrect });
             if (response.success && response.updatedWord) {
                 const wordIndex = app.state.wordList.findIndex(w => w.word === word);
                 if (wordIndex !== -1) {
-                    app.state.wordList[wordIndex].srsMeaning = response.updatedWord.srsMeaning;
-                    app.state.wordList[wordIndex].srsBlank = response.updatedWord.srsBlank;
+                    Object.assign(app.state.wordList[wordIndex], response.updatedWord);
                 }
                 const cachePayload = { timestamp: Date.now(), words: app.state.wordList };
                 localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
@@ -777,42 +785,25 @@ const dashboard = {
     async show() {
         if (!app.state.isWordListReady) {
             this.elements.content.innerHTML = `<div class="text-center p-10"><div class="loader mx-auto"></div><p class="mt-4 text-gray-600">단어 목록을 동기화하는 중...</p></div>`;
-            await this.waitForWordList();
+            await quizMode.waitForWordList();
         }
         this.render();
-    },
-    async waitForWordList() {
-        return new Promise(resolve => {
-            const check = () => {
-                if (app.state.isWordListReady) {
-                    resolve();
-                } else {
-                    setTimeout(check, 100);
-                }
-            };
-            check();
-        });
     },
     render() {
         const wordList = app.state.wordList;
         const totalWords = wordList.length;
 
-        const stages = [
-            { name: '새 단어', count: 0, color: 'bg-gray-400' },
-            { name: '학습 중', count: 0, color: 'bg-blue-500' },
-            { name: '학습 완료', count: 0, color: 'bg-green-500' }
+        const srsLevels = [
+            { name: '새 단어 (New)', min: 0, max: 0, count: 0, color: 'bg-gray-400' },
+            { name: '학습 중 (Learning)', min: 1, max: 1, count: 0, color: 'bg-blue-500' },
+            { name: '익숙함 (Familiar)', min: 2, max: 2, count: 0, color: 'bg-green-500' },
+            { name: '학습 완료 (Learned)', min: 3, max: Infinity, count: 0, color: 'bg-purple-600' }
         ];
 
         wordList.forEach(word => {
-            const { srsMeaning, srsBlank } = word;
-            
-            if (srsMeaning === 1 && srsBlank === 1) {
-                stages[2].count++; // 학습 완료
-            } else if (srsMeaning === null && srsBlank === null) {
-                stages[0].count++; // 새 단어
-            } else {
-                stages[1].count++; // 학습 중
-            }
+            const level = parseInt(word.srsLevel) || 0;
+            const category = srsLevels.find(cat => level >= cat.min && level <= cat.max);
+            if (category) category.count++;
         });
 
         let contentHTML = `
@@ -825,16 +816,16 @@ const dashboard = {
                 <div class="space-y-4">
         `;
 
-        stages.forEach(stage => {
-            const percentage = totalWords > 0 ? ((stage.count / totalWords) * 100).toFixed(1) : 0;
+        srsLevels.forEach(level => {
+            const percentage = totalWords > 0 ? ((level.count / totalWords) * 100).toFixed(1) : 0;
             contentHTML += `
                 <div class="w-full">
                     <div class="flex justify-between items-center mb-1">
-                        <span class="text-base font-semibold text-gray-700">${stage.name}</span>
-                        <span class="text-sm font-medium text-gray-500">${stage.count}개 (${percentage}%)</span>
+                        <span class="text-base font-semibold text-gray-700">${level.name}</span>
+                        <span class="text-sm font-medium text-gray-500">${level.count}개 (${percentage}%)</span>
                     </div>
                     <div class="w-full bg-gray-200 rounded-full h-4">
-                        <div class="${stage.color} h-4 rounded-full" style="width: ${percentage}%"></div>
+                        <div class="${level.color} h-4 rounded-full" style="width: ${percentage}%"></div>
                     </div>
                 </div>
             `;
@@ -849,11 +840,9 @@ const dashboard = {
 const quizMode = {
     state: {
         currentQuiz: {},
-        quizType: null,
         quizBatch: [],
         isFetching: false,
         isFinished: false,
-        allWordsLearned: false,
     },
     elements: {},
     init() {
@@ -868,7 +857,7 @@ const quizMode = {
             questionDisplay: document.getElementById('quiz-question-display'),
             choices: document.getElementById('quiz-choices'),
             finishedScreen: document.getElementById('quiz-finished-screen'),
-            finishedMessage: document.getElementById('quiz-finished-message'),
+            finishedMessage: document.getElementById('quiz-finished-message')
         };
         this.bindEvents();
     },
@@ -896,15 +885,13 @@ const quizMode = {
         });
     },
     async start(quizType) {
-        this.state.quizType = quizType;
         this.elements.quizSelectionScreen.classList.add('hidden');
         this.showLoader(true);
         if (!app.state.isWordListReady) {
-            this.elements.loaderText.textContent = "단어 목록 동기화 중...";
+            this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
             await this.waitForWordList();
         }
-        this.elements.loaderText.textContent = "퀴즈 준비 중...";
-        await this.fetchQuizBatch(2); // 스마트 로딩: 최초 2개만 요청
+        await this.fetchQuizBatch(quizType);
         this.displayNextQuiz();
     },
     async waitForWordList() {
@@ -921,32 +908,24 @@ const quizMode = {
         this.state.quizBatch = [];
         this.state.isFetching = false;
         this.state.isFinished = false;
-        this.state.allWordsLearned = false;
-        this.state.quizType = null;
         this.elements.quizSelectionScreen.classList.remove('hidden');
         this.elements.loader.classList.add('hidden');
         this.elements.contentContainer.classList.add('hidden');
         this.elements.finishedScreen.classList.add('hidden');
     },
-    async fetchQuizBatch(batchSize) {
-        if (this.state.isFetching) return;
+    async fetchQuizBatch(quizType) {
+        if (this.state.isFetching || this.state.isFinished) return;
         this.state.isFetching = true;
-
-        const excludeWords = this.state.quizBatch.map(q => q.question.word).join(',');
-        
         try {
-            const data = await api.fetchFromGoogleSheet('getQuizBatch', { 
-                quizType: this.state.quizType,
-                batchSize: batchSize,
-                excludeWords: excludeWords
-            });
-
-            if (data.quizzes && data.quizzes.length > 0) {
-                this.state.quizBatch.push(...data.quizzes);
-            } else {
+            const data = await api.fetchFromGoogleSheet('getQuiz', { quizType });
+            if (data.finished) {
                 this.state.isFinished = true;
-                this.state.allWordsLearned = data.allWordsLearned;
+                if (this.state.quizBatch.length === 0) {
+                    this.showFinishedScreen(data.message || "오늘 복습할 단어를 모두 학습했습니다!");
+                }
+                return;
             }
+            this.state.quizBatch.push(...data.quizzes);
         } catch (error) {
             console.error("퀴즈 묶음 가져오기 실패:", error);
             this.showError(error.message);
@@ -959,28 +938,25 @@ const quizMode = {
         this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">퀴즈를 가져올 수 없습니다.</p><p class="text-sm text-gray-600 mt-2 break-all">${message}</p>`;
     },
     displayNextQuiz() {
-        if (this.state.quizBatch.length === 1 && !this.state.isFinished && !this.state.isFetching) {
-            this.fetchQuizBatch(10);
+        if (!this.state.isFetching && this.state.quizBatch.length <= 3) {
+            this.fetchQuizBatch(this.state.currentQuiz.type);
         }
-
         if (this.state.quizBatch.length === 0) {
-            if (this.state.isFinished) {
-                this.showFinishedScreen(this.state.allWordsLearned);
-            } else if (!this.state.isFetching) {
-                // 백그라운드 요청이 아직 안 끝났을 수 있으므로 잠시 대기 후 재시도
-                this.showLoader(true, "다음 퀴즈를 불러오는 중...");
-                setTimeout(() => {
-                    if (this.state.quizBatch.length > 0) {
+            if(this.state.isFetching) {
+                this.elements.loaderText.textContent = "다음 퀴즈를 준비 중입니다...";
+                this.showLoader(true);
+                const checker = setInterval(() => {
+                    if(this.state.quizBatch.length > 0) {
+                        clearInterval(checker);
                         this.displayNextQuiz();
-                    } else {
-                        // 대기 후에도 퀴즈가 없으면 종료로 간주
-                        this.showFinishedScreen(this.state.allWordsLearned);
                     }
-                }, 1500);
+                }, 100)
+            } 
+            else if (this.state.isFinished) {
+                this.showFinishedScreen("모든 단어 학습을 완료했습니다!");
             }
             return;
         }
-        
         const nextQuiz = this.state.quizBatch.shift();
         this.state.currentQuiz = nextQuiz;
         this.showLoader(false);
@@ -989,7 +965,7 @@ const quizMode = {
     renderQuiz(quizData) {
         this.elements.cardFront.classList.remove('hidden');
         
-        const { type, question, choices } = quizData;
+        const { type, question, choices, answer } = quizData;
         const questionDisplay = this.elements.questionDisplay;
         questionDisplay.innerHTML = '';
 
@@ -1019,75 +995,51 @@ const quizMode = {
             const li = document.createElement('li');
             li.className = 'choice-item border-2 border-gray-300 p-4 rounded-lg cursor-pointer flex items-start transition-all';
             li.innerHTML = `<span class="font-bold mr-3">${index + 1}.</span> <span>${choice}</span>`;
-            li.onclick = () => this.checkAnswer(li, choice);
+            li.onclick = () => this.checkAnswer(li, choice, answer);
             this.elements.choices.appendChild(li);
         });
         
         const passLi = document.createElement('li');
         passLi.className = 'choice-item border-2 border-red-500 bg-red-500 hover:bg-red-600 text-white p-4 rounded-lg cursor-pointer flex items-center justify-center transition-all font-bold text-lg';
         passLi.innerHTML = `<span>PASS</span>`;
-        passLi.onclick = () => this.checkAnswer(passLi, 'USER_PASSED');
+        passLi.onclick = () => this.checkAnswer(passLi, 'USER_PASSED', answer);
         this.elements.choices.appendChild(passLi);
 
         this.elements.choices.classList.remove('disabled');
     },
-    async checkAnswer(selectedLi, selectedChoice) {
+    async checkAnswer(selectedLi, selectedChoice, correctAnswer) {
         this.elements.choices.classList.add('disabled');
         
-        const isCorrect = selectedChoice === this.state.currentQuiz.answer;
+        const isCorrect = selectedChoice === correctAnswer;
         
         selectedLi.classList.add(isCorrect ? 'correct' : 'incorrect');
         if (!isCorrect) {
             const correctAnswerEl = Array.from(this.elements.choices.children).find(li => {
                 const choiceSpan = li.querySelector('span:last-child');
-                return choiceSpan && choiceSpan.textContent === this.state.currentQuiz.answer;
+                return choiceSpan && choiceSpan.textContent === correctAnswer;
             });
             correctAnswerEl?.classList.add('correct');
         }
         
-        const word = this.state.currentQuiz.question.word;
+        const word = this.state.currentQuiz.question.word_info.word;
         
-        // 로컬 상태 즉시 업데이트
-        const wordIndex = app.state.wordList.findIndex(w => w.word === word);
-        if(wordIndex !== -1) {
-            if (isCorrect) {
-                if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING') {
-                    app.state.wordList[wordIndex].srsMeaning = 1;
-                } else {
-                    app.state.wordList[wordIndex].srsBlank = 1;
-                }
-            } else {
-                 if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING' && app.state.wordList[wordIndex].srsMeaning === null) {
-                    app.state.wordList[wordIndex].srsMeaning = 0;
-                } else if (this.state.quizType === 'FILL_IN_THE_BLANK' && app.state.wordList[wordIndex].srsBlank === null) {
-                    app.state.wordList[wordIndex].srsBlank = 0;
-                }
-            }
-        }
-
-        // 서버에 백그라운드 업데이트 요청
-        api.updateSRSData(word, isCorrect, this.state.quizType).catch(e => {
+        api.updateSRSData(word, isCorrect).catch(e => {
              console.error("백그라운드 데이터 업데이트 실패:", e);
         });
         
         setTimeout(() => this.displayNextQuiz(), 1000);
     },
-    showLoader(isLoading, message = '퀴즈를 준비 중입니다...') {
+    showLoader(isLoading) {
         this.elements.loader.classList.toggle('hidden', !isLoading);
-        this.elements.loaderText.textContent = message;
         this.elements.quizSelectionScreen.classList.add('hidden');
         this.elements.contentContainer.classList.toggle('hidden', isLoading);
         this.elements.finishedScreen.classList.add('hidden');
     },
-    showFinishedScreen(allWordsLearned) {
+    showFinishedScreen(message) {
         this.showLoader(false);
         this.elements.contentContainer.classList.add('hidden');
         this.elements.finishedScreen.classList.remove('hidden');
-        if (allWordsLearned) {
-            this.elements.finishedMessage.innerHTML = "축하합니다!<br>모든 단어 학습을 완료했습니다!";
-        } else {
-            this.elements.finishedMessage.innerHTML = "더 이상 풀 수 있는 퀴즈가 없습니다.<br>학습을 모두 마쳤거나, 단어 시트를 확인해주세요.";
-        }
+        this.elements.finishedMessage.textContent = message;
     },
 };
 
@@ -1222,6 +1174,7 @@ const learningMode = {
             .map((item, index) => ({ word: item.word, index }))
             .filter((_, index) => {
                 if (!wordList[index].explanation) return false;
+                // 발음 기호 제거
                 const cleanedExplanation = wordList[index].explanation.replace(/\[.*?\]/g, '');
                 return searchRegex.test(cleanedExplanation);
             });
@@ -1294,7 +1247,7 @@ const learningMode = {
             }
             suggestions.forEach(({ word, index }) => {
                 const btn = document.createElement('button');
-                btn.className = 'w-full text-left bg-gray-100 hover:bg-gray-200 py-3 px-4 rounded-lg transition-colors';
+                btn.className = 'w-full text-left bg-gray-100 hover:bg-gray-200 font-semibold py-3 px-4 rounded-lg transition-colors';
                 btn.textContent = word;
                 btn.onclick = () => {
                     this.state.currentIndex = index;
@@ -1370,6 +1323,7 @@ const learningMode = {
         
         this.state.isMistakeMode = true;
         
+        // 정렬된 mistakeWords 순서대로 currentWordList를 재구성합니다.
         const wordMap = new Map(app.state.wordList.map(wordObj => [wordObj.word, wordObj]));
         this.state.currentWordList = mistakeWords.map(word => wordMap.get(word));
         
@@ -1440,4 +1394,8 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
+
+
+
 
