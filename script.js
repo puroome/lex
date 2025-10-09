@@ -163,7 +163,7 @@ const app = {
             learningMode.elements.loader.classList.add('hidden');
             learningMode.elements.startScreen.classList.remove('hidden');
             if (options.suggestions && options.title) {
-                learningMode.displaySuggestions(options.suggestions, options.title);
+                learningMode.displaySuggestions(options.suggestions.vocab, options.suggestions.explanation, options.title);
             } else {
                 learningMode.resetStartScreen();
             }
@@ -287,18 +287,14 @@ const app = {
             ui.hideWordContextMenu();
             return;
         }
+
         const explanationMatches = wordList
             .map((item, index) => ({ word: item.word, index }))
             .filter((_, index) => 
                 wordList[index].explanation && 
                 wordList[index].explanation.toLowerCase().includes(lowerCaseWord)
             );
-        if (explanationMatches.length > 0) {
-            const title = `'<strong>${word}</strong>'(이)가 설명에 포함된 단어입니다.`;
-            this.navigateTo('learning', { suggestions: explanationMatches, title: title });
-            ui.hideWordContextMenu();
-            return;
-        }
+
         const levenshteinSuggestions = wordList.map((item, index) => ({
             word: item.word,
             index,
@@ -306,8 +302,22 @@ const app = {
         }))
         .sort((a, b) => a.distance - b.distance)
         .slice(0, 5);
+
+        if (explanationMatches.length > 0 || levenshteinSuggestions.length > 0) {
+            const title = `'<strong>${word}</strong>' 관련 단어를 찾았습니다.`;
+            this.navigateTo('learning', { 
+                suggestions: {
+                    vocab: levenshteinSuggestions,
+                    explanation: explanationMatches
+                }, 
+                title: title 
+            });
+            ui.hideWordContextMenu();
+            return;
+        }
+        
         const title = `입력하신 단어를 찾을 수 없습니다.<br>혹시 이 단어를 찾으시나요?`;
-        this.navigateTo('learning', { suggestions: levenshteinSuggestions, title: title });
+        this.navigateTo('learning', { suggestions: { vocab: [], explanation: [] }, title: title });
         ui.hideWordContextMenu();
     },
 };
@@ -1048,7 +1058,8 @@ const learningMode = {
             startBtn: document.getElementById('learning-start-btn'),
             suggestionsContainer: document.getElementById('learning-suggestions-container'),
             suggestionsTitle: document.getElementById('learning-suggestions-title'),
-            suggestionsList: document.getElementById('learning-suggestions-list'),
+            suggestionsVocabList: document.getElementById('learning-suggestions-vocab-list'),
+            suggestionsExplanationList: document.getElementById('learning-suggestions-explanation-list'),
             backToStartBtn: document.getElementById('learning-back-to-start-btn'),
             loader: document.getElementById('learning-loader'),
             loaderText: document.getElementById('learning-loader-text'),
@@ -1138,9 +1149,10 @@ const learningMode = {
             this.showError("학습할 단어가 없습니다.");
             return;
         }
-    
+
         if (!startWord) {
-            this.state.currentIndex = 0;
+            const lastIndex = parseInt(localStorage.getItem('lastLearningIndex'), 10);
+            this.state.currentIndex = (lastIndex && lastIndex >= 0 && lastIndex < wordList.length) ? lastIndex : 0;
             this.launchApp();
             return;
         }
@@ -1161,12 +1173,6 @@ const learningMode = {
                 wordList[index].explanation.toLowerCase().includes(lowerCaseStartWord)
             );
     
-        if (explanationMatches.length > 0) {
-            const title = `'<strong>${startWord}</strong>'(이)가 설명에 포함된 단어입니다.`;
-            this.displaySuggestions(explanationMatches, title);
-            return;
-        }
-    
         const levenshteinSuggestions = wordList.map((item, index) => ({
             word: item.word,
             index,
@@ -1176,12 +1182,12 @@ const learningMode = {
         .slice(0, 5)
         .filter(s => s.distance < s.word.length / 2 + 1);
     
-        if (levenshteinSuggestions.length > 0) {
-            const title = `입력하신 단어를 찾을 수 없습니다.<br>혹시 이 단어를 찾으시나요?`;
-            this.displaySuggestions(levenshteinSuggestions, title);
+        if (levenshteinSuggestions.length > 0 || explanationMatches.length > 0) {
+            const title = `입력하신 단어를 찾을 수 없습니다.<br>아래 목록에서 확인해보세요.`;
+            this.displaySuggestions(levenshteinSuggestions, explanationMatches, title);
         } else {
             const title = `'<strong>${startWord}</strong>'에 대한 검색 결과가 없습니다.`;
-            this.displaySuggestions([], title);
+            this.displaySuggestions([], [], title);
         }
     },
     async waitForWordList() {
@@ -1218,28 +1224,40 @@ const learningMode = {
         this.elements.startWordInput.value = '';
         this.elements.startWordInput.focus();
     },
-    displaySuggestions(suggestions, title) {
+    displaySuggestions(vocabSuggestions, explanationSuggestions, title) {
         this.elements.loader.classList.add('hidden');
         this.elements.startScreen.classList.remove('hidden');
         this.elements.startInputContainer.classList.add('hidden');
         
         this.elements.suggestionsTitle.innerHTML = title;
-        this.elements.suggestionsList.innerHTML = '';
-    
-        suggestions.forEach(({ word, index }) => {
-            const btn = document.createElement('button');
-            btn.className = 'w-full text-left bg-gray-100 hover:bg-gray-200 font-semibold py-3 px-4 rounded-lg transition-colors';
-            btn.textContent = word;
-            btn.onclick = () => {
-                this.state.currentIndex = index;
-                this.launchApp();
-            };
-            this.elements.suggestionsList.appendChild(btn);
-        });
+        
+        this.elements.suggestionsVocabList.innerHTML = '';
+        this.elements.suggestionsExplanationList.innerHTML = '';
+        
+        const populateList = (listElement, suggestions) => {
+            if (suggestions.length === 0) {
+                listElement.innerHTML = '<p class="text-gray-400 text-sm p-3">결과 없음</p>';
+                return;
+            }
+            suggestions.forEach(({ word, index }) => {
+                const btn = document.createElement('button');
+                btn.className = 'w-full text-left bg-gray-100 hover:bg-gray-200 font-semibold py-3 px-4 rounded-lg transition-colors';
+                btn.textContent = word;
+                btn.onclick = () => {
+                    this.state.currentIndex = index;
+                    this.launchApp();
+                };
+                listElement.appendChild(btn);
+            });
+        };
+
+        populateList(this.elements.suggestionsVocabList, vocabSuggestions);
+        populateList(this.elements.suggestionsExplanationList, explanationSuggestions);
         
         this.elements.suggestionsContainer.classList.remove('hidden');
     },
     displayWord(index) {
+        localStorage.setItem('lastLearningIndex', index);
         this.elements.cardBack.classList.remove('is-slid-up');
         const wordData = this.state.currentWordList[index];
         if (!wordData) return;
