@@ -926,7 +926,7 @@ const quizMode = {
             if (data.finished) {
                 this.state.isFinished = true;
                 if (this.state.quizBatch.length === 0) {
-                    this.showFinishedScreen(data.message || "오늘 복습할 단어를 모두 학습했습니다!");
+                    this.showFinishedScreen(data.allWordsLearned);
                 }
                 return;
             }
@@ -943,7 +943,7 @@ const quizMode = {
         this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">퀴즈를 가져올 수 없습니다.</p><p class="text-sm text-gray-600 mt-2 break-all">${message}</p>`;
     },
     displayNextQuiz() {
-        if (!this.state.isFetching && this.state.quizBatch.length <= 3) {
+        if (!this.state.isFetching && this.state.quizBatch.length <= 3 && !this.state.isFinished) {
             this.fetchQuizBatch(this.state.currentQuiz.type);
         }
         if (this.state.quizBatch.length === 0) {
@@ -954,11 +954,15 @@ const quizMode = {
                     if(this.state.quizBatch.length > 0) {
                         clearInterval(checker);
                         this.displayNextQuiz();
+                    } else if (this.state.isFinished) {
+                        clearInterval(checker);
+                        this.showFinishedScreen(false); // allWordsLearned is likely false here
                     }
                 }, 100)
             } 
             else if (this.state.isFinished) {
-                this.showFinishedScreen("모든 단어 학습을 완료했습니다!");
+                // This state is reached when the last batch was fetched and it was empty.
+                // The decision on which message to show was already made in fetchQuizBatch.
             }
             return;
         }
@@ -1041,11 +1045,15 @@ const quizMode = {
         this.elements.contentContainer.classList.toggle('hidden', isLoading);
         this.elements.finishedScreen.classList.add('hidden');
     },
-    showFinishedScreen(message) {
+    showFinishedScreen(allWordsLearned) {
         this.showLoader(false);
         this.elements.contentContainer.classList.add('hidden');
         this.elements.finishedScreen.classList.remove('hidden');
-        this.elements.finishedMessage.textContent = message;
+        if (allWordsLearned) {
+            this.elements.finishedMessage.innerHTML = "축하합니다!<br>모든 단어 학습을 완료했습니다!";
+        } else {
+            this.elements.finishedMessage.innerHTML = "오늘 할당된 퀴즈를 모두 풀었습니다.<br> 내일 다시 도전하세요.";
+        }
     },
 };
 
