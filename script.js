@@ -491,6 +491,7 @@ const api = {
                 if (wordIndex !== -1) {
                     app.state.wordList[wordIndex].srsMeaning = response.updatedWord.srsMeaning;
                     app.state.wordList[wordIndex].srsBlank = response.updatedWord.srsBlank;
+                    app.state.wordList[wordIndex].srsDefinition = response.updatedWord.srsDefinition;
                 }
                 const cachePayload = { timestamp: Date.now(), words: app.state.wordList };
                 localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
@@ -800,18 +801,26 @@ const dashboard = {
         const stages = [
             { name: '새 단어', count: 0, color: 'bg-gray-400' },
             { name: '학습 중', count: 0, color: 'bg-blue-500' },
+            { name: '익숙함', count: 0, color: 'bg-yellow-500' },
             { name: '학습 완료', count: 0, color: 'bg-green-500' }
         ];
 
         wordList.forEach(word => {
-            const { srsMeaning, srsBlank } = word;
+            const { srsMeaning, srsBlank, srsDefinition } = word;
             
-            if (srsMeaning === 1 && srsBlank === 1) {
-                stages[2].count++; // 학습 완료
-            } else if (srsMeaning === null && srsBlank === null) {
+            if (srsMeaning === null && srsBlank === null && srsDefinition === null) {
                 stages[0].count++; // 새 단어
+                return;
+            }
+
+            const score = (srsMeaning === 1 ? 1 : 0) + (srsBlank === 1 ? 1 : 0) + (srsDefinition === 1 ? 1 : 0);
+
+            if (score === 3) {
+                stages[3].count++; // 학습 완료
+            } else if (score === 2) {
+                stages[2].count++; // 익숙함
             } else {
-                stages[1].count++; // 학습 중
+                stages[1].count++; // 학습 중 (0점, 1점)
             }
         });
 
@@ -846,13 +855,13 @@ const dashboard = {
 };
 
 // ================================================================
-// Quiz Mode Controller (실시간 스마트 로딩 방식으로 전면 수정)
+// Quiz Mode Controller
 // ================================================================
 const quizMode = {
     state: {
         currentQuiz: {},
         quizType: null,
-        quizBatch: [], // 퀴즈를 담아둘 로컬 큐
+        quizBatch: [],
         isFetching: false,
         isFinished: false,
         allWordsLearned: false,
@@ -863,6 +872,7 @@ const quizMode = {
             quizSelectionScreen: document.getElementById('quiz-selection-screen'),
             startMeaningQuizBtn: document.getElementById('start-meaning-quiz-btn'),
             startBlankQuizBtn: document.getElementById('start-blank-quiz-btn'),
+            startDefinitionQuizBtn: document.getElementById('start-definition-quiz-btn'),
             loader: document.getElementById('quiz-loader'),
             loaderText: document.getElementById('quiz-loader-text'),
             contentContainer: document.getElementById('quiz-content-container'),
@@ -877,7 +887,8 @@ const quizMode = {
     bindEvents() {
         this.elements.startMeaningQuizBtn.addEventListener('click', () => this.start('MULTIPLE_CHOICE_MEANING'));
         this.elements.startBlankQuizBtn.addEventListener('click', () => this.start('FILL_IN_THE_BLANK'));
-        
+        this.elements.startDefinitionQuizBtn.addEventListener('click', () => this.start('MULTIPLE_CHOICE_DEFINITION'));
+
         document.addEventListener('keydown', (e) => {
             const isQuizModeActive = !this.elements.contentContainer.classList.contains('hidden') && !this.elements.choices.classList.contains('disabled');
             if (!isQuizModeActive) return;
@@ -906,7 +917,7 @@ const quizMode = {
             await this.waitForWordList();
         }
         this.elements.loaderText.textContent = "퀴즈 준비 중...";
-        await this.fetchQuizBatch(2); // 스마트 로딩: 최초 2개만 요청
+        await this.fetchQuizBatch(2);
         this.displayNextQuiz();
     },
     async waitForWordList() {
@@ -946,7 +957,6 @@ const quizMode = {
             if (data.quizzes && data.quizzes.length > 0) {
                 this.state.quizBatch.push(...data.quizzes);
             } else {
-                // 더 이상 가져올 퀴즈가 없으면 종료 상태로 변경
                 if (this.state.quizBatch.length === 0) {
                     this.state.isFinished = true;
                     this.state.allWordsLearned = data.allWordsLearned;
@@ -964,7 +974,6 @@ const quizMode = {
         this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">퀴즈를 가져올 수 없습니다.</p><p class="text-sm text-gray-600 mt-2 break-all">${message}</p>`;
     },
     displayNextQuiz() {
-        // 퀴즈가 2개 이하로 남았고, 로딩 중이 아니며, 끝난 상태도 아닐 때 다음 묶음 미리 로드
         if (this.state.quizBatch.length <= 2 && !this.state.isFetching && !this.state.isFinished) {
             this.fetchQuizBatch(10);
         }
@@ -973,13 +982,11 @@ const quizMode = {
             if (this.state.isFinished) {
                 this.showFinishedScreen();
             } else {
-                // 백그라운드 요청이 아직 안 끝났을 수 있으므로 잠시 대기 후 재시도
                 this.showLoader(true, "다음 퀴즈를 불러오는 중...");
                 setTimeout(() => {
                     if (this.state.quizBatch.length > 0) {
                         this.displayNextQuiz();
                     } else {
-                        // 대기 후에도 퀴즈가 없으면 종료로 간주
                         this.state.isFinished = true;
                         this.showFinishedScreen();
                     }
@@ -1009,7 +1016,7 @@ const quizMode = {
             processedText = processedText.replace(/＿＿＿＿/g, '<span style="white-space: nowrap;">＿＿＿＿</span>');
             p.innerHTML = processedText.replace(/\n/g, '<br>');
             questionDisplay.appendChild(p);
-        } else {
+        } else if (type === 'MULTIPLE_CHOICE_MEANING') {
             questionDisplay.classList.add('justify-center', 'items-center');
             questionDisplay.innerHTML = `<h1 class="text-3xl sm:text-4xl font-bold text-center text-gray-800">${question.word}</h1>`;
             const wordEl = questionDisplay.querySelector('h1');
@@ -1018,14 +1025,22 @@ const quizMode = {
                 ui.copyToClipboard(question.word);
             });
             ui.adjustFontSize(wordEl);
+        } else if (type === 'MULTIPLE_CHOICE_DEFINITION') {
+            questionDisplay.classList.remove('justify-center', 'items-center');
+            const p = document.createElement('p');
+            p.className = 'text-lg sm:text-xl text-left text-gray-800 leading-relaxed';
+            p.textContent = question.definition;
+            questionDisplay.appendChild(p);
         }
 
         this.elements.choices.innerHTML = '';
+        const displayChoices = (type === 'MULTIPLE_CHOICE_MEANING') ? choices.map(c => c.split('\n')[0]) : choices;
 
-        choices.forEach((choice, index) => {
+        displayChoices.forEach((choice, index) => {
             const li = document.createElement('li');
             li.className = 'choice-item border-2 border-gray-300 p-4 rounded-lg cursor-pointer flex items-start transition-all';
-            li.innerHTML = `<span class="font-bold mr-3">${index + 1}.</span> <span>${choice}</span>`;
+            const choiceText = (type === 'MULTIPLE_CHOICE_MEANING') ? choices[index] : choice;
+            li.innerHTML = `<span class="font-bold mr-3">${index + 1}.</span> <span>${choiceText}</span>`;
             li.onclick = () => this.checkAnswer(li, choice);
             this.elements.choices.appendChild(li);
         });
@@ -1056,12 +1071,14 @@ const quizMode = {
         
         const wordIndex = app.state.wordList.findIndex(w => w.word === word);
         if(wordIndex !== -1) {
-            if (isCorrect) {
-                if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING') app.state.wordList[wordIndex].srsMeaning = 1;
-                else app.state.wordList[wordIndex].srsBlank = 1;
-            } else {
-                if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING') app.state.wordList[wordIndex].srsMeaning = 0;
-                 else app.state.wordList[wordIndex].srsBlank = 0;
+            const srsKey = {
+                'MULTIPLE_CHOICE_MEANING': 'srsMeaning',
+                'FILL_IN_THE_BLANK': 'srsBlank',
+                'MULTIPLE_CHOICE_DEFINITION': 'srsDefinition'
+            }[this.state.quizType];
+
+            if (srsKey) {
+                app.state.wordList[wordIndex][srsKey] = isCorrect ? 1 : 0;
             }
         }
 
@@ -1439,7 +1456,3 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
-
-
-
