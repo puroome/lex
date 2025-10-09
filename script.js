@@ -1192,7 +1192,7 @@ const learningMode = {
             const title = `<strong>${startWord}</strong>(이)가 검색안되니, 아래에서 확인해보세요.`;
             this.displaySuggestions(levenshteinSuggestions, explanationMatches, title);
         } else {
-            const title = `'<strong>${startWord}</strong>'에 대한 검색 결과가 없습니다.`;
+            const title = `<strong>${startWord}</strong>에 대한 검색 결과가 없습니다.`;
             this.displaySuggestions([], [], title);
         }
     },
@@ -1394,6 +1394,7 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
 
 
 
