@@ -288,11 +288,12 @@ const app = {
             return;
         }
 
+        const searchRegex = new RegExp(`\\b${lowerCaseWord}\\b`, 'i');
         const explanationMatches = wordList
             .map((item, index) => ({ word: item.word, index }))
-            .filter((_, index) => 
-                wordList[index].explanation && 
-                wordList[index].explanation.toLowerCase().includes(lowerCaseWord)
+            .filter((_, index) =>
+                wordList[index].explanation &&
+                searchRegex.test(wordList[index].explanation)
             );
 
         const levenshteinSuggestions = wordList.map((item, index) => ({
@@ -1166,11 +1167,12 @@ const learningMode = {
             return;
         }
     
+        const searchRegex = new RegExp(`\\b${lowerCaseStartWord}\\b`, 'i');
         const explanationMatches = wordList
             .map((item, index) => ({ word: item.word, index }))
-            .filter((_, index) => 
-                wordList[index].explanation && 
-                wordList[index].explanation.toLowerCase().includes(lowerCaseStartWord)
+            .filter((_, index) =>
+                wordList[index].explanation &&
+                searchRegex.test(wordList[index].explanation)
             );
     
         const levenshteinSuggestions = wordList.map((item, index) => ({
@@ -1388,3 +1390,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
