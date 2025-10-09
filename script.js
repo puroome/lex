@@ -845,12 +845,14 @@ const dashboard = {
     }
 };
 
-
+// ================================================================
+// Quiz Mode Controller (실시간 스마트 로딩 방식으로 전면 수정)
+// ================================================================
 const quizMode = {
     state: {
         currentQuiz: {},
         quizType: null,
-        quizBatch: [],
+        quizBatch: [], // 퀴즈를 담아둘 로컬 큐
         isFetching: false,
         isFinished: false,
         allWordsLearned: false,
@@ -929,7 +931,7 @@ const quizMode = {
         this.elements.finishedScreen.classList.add('hidden');
     },
     async fetchQuizBatch(batchSize) {
-        if (this.state.isFetching) return;
+        if (this.state.isFetching || this.state.isFinished) return;
         this.state.isFetching = true;
 
         const excludeWords = this.state.quizBatch.map(q => q.question.word).join(',');
@@ -944,8 +946,11 @@ const quizMode = {
             if (data.quizzes && data.quizzes.length > 0) {
                 this.state.quizBatch.push(...data.quizzes);
             } else {
-                this.state.isFinished = true;
-                this.state.allWordsLearned = data.allWordsLearned;
+                // 더 이상 가져올 퀴즈가 없으면 종료 상태로 변경
+                if (this.state.quizBatch.length === 0) {
+                    this.state.isFinished = true;
+                    this.state.allWordsLearned = data.allWordsLearned;
+                }
             }
         } catch (error) {
             console.error("퀴즈 묶음 가져오기 실패:", error);
@@ -959,14 +964,15 @@ const quizMode = {
         this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">퀴즈를 가져올 수 없습니다.</p><p class="text-sm text-gray-600 mt-2 break-all">${message}</p>`;
     },
     displayNextQuiz() {
-        if (this.state.quizBatch.length === 1 && !this.state.isFinished && !this.state.isFetching) {
+        // 퀴즈가 2개 이하로 남았고, 로딩 중이 아니며, 끝난 상태도 아닐 때 다음 묶음 미리 로드
+        if (this.state.quizBatch.length <= 2 && !this.state.isFetching && !this.state.isFinished) {
             this.fetchQuizBatch(10);
         }
 
         if (this.state.quizBatch.length === 0) {
             if (this.state.isFinished) {
-                this.showFinishedScreen(this.state.allWordsLearned);
-            } else if (!this.state.isFetching) {
+                this.showFinishedScreen();
+            } else {
                 // 백그라운드 요청이 아직 안 끝났을 수 있으므로 잠시 대기 후 재시도
                 this.showLoader(true, "다음 퀴즈를 불러오는 중...");
                 setTimeout(() => {
@@ -974,7 +980,8 @@ const quizMode = {
                         this.displayNextQuiz();
                     } else {
                         // 대기 후에도 퀴즈가 없으면 종료로 간주
-                        this.showFinishedScreen(this.state.allWordsLearned);
+                        this.state.isFinished = true;
+                        this.showFinishedScreen();
                     }
                 }, 1500);
             }
@@ -1047,25 +1054,17 @@ const quizMode = {
         
         const word = this.state.currentQuiz.question.word;
         
-        // 로컬 상태 즉시 업데이트
         const wordIndex = app.state.wordList.findIndex(w => w.word === word);
         if(wordIndex !== -1) {
             if (isCorrect) {
-                if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING') {
-                    app.state.wordList[wordIndex].srsMeaning = 1;
-                } else {
-                    app.state.wordList[wordIndex].srsBlank = 1;
-                }
+                if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING') app.state.wordList[wordIndex].srsMeaning = 1;
+                else app.state.wordList[wordIndex].srsBlank = 1;
             } else {
-                 if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING' && app.state.wordList[wordIndex].srsMeaning === null) {
-                    app.state.wordList[wordIndex].srsMeaning = 0;
-                } else if (this.state.quizType === 'FILL_IN_THE_BLANK' && app.state.wordList[wordIndex].srsBlank === null) {
-                    app.state.wordList[wordIndex].srsBlank = 0;
-                }
+                if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING') app.state.wordList[wordIndex].srsMeaning = 0;
+                 else app.state.wordList[wordIndex].srsBlank = 0;
             }
         }
 
-        // 서버에 백그라운드 업데이트 요청
         api.updateSRSData(word, isCorrect, this.state.quizType).catch(e => {
              console.error("백그라운드 데이터 업데이트 실패:", e);
         });
@@ -1079,14 +1078,14 @@ const quizMode = {
         this.elements.contentContainer.classList.toggle('hidden', isLoading);
         this.elements.finishedScreen.classList.add('hidden');
     },
-    showFinishedScreen(allWordsLearned) {
+    showFinishedScreen() {
         this.showLoader(false);
         this.elements.contentContainer.classList.add('hidden');
         this.elements.finishedScreen.classList.remove('hidden');
-        if (allWordsLearned) {
+        if (this.state.allWordsLearned) {
             this.elements.finishedMessage.innerHTML = "축하합니다!<br>모든 단어 학습을 완료했습니다!";
         } else {
-            this.elements.finishedMessage.innerHTML = "더 이상 풀 수 있는 퀴즈가 없어용.<br>학습을 모두 마쳤거나, 단어 시트를 확인해주세요.";
+            this.elements.finishedMessage.innerHTML = "풀 수 있는 퀴즈를 모두 완료했습니다.<br>새로운 단어를 학습하거나 내일 다시 도전해 주세요.";
         }
     },
 };
@@ -1440,5 +1439,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
 
