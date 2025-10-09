@@ -291,10 +291,12 @@ const app = {
         const searchRegex = new RegExp(`\\b${lowerCaseWord}\\b`, 'i');
         const explanationMatches = wordList
             .map((item, index) => ({ word: item.word, index }))
-            .filter((_, index) =>
-                wordList[index].explanation &&
-                searchRegex.test(wordList[index].explanation)
-            );
+            .filter((_, index) => {
+                if (!wordList[index].explanation) return false;
+                // 발음 기호 제거
+                const cleanedExplanation = wordList[index].explanation.replace(/\[.*?\]/g, '');
+                return searchRegex.test(cleanedExplanation);
+            });
 
         const levenshteinSuggestions = wordList.map((item, index) => ({
             word: item.word,
@@ -1170,10 +1172,12 @@ const learningMode = {
         const searchRegex = new RegExp(`\\b${lowerCaseStartWord}\\b`, 'i');
         const explanationMatches = wordList
             .map((item, index) => ({ word: item.word, index }))
-            .filter((_, index) =>
-                wordList[index].explanation &&
-                searchRegex.test(wordList[index].explanation)
-            );
+            .filter((_, index) => {
+                if (!wordList[index].explanation) return false;
+                // 발음 기호 제거
+                const cleanedExplanation = wordList[index].explanation.replace(/\[.*?\]/g, '');
+                return searchRegex.test(cleanedExplanation);
+            });
     
         const levenshteinSuggestions = wordList.map((item, index) => ({
             word: item.word,
