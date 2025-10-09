@@ -492,9 +492,9 @@ const api = {
         if (data.error) throw new Error(data.message);
         return data;
     },
-    async updateSRSData(word, isCorrect) {
+    async updateSRSData(word, isCorrect, quizType) {
         try {
-            const response = await this.fetchFromGoogleSheet('updateSRSData', { word, isCorrect });
+            const response = await this.fetchFromGoogleSheet('updateSRSData', { word, isCorrect, quizType });
             if (response.success && response.updatedWord) {
                 const wordIndex = app.state.wordList.findIndex(w => w.word === word);
                 if (wordIndex !== -1) {
@@ -793,17 +793,22 @@ const dashboard = {
         const wordList = app.state.wordList;
         const totalWords = wordList.length;
 
-        const srsLevels = [
-            { name: '새 단어 (New)', min: 0, max: 0, count: 0, color: 'bg-gray-400' },
-            { name: '학습 중 (Learning)', min: 1, max: 1, count: 0, color: 'bg-blue-500' },
-            { name: '익숙함 (Familiar)', min: 2, max: 2, count: 0, color: 'bg-green-500' },
-            { name: '학습 완료 (Learned)', min: 3, max: Infinity, count: 0, color: 'bg-purple-600' }
+        const stages = [
+            { name: '새 단어', count: 0, color: 'bg-gray-400' },
+            { name: '학습 중', count: 0, color: 'bg-blue-500' },
+            { name: '학습 완료', count: 0, color: 'bg-green-500' }
         ];
 
         wordList.forEach(word => {
-            const level = parseInt(word.srsLevel) || 0;
-            const category = srsLevels.find(cat => level >= cat.min && level <= cat.max);
-            if (category) category.count++;
+            const { srsMeaning, srsBlank } = word;
+            
+            if (srsMeaning === 1 && srsBlank === 1) {
+                stages[2].count++; // 학습 완료
+            } else if (srsMeaning === null && srsBlank === null) {
+                stages[0].count++; // 새 단어
+            } else {
+                stages[1].count++; // 학습 중
+            }
         });
 
         let contentHTML = `
@@ -816,16 +821,16 @@ const dashboard = {
                 <div class="space-y-4">
         `;
 
-        srsLevels.forEach(level => {
-            const percentage = totalWords > 0 ? ((level.count / totalWords) * 100).toFixed(1) : 0;
+        stages.forEach(stage => {
+            const percentage = totalWords > 0 ? ((stage.count / totalWords) * 100).toFixed(1) : 0;
             contentHTML += `
                 <div class="w-full">
                     <div class="flex justify-between items-center mb-1">
-                        <span class="text-base font-semibold text-gray-700">${level.name}</span>
-                        <span class="text-sm font-medium text-gray-500">${level.count}개 (${percentage}%)</span>
+                        <span class="text-base font-semibold text-gray-700">${stage.name}</span>
+                        <span class="text-sm font-medium text-gray-500">${stage.count}개 (${percentage}%)</span>
                     </div>
                     <div class="w-full bg-gray-200 rounded-full h-4">
-                        <div class="${level.color} h-4 rounded-full" style="width: ${percentage}%"></div>
+                        <div class="${stage.color} h-4 rounded-full" style="width: ${percentage}%"></div>
                     </div>
                 </div>
             `;
@@ -1022,8 +1027,9 @@ const quizMode = {
         }
         
         const word = this.state.currentQuiz.question.word_info.word;
+        const quizType = this.state.currentQuiz.type;
         
-        api.updateSRSData(word, isCorrect).catch(e => {
+        api.updateSRSData(word, isCorrect, quizType).catch(e => {
              console.error("백그라운드 데이터 업데이트 실패:", e);
         });
         
@@ -1189,10 +1195,10 @@ const learningMode = {
         .filter(s => s.distance < s.word.length / 2 + 1);
     
         if (levenshteinSuggestions.length > 0 || explanationMatches.length > 0) {
-            const title = `<strong>${startWord}</strong> 없으니, 아래에서 확인하세요.`;
+            const title = `<strong>${startWord}</strong>(이)가 검색안되니, 아래에서 확인해보세요.`;
             this.displaySuggestions(levenshteinSuggestions, explanationMatches, title);
         } else {
-            const title = `<strong>${startWord}</strong>에 대한 검색 결과가 없어요.`;
+            const title = `<strong>${startWord}</strong>에 대한 검색 결과가 없습니다.`;
             this.displaySuggestions([], [], title);
         }
     },
@@ -1394,11 +1400,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
-
-
-
-
-
-
-
 
