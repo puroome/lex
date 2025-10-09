@@ -84,7 +84,7 @@ const app = {
                         // 최근에 틀린 단어(시간 값이 더 큼)가 위로 오도록 내림차순 정렬 (b - a)
                         const dateA = a.lastIncorrect ? new Date(a.lastIncorrect) : new Date(0);
                         const dateB = b.lastIncorrect ? new Date(b.lastIncorrect) : new Date(0);
-                        return dateA - dateB;
+                        return dateB - dateA; // 내림차순으로 수정
                     })
                     .map(wordObj => wordObj.word);
 
@@ -510,6 +510,16 @@ const api = {
             app.showToast('학습 상태 업데이트에 실패했습니다.', true);
         }
     },
+    async fetchMoreQuizzes(quizType) {
+        try {
+            const data = await this.fetchFromGoogleSheet('getMoreQuizzes', { quizType });
+            return data;
+        } catch (error) {
+            console.error("추가 퀴즈 가져오기 실패:", error);
+            app.showToast('추가 퀴즈를 가져오는 데 실패했습니다.', true);
+            return { quizzes: [] };
+        }
+    },
     async translateText(text) {
         const cacheKey = `translation_${text}`;
         try {
@@ -862,7 +872,8 @@ const quizMode = {
             questionDisplay: document.getElementById('quiz-question-display'),
             choices: document.getElementById('quiz-choices'),
             finishedScreen: document.getElementById('quiz-finished-screen'),
-            finishedMessage: document.getElementById('quiz-finished-message')
+            finishedMessage: document.getElementById('quiz-finished-message'),
+            moreQuizzesContainer: document.getElementById('more-quizzes-container'),
         };
         this.bindEvents();
     },
@@ -956,13 +967,12 @@ const quizMode = {
                         this.displayNextQuiz();
                     } else if (this.state.isFinished) {
                         clearInterval(checker);
-                        this.showFinishedScreen(false); // allWordsLearned is likely false here
+                        this.showFinishedScreen(false);
                     }
                 }, 100)
             } 
             else if (this.state.isFinished) {
-                // This state is reached when the last batch was fetched and it was empty.
-                // The decision on which message to show was already made in fetchQuizBatch.
+                // finished state is set by fetchQuizBatch, which calls showFinishedScreen
             }
             return;
         }
@@ -1049,12 +1059,41 @@ const quizMode = {
         this.showLoader(false);
         this.elements.contentContainer.classList.add('hidden');
         this.elements.finishedScreen.classList.remove('hidden');
+        this.elements.moreQuizzesContainer.innerHTML = '';
+
         if (allWordsLearned) {
             this.elements.finishedMessage.innerHTML = "축하합니다!<br>모든 단어 학습을 완료했습니다!";
         } else {
-            this.elements.finishedMessage.innerHTML = "오늘 할당된 퀴즈를 모두 풀었습니다.<br> 내일 다시 도전하세요.";
+            this.elements.finishedMessage.innerHTML = "오늘 할당된 퀴즈를 모두 풀었습니다.<br>내일 다시 도전하세요.";
+            
+            const moreBtn = document.createElement('button');
+            moreBtn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 mr-2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                퀴즈 50개 더 풀기
+            `;
+            moreBtn.className = 'bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg text-lg transition-colors inline-flex items-center justify-center';
+            moreBtn.onclick = () => this.getMoreQuizzes();
+            this.elements.moreQuizzesContainer.appendChild(moreBtn);
         }
     },
+    async getMoreQuizzes() {
+        const quizType = this.state.currentQuiz.type;
+        if (!quizType) return;
+
+        this.showLoader(true);
+        this.elements.loaderText.textContent = '추가 퀴즈를 만드는 중...';
+
+        const data = await api.fetchMoreQuizzes(quizType);
+
+        if (data.quizzes && data.quizzes.length > 0) {
+            this.state.quizBatch.push(...data.quizzes);
+            this.state.isFinished = false;
+            this.displayNextQuiz();
+        } else {
+            this.state.isFinished = true;
+            this.showFinishedScreen(true); // No more quizzes could be generated, so all words are learned.
+        }
+    }
 };
 
 const learningMode = {
