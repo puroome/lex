@@ -80,11 +80,9 @@ const app = {
                 const mistakeWords = app.state.wordList
                     .filter(word => word.incorrect === 1)
                     .sort((a, b) => {
-                        // lastIncorrect 값이 유효한 Date 객체인지 확인하고 정렬
-                        // 최근에 틀린 단어(시간 값이 더 큼)가 위로 오도록 내림차순 정렬 (b - a)
                         const dateA = a.lastIncorrect ? new Date(a.lastIncorrect) : new Date(0);
                         const dateB = b.lastIncorrect ? new Date(b.lastIncorrect) : new Date(0);
-                        return dateB - dateA; // 내림차순으로 수정
+                        return dateB - dateA;
                     })
                     .map(wordObj => wordObj.word);
 
@@ -187,27 +185,23 @@ const app = {
         }
     },
     async forceReload() {
-        // 새로고침은 이제 모드 선택 화면에서만 가능합니다.
         const isSelectionScreen = !this.elements.selectionScreen.classList.contains('hidden');
         if (!isSelectionScreen) {
             this.showToast('새로고침은 모드 선택 화면에서만 가능합니다.', true);
             return;
         }
         
-        // 비활성화할 요소들을 정의합니다.
         const elementsToDisable = [
             this.elements.refreshBtn,
             this.elements.selectDashboardBtn,
             this.elements.selectMistakesBtn,
         ];
-        // 스타일을 통해 비활성화할 요소들 (div, a 등)
         const elementsToStyle = [
              this.elements.sheetLink,
              this.elements.selectLearningBtn,
              this.elements.selectQuizBtn,
         ];
 
-        // 요소들을 비활성화하고 로딩 상태를 표시합니다.
         elementsToDisable.forEach(el => { if(el) el.disabled = true; });
         elementsToStyle.forEach(el => { if(el) el.classList.add('pointer-events-none', 'opacity-50'); });
         
@@ -220,7 +214,6 @@ const app = {
         } catch(e) {
             this.showToast('데이터 새로고침에 실패했습니다: ' + e.message, true);
         } finally {
-            // 요소들을 다시 활성화합니다.
             elementsToDisable.forEach(el => { if(el) el.disabled = false; });
             elementsToStyle.forEach(el => { if(el) el.classList.remove('pointer-events-none', 'opacity-50'); });
             if (refreshIcon) refreshIcon.classList.remove('animate-spin');
@@ -293,7 +286,6 @@ const app = {
             .map((item, index) => ({ word: item.word, index }))
             .filter((_, index) => {
                 if (!wordList[index].explanation) return false;
-                // 발음 기호 제거
                 const cleanedExplanation = wordList[index].explanation.replace(/\[.*?\]/g, '');
                 return searchRegex.test(cleanedExplanation);
             });
@@ -508,16 +500,6 @@ const api = {
         } catch (error) {
             console.error('SRS 데이터 업데이트 실패:', error);
             app.showToast('학습 상태 업데이트에 실패했습니다.', true);
-        }
-    },
-    async fetchMoreQuizzes(quizType) {
-        try {
-            const data = await this.fetchFromGoogleSheet('getMoreQuizzes', { quizType });
-            return data;
-        } catch (error) {
-            console.error("추가 퀴즈 가져오기 실패:", error);
-            app.showToast('추가 퀴즈를 가져오는 데 실패했습니다.', true);
-            return { quizzes: [] };
         }
     },
     async translateText(text) {
@@ -795,9 +777,21 @@ const dashboard = {
     async show() {
         if (!app.state.isWordListReady) {
             this.elements.content.innerHTML = `<div class="text-center p-10"><div class="loader mx-auto"></div><p class="mt-4 text-gray-600">단어 목록을 동기화하는 중...</p></div>`;
-            await quizMode.waitForWordList();
+            await this.waitForWordList();
         }
         this.render();
+    },
+    async waitForWordList() {
+        return new Promise(resolve => {
+            const check = () => {
+                if (app.state.isWordListReady) {
+                    resolve();
+                } else {
+                    setTimeout(check, 100);
+                }
+            };
+            check();
+        });
     },
     render() {
         const wordList = app.state.wordList;
@@ -855,6 +849,7 @@ const dashboard = {
 const quizMode = {
     state: {
         currentQuiz: {},
+        quizType: null,
         quizBatch: [],
         isFetching: false,
         isFinished: false,
@@ -873,7 +868,6 @@ const quizMode = {
             choices: document.getElementById('quiz-choices'),
             finishedScreen: document.getElementById('quiz-finished-screen'),
             finishedMessage: document.getElementById('quiz-finished-message'),
-            moreQuizzesContainer: document.getElementById('more-quizzes-container'),
         };
         this.bindEvents();
     },
@@ -901,13 +895,15 @@ const quizMode = {
         });
     },
     async start(quizType) {
+        this.state.quizType = quizType;
         this.elements.quizSelectionScreen.classList.add('hidden');
         this.showLoader(true);
         if (!app.state.isWordListReady) {
             this.elements.loaderText.textContent = "단어 목록을 동기화하는 중...";
             await this.waitForWordList();
         }
-        await this.fetchQuizBatch(quizType);
+        this.elements.loaderText.textContent = "퀴즈를 준비 중입니다...";
+        await this.fetchQuizBatch(2); // 스마트 로딩: 최초 2개만 요청
         this.displayNextQuiz();
     },
     async waitForWordList() {
@@ -924,24 +920,33 @@ const quizMode = {
         this.state.quizBatch = [];
         this.state.isFetching = false;
         this.state.isFinished = false;
+        this.state.quizType = null;
         this.elements.quizSelectionScreen.classList.remove('hidden');
         this.elements.loader.classList.add('hidden');
         this.elements.contentContainer.classList.add('hidden');
         this.elements.finishedScreen.classList.add('hidden');
     },
-    async fetchQuizBatch(quizType) {
-        if (this.state.isFetching || this.state.isFinished) return;
+    async fetchQuizBatch(batchSize) {
+        if (this.state.isFetching) return;
         this.state.isFetching = true;
+
+        const excludeWords = this.state.quizBatch.map(q => q.question.word).join(',');
+        
         try {
-            const data = await api.fetchFromGoogleSheet('getQuiz', { quizType });
-            if (data.finished) {
+            const data = await api.fetchFromGoogleSheet('getQuizBatch', { 
+                quizType: this.state.quizType,
+                batchSize: batchSize,
+                excludeWords: excludeWords
+            });
+
+            if (data.quizzes && data.quizzes.length > 0) {
+                this.state.quizBatch.push(...data.quizzes);
+            } else {
                 this.state.isFinished = true;
-                if (this.state.quizBatch.length === 0) {
+                if (this.state.quizBatch.length === 0) { // 현재 풀 퀴즈가 없으면 종료 화면 표시
                     this.showFinishedScreen(data.allWordsLearned);
                 }
-                return;
             }
-            this.state.quizBatch.push(...data.quizzes);
         } catch (error) {
             console.error("퀴즈 묶음 가져오기 실패:", error);
             this.showError(error.message);
@@ -954,28 +959,28 @@ const quizMode = {
         this.elements.loaderText.innerHTML = `<p class="text-red-500 font-bold">퀴즈를 가져올 수 없습니다.</p><p class="text-sm text-gray-600 mt-2 break-all">${message}</p>`;
     },
     displayNextQuiz() {
-        if (!this.state.isFetching && this.state.quizBatch.length <= 3 && !this.state.isFinished) {
-            this.fetchQuizBatch(this.state.currentQuiz.type);
+        // 스마트 로딩: 퀴즈 2개를 푸는 동안(즉, 1번째 문제를 풀고 2번째로 넘어갈 때) 다음 10개 요청
+        if (this.state.quizBatch.length === 1 && !this.state.isFinished) {
+            this.fetchQuizBatch(10);
         }
+
         if (this.state.quizBatch.length === 0) {
-            if(this.state.isFetching) {
-                this.elements.loaderText.textContent = "다음 퀴즈를 준비 중입니다...";
+            if (!this.state.isFinished) {
+                // 아직 isFinished가 아닌데 퀴즈가 없으면, 백그라운드 요청이 완료되길 잠시 기다림
                 this.showLoader(true);
-                const checker = setInterval(() => {
-                    if(this.state.quizBatch.length > 0) {
-                        clearInterval(checker);
+                this.elements.loaderText.textContent = '다음 퀴즈를 불러오는 중...';
+                setTimeout(() => {
+                    if (this.state.quizBatch.length > 0) {
                         this.displayNextQuiz();
-                    } else if (this.state.isFinished) {
-                        clearInterval(checker);
-                        this.showFinishedScreen(false);
+                    } else {
+                        // 기다려도 퀴즈가 없으면 학습이 끝난 것으로 간주
+                        this.showFinishedScreen(true);
                     }
-                }, 100)
-            } 
-            else if (this.state.isFinished) {
-                // finished state is set by fetchQuizBatch, which calls showFinishedScreen
+                }, 2000);
             }
             return;
         }
+        
         const nextQuiz = this.state.quizBatch.shift();
         this.state.currentQuiz = nextQuiz;
         this.showLoader(false);
@@ -984,7 +989,7 @@ const quizMode = {
     renderQuiz(quizData) {
         this.elements.cardFront.classList.remove('hidden');
         
-        const { type, question, choices, answer } = quizData;
+        const { type, question, choices } = quizData;
         const questionDisplay = this.elements.questionDisplay;
         questionDisplay.innerHTML = '';
 
@@ -1014,36 +1019,35 @@ const quizMode = {
             const li = document.createElement('li');
             li.className = 'choice-item border-2 border-gray-300 p-4 rounded-lg cursor-pointer flex items-start transition-all';
             li.innerHTML = `<span class="font-bold mr-3">${index + 1}.</span> <span>${choice}</span>`;
-            li.onclick = () => this.checkAnswer(li, choice, answer);
+            li.onclick = () => this.checkAnswer(li, choice);
             this.elements.choices.appendChild(li);
         });
         
         const passLi = document.createElement('li');
         passLi.className = 'choice-item border-2 border-red-500 bg-red-500 hover:bg-red-600 text-white p-4 rounded-lg cursor-pointer flex items-center justify-center transition-all font-bold text-lg';
         passLi.innerHTML = `<span>PASS</span>`;
-        passLi.onclick = () => this.checkAnswer(passLi, 'USER_PASSED', answer);
+        passLi.onclick = () => this.checkAnswer(passLi, 'USER_PASSED');
         this.elements.choices.appendChild(passLi);
 
         this.elements.choices.classList.remove('disabled');
     },
-    async checkAnswer(selectedLi, selectedChoice, correctAnswer) {
+    async checkAnswer(selectedLi, selectedChoice) {
         this.elements.choices.classList.add('disabled');
         
-        const isCorrect = selectedChoice === correctAnswer;
+        const isCorrect = selectedChoice === this.state.currentQuiz.answer;
         
         selectedLi.classList.add(isCorrect ? 'correct' : 'incorrect');
         if (!isCorrect) {
             const correctAnswerEl = Array.from(this.elements.choices.children).find(li => {
                 const choiceSpan = li.querySelector('span:last-child');
-                return choiceSpan && choiceSpan.textContent === correctAnswer;
+                return choiceSpan && choiceSpan.textContent === this.state.currentQuiz.answer;
             });
             correctAnswerEl?.classList.add('correct');
         }
         
-        const word = this.state.currentQuiz.question.word_info.word;
-        const quizType = this.state.currentQuiz.type;
+        const word = this.state.currentQuiz.question.word;
         
-        api.updateSRSData(word, isCorrect, quizType).catch(e => {
+        api.updateSRSData(word, isCorrect, this.state.quizType).catch(e => {
              console.error("백그라운드 데이터 업데이트 실패:", e);
         });
         
@@ -1059,41 +1063,13 @@ const quizMode = {
         this.showLoader(false);
         this.elements.contentContainer.classList.add('hidden');
         this.elements.finishedScreen.classList.remove('hidden');
-        this.elements.moreQuizzesContainer.innerHTML = '';
-
         if (allWordsLearned) {
             this.elements.finishedMessage.innerHTML = "축하합니다!<br>모든 단어 학습을 완료했습니다!";
         } else {
-            this.elements.finishedMessage.innerHTML = "오늘 할당된 퀴즈를 모두 풀었습니다.<br>내일 다시 도전하세요.";
-            
-            const moreBtn = document.createElement('button');
-            moreBtn.innerHTML = `
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 mr-2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
-                퀴즈 50개 더 풀기
-            `;
-            moreBtn.className = 'bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg text-lg transition-colors inline-flex items-center justify-center';
-            moreBtn.onclick = () => this.getMoreQuizzes();
-            this.elements.moreQuizzesContainer.appendChild(moreBtn);
+            // 이 경우는 발생해서는 안되지만, 만약을 위해 일반적인 메시지 표시
+            this.elements.finishedMessage.innerHTML = "더 이상 풀 수 있는 퀴즈가 없습니다.";
         }
     },
-    async getMoreQuizzes() {
-        const quizType = this.state.currentQuiz.type;
-        if (!quizType) return;
-
-        this.showLoader(true);
-        this.elements.loaderText.textContent = '추가 퀴즈를 만드는 중...';
-
-        const data = await api.fetchMoreQuizzes(quizType);
-
-        if (data.quizzes && data.quizzes.length > 0) {
-            this.state.quizBatch.push(...data.quizzes);
-            this.state.isFinished = false;
-            this.displayNextQuiz();
-        } else {
-            this.state.isFinished = true;
-            this.showFinishedScreen(true); // No more quizzes could be generated, so all words are learned.
-        }
-    }
 };
 
 const learningMode = {
@@ -1227,7 +1203,6 @@ const learningMode = {
             .map((item, index) => ({ word: item.word, index }))
             .filter((_, index) => {
                 if (!wordList[index].explanation) return false;
-                // 발음 기호 제거
                 const cleanedExplanation = wordList[index].explanation.replace(/\[.*?\]/g, '');
                 return searchRegex.test(cleanedExplanation);
             });
@@ -1376,7 +1351,6 @@ const learningMode = {
         
         this.state.isMistakeMode = true;
         
-        // 정렬된 mistakeWords 순서대로 currentWordList를 재구성합니다.
         const wordMap = new Map(app.state.wordList.map(wordObj => [wordObj.word, wordObj]));
         this.state.currentWordList = mistakeWords.map(word => wordMap.get(word));
         
