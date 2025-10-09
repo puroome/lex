@@ -1086,7 +1086,7 @@ const quizMode = {
         if (allWordsLearned) {
             this.elements.finishedMessage.innerHTML = "축하합니다!<br>모든 단어 학습을 완료했습니다!";
         } else {
-            this.elements.finishedMessage.innerHTML = "더 이상 풀 수 있는 퀴즈가 없습니다.<br>학습을 모두 마쳤거나, 단어 시트를 확인해주세요.";
+            this.elements.finishedMessage.innerHTML = "더 이상 풀 수 있는 퀴즈가 없어용.<br>학습을 모두 마쳤거나, 단어 시트를 확인해주세요.";
         }
     },
 };
@@ -1440,4 +1440,5 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
 
