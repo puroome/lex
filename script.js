@@ -1010,12 +1010,61 @@ const quizMode = {
         if (type === 'FILL_IN_THE_BLANK') {
             questionDisplay.classList.remove('justify-center', 'items-center');
             const sentence = question.sentence_with_blank;
+
             const p = document.createElement('p');
             p.className = 'text-xl sm:text-2xl text-left text-gray-800 leading-relaxed quiz-sentence-indent';
-            let processedText = sentence.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
-            processedText = processedText.replace(/＿＿＿＿/g, '<span style="white-space: nowrap;">＿＿＿＿</span>');
-            p.innerHTML = processedText.replace(/\n/g, '<br>');
+
+            const processTextInto = (targetElement, text) => {
+                const parts = text.split(/([,\s\.'])/g).filter(part => part);
+                parts.forEach(part => {
+                    if (/[a-zA-Z]/.test(part)) {
+                        const span = document.createElement('span');
+                        span.textContent = part;
+                        span.className = 'hover:bg-yellow-200 rounded-sm transition-colors interactive-word';
+                        
+                        span.onclick = (e) => { 
+                            e.stopPropagation(); 
+                            clearTimeout(app.state.longPressTimer); 
+                            api.speak(part, 'word'); 
+                            ui.copyToClipboard(part); 
+                        };
+                        
+                        span.oncontextmenu = (e) => { 
+                            e.preventDefault(); 
+                            e.stopPropagation(); 
+                            ui.showWordContextMenu(e, part); 
+                        };
+                        
+                        let touchMove = false;
+                        span.addEventListener('touchstart', (e) => { e.stopPropagation(); touchMove = false; clearTimeout(app.state.longPressTimer); app.state.longPressTimer = setTimeout(() => { if (!touchMove) { ui.showWordContextMenu(e, part); } }, 700); }, { passive: true });
+                        span.addEventListener('touchmove', (e) => { e.stopPropagation(); touchMove = true; clearTimeout(app.state.longPressTimer); });
+                        span.addEventListener('touchend', (e) => { e.stopPropagation(); clearTimeout(app.state.longPressTimer); });
+                        
+                        targetElement.appendChild(span);
+                    } else {
+                        targetElement.appendChild(document.createTextNode(part));
+                    }
+                });
+            };
+            
+            const sentenceParts = sentence.split(/(\*.*?\*|＿＿＿＿)/g);
+            sentenceParts.forEach(part => {
+                if (part === '＿＿＿＿') {
+                    const blankSpan = document.createElement('span');
+                    blankSpan.style.whiteSpace = 'nowrap';
+                    blankSpan.textContent = '＿＿＿＿';
+                    p.appendChild(blankSpan);
+                } else if (part && part.startsWith('*') && part.endsWith('*')) {
+                    const strong = document.createElement('strong');
+                    processTextInto(strong, part.slice(1, -1));
+                    p.appendChild(strong);
+                } else if (part) {
+                    processTextInto(p, part);
+                }
+            });
+
             questionDisplay.appendChild(p);
+            
         } else if (type === 'MULTIPLE_CHOICE_MEANING') {
             questionDisplay.classList.add('justify-center', 'items-center');
             questionDisplay.innerHTML = `<h1 class="text-3xl sm:text-4xl font-bold text-center text-gray-800">${question.word}</h1>`;
@@ -1027,10 +1076,12 @@ const quizMode = {
             ui.adjustFontSize(wordEl);
         } else if (type === 'MULTIPLE_CHOICE_DEFINITION') {
             questionDisplay.classList.remove('justify-center', 'items-center');
-            const p = document.createElement('p');
-            p.className = 'text-lg sm:text-xl text-left text-gray-800 leading-relaxed';
-            p.textContent = question.definition;
-            questionDisplay.appendChild(p);
+            ui.displaySentences([question.definition], questionDisplay);
+            const sentenceElement = questionDisplay.querySelector('.sample-sentence');
+            if(sentenceElement){
+                sentenceElement.classList.add('text-lg', 'sm:text-xl', 'text-left', 'text-gray-800', 'leading-relaxed');
+                sentenceElement.classList.remove('p-2', 'hover:bg-gray-200');
+            }
         }
 
         this.elements.choices.innerHTML = '';
