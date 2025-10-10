@@ -1217,10 +1217,20 @@ const learningMode = {
             return;
         }
 
+        // 수정사항 3: 학습 위치 불러오기
         if (!startWord) {
-            const lastIndex = parseInt(localStorage.getItem('lastLearningIndex'), 10);
-            this.state.currentIndex = (lastIndex && lastIndex >= 0 && lastIndex < wordList.length) ? lastIndex : 0;
-            this.launchApp();
+            this.elements.loaderText.textContent = "마지막 학습 위치를 불러오는 중...";
+            try {
+                const data = await api.fetchFromGoogleSheet('getLastLearnedIndex');
+                const lastIndex = data.index;
+                this.state.currentIndex = (lastIndex && lastIndex >= 0 && lastIndex < wordList.length) ? lastIndex : 0;
+                this.launchApp();
+            } catch (e) {
+                console.error("마지막 학습 위치 로딩 실패:", e);
+                app.showToast("마지막 학습 위치를 불러오는데 실패했습니다. 처음부터 시작합니다.", true);
+                this.state.currentIndex = 0;
+                this.launchApp();
+            }
             return;
         }
     
@@ -1326,7 +1336,12 @@ const learningMode = {
         this.elements.suggestionsContainer.classList.remove('hidden');
     },
     displayWord(index) {
-        localStorage.setItem('lastLearningIndex', index);
+        // 수정사항 3: 학습 위치 저장
+        if (!this.state.isMistakeMode) {
+            api.fetchFromGoogleSheet('setLastLearnedIndex', { index: index })
+               .catch(err => console.error("백그라운드 학습 위치 저장 실패:", err));
+        }
+
         this.elements.cardBack.classList.remove('is-slid-up');
         const wordData = this.state.currentWordList[index];
         if (!wordData) return;
@@ -1343,14 +1358,14 @@ const learningMode = {
         
         switch(wordData.sampleSource) {
             case 'manual':
-                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png';
+                this.elements.sampleBtnImg.src = 'https://images.icon-icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png';
                 break;
             case 'ai':
-                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/3-search-cat_icon-icons.com_76679.png';
+                this.elements.sampleBtnImg.src = 'https://images.icon-icon-icons.com/1055/PNG/128/3-search-cat_icon-icons.com_76679.png';
                 break;
             case 'none':
             default:
-                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
+                this.elements.sampleBtnImg.src = 'https://images.icon-icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
                 break;
         }
     },
@@ -1373,7 +1388,7 @@ const learningMode = {
             this.elements.backTitle.textContent = wordData.word;
             ui.displaySentences(wordData.sample.split('\n'), this.elements.backContent);
             this.elements.cardBack.classList.add('is-slid-up');
-            this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/5-remove-cat_icon-icons.com_76681.png';
+            this.elements.sampleBtnImg.src = 'https://images.icon-icon-icons.com/1055/PNG/128/5-remove-cat_icon-icons.com_76681.png';
 
         } else {
             this.elements.cardBack.classList.remove('is-slid-up');
