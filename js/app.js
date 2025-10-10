@@ -99,7 +99,7 @@ const app = {
         this.elements.refreshBtn.addEventListener('click', () => {
             ui.showConfirmModal(
                 '데이터 새로고침',
-                'Sheet에서 자료를 다시 불러옵니다. 계속하시겠습니까?',
+                'Sheet에서 자료를 다시 불러옵니다.\n계속하시겠습니까?',
                 () => this.forceReload()
             );
         });
@@ -107,7 +107,7 @@ const app = {
         this.elements.clearCacheBtn.addEventListener('click', () => {
             ui.showConfirmModal(
                 '캐시 삭제',
-                '저장된 발음 및 번역 데이터를 삭제합니다. 계속하시겠습니까?',
+                '저장된 발음 및 번역 데이터를 삭제합니다.\n계속하시겠습니까?',
                 async () => {
                     try {
                         await cache.clearAll();
@@ -316,6 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.app = app;
     app.init();
 });
+
 
 
 
