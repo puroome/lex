@@ -69,7 +69,7 @@ function doGet(e) {
 }
 
 // ================================================================
-// 실시간 퀴즈 생성 로직
+// 실시간 퀴즈 생성 로직 (수정됨)
 // ================================================================
 function getQuizBatch(quizType, batchSize, excludeWordsStr) {
   try {
@@ -94,12 +94,16 @@ function getQuizBatch(quizType, batchSize, excludeWordsStr) {
     reviewCandidates.sort(() => 0.5 - Math.random());
     const quizBatch = [];
     const allWordsLearned = reviewCandidates.length === 0;
+    
+    // 타임아웃을 방지하기 위해 처리할 후보 단어 수를 제한합니다.
+    const candidatesToProcess = reviewCandidates.slice(0, batchSize * 5); // 충분한 후보군 확보
 
     if (quizType === 'MULTIPLE_CHOICE_DEFINITION') {
         const cache = CacheService.getScriptCache();
         const wordsToFetch = [];
 
-        for (const wordData of reviewCandidates) {
+        // 제한된 후보군 내에서만 순회합니다.
+        for (const wordData of candidatesToProcess) {
             if (quizBatch.length >= batchSize) break;
             const cacheKey = `mw_learner_def_${wordData.word.toLowerCase()}`;
             const cachedDef = cache.get(cacheKey);
@@ -125,8 +129,9 @@ function getQuizBatch(quizType, batchSize, excludeWordsStr) {
             }
         }
     } else {
-        const candidatesToProcess = reviewCandidates.slice(0, batchSize);
+        // 다른 퀴즈 유형들은 제한된 후보군 내에서 처리합니다.
         for (const wordData of candidatesToProcess) {
+            if (quizBatch.length >= batchSize) break;
             let quiz;
             if (quizType === 'MULTIPLE_CHOICE_MEANING') {
                 quiz = createMeaningQuiz(wordData, allWordsData);
@@ -146,6 +151,7 @@ function getQuizBatch(quizType, batchSize, excludeWordsStr) {
     return { error: true, message: e.message };
   }
 }
+
 
 // ================================================================
 // 헤더 관리 헬퍼 함수
@@ -524,3 +530,4 @@ function setLastLearnedIndex(index) {
     return { success: false, message: e.message };
   }
 }
+
