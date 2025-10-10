@@ -152,7 +152,7 @@ export const learningMode = {
         .filter(s => s.distance < s.word.length / 2 + 1);
     
         if (levenshteinSuggestions.length > 0 || explanationMatches.length > 0) {
-            this.displaySuggestions(levenshteinSuggestions, explanationMatches, `<strong>'${startWord}'</strong> 관련 단어를 찾았습니다.`);
+            this.displaySuggestions(levenshteinSuggestions, explanationMatches, `<strong>${startWord}</strong> 관련 단어를 찾았습니다.`);
         } else {
             this.displaySuggestions([], [], `<strong>'${startWord}'</strong>에 대한 검색 결과가 없습니다.`);
         }
@@ -313,3 +313,4 @@ export const learningMode = {
         this.state.touchstartX = this.state.touchstartY = 0;
     }
 };
+
