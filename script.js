@@ -24,7 +24,8 @@ const app = {
         wordList: [],
         isWordListReady: false,
         longPressTimer: null,
-        database: null // Firebase 데이터베이스 참조 저장
+        database: null, // Firebase 데이터베이스 참조 저장
+        auth: null // Firebase 인증 참조 저장
     },
     elements: {
         selectionScreen: document.getElementById('selection-screen'),
@@ -55,6 +56,9 @@ const app = {
             // Firebase 초기화
             firebase.initializeApp(this.config.firebaseConfig);
             this.state.database = firebase.database();
+            this.state.auth = firebase.auth();
+
+            await this.handleAuthentication(); // 인증 처리 함수 호출
 
             await audioCache.init();
             await translationDBCache.init();
@@ -65,7 +69,10 @@ const app = {
         }
 
         this.bindGlobalEvents();
-        api.listenForWordData(); // 앱스 스크립트 호출 대신 Firebase 리스너 등록
+        
+        // 데이터 리스너는 인증 성공 후에 등록
+        // api.listenForWordData(); 
+        
         quizMode.init();
         learningMode.init();
         dashboard.init();
@@ -73,6 +80,29 @@ const app = {
         const initialMode = window.location.hash.replace('#', '') || 'selection';
         history.replaceState({ mode: initialMode, options: {} }, '', window.location.href);
         this._renderMode(initialMode);
+    },
+    async handleAuthentication() {
+        return new Promise((resolve, reject) => {
+            this.state.auth.onAuthStateChanged(user => {
+                if (user) {
+                    // 사용자가 로그인되어 있는 경우
+                    if (user.email === 'puroome@gmail.com') {
+                        console.log("인증 성공:", user.email);
+                        api.listenForWordData(); // 인증된 사용자만 데이터 로딩 시작
+                        resolve(user);
+                    } else {
+                        // 허용되지 않은 이메일
+                        this.showFatalError("접근 권한이 없는 계정입니다. 'puroome@gmail.com'으로 로그인해주세요.");
+                        this.state.auth.signOut();
+                        reject(new Error("Unauthorized user"));
+                    }
+                } else {
+                    // 사용자가 로그인되어 있지 않은 경우, Google 로그인 시도
+                    const provider = new firebase.auth.GoogleAuthProvider();
+                    this.state.auth.signInWithRedirect(provider);
+                }
+            });
+        });
     },
     bindGlobalEvents() {
         document.getElementById('select-quiz-btn').addEventListener('click', () => this.navigateTo('quiz'));
@@ -225,7 +255,7 @@ const app = {
     },
     showFatalError(message) {
         const selectionDiv = this.elements.selectionScreen;
-        selectionDiv.innerHTML = `<div class="p-8 text-center"><h1 class="text-3xl font-bold text-red-600 mb-4">앱 시작 실패</h1><p class="text-gray-700 mb-6">데이터를 불러오는 중 문제가 발생했습니다. <br>Firebase 설정을 확인하거나 잠시 후 새로고침 해주세요.</p><div class="bg-red-50 text-red-700 p-4 rounded-lg text-left text-sm break-all"><p class="font-semibold">오류 정보:</p><p>${message}</p></div></div>`;
+        selectionDiv.innerHTML = `<div class="p-8 text-center"><h1 class="text-3xl font-bold text-red-600 mb-4">앱 시작 실패</h1><p class="text-gray-700 mb-6">${message}</p></div>`;
         selectionDiv.classList.remove('hidden');
         this.elements.quizModeContainer.classList.add('hidden');
         this.elements.learningModeContainer.classList.add('hidden');
