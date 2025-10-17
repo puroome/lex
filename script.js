@@ -67,7 +67,7 @@ const app = {
 
             if (user) {
                 if (user.email === 'puroome@gmail.com') {
-                    this.showApp();
+                    // [수정됨] 앱을 바로 보여주지 않고, 초기화 함수를 먼저 호출
                     if (!this.state.isInitialized) {
                         this.initializeMainApp();
                         this.state.isInitialized = true;
@@ -96,6 +96,9 @@ const app = {
     showLogin() {
         this.elements.loginScreen.classList.remove('hidden');
         this.elements.appContainer.classList.add('hidden');
+        // 로그인 화면이 다시 보일 때, 버튼과 에러 메시지를 초기 상태로 복원
+        this.elements.loginBtn.style.display = 'flex';
+        this.elements.loginError.textContent = '';
     },
     showApp() {
         this.elements.loginScreen.classList.add('hidden');
@@ -105,21 +108,35 @@ const app = {
         this.elements.loginError.textContent = message;
     },
     async initializeMainApp() {
+        // [수정됨] 데이터 로딩 중임을 사용자에게 명확히 보여줌
+        this.elements.loginError.textContent = '사용자 확인 완료. 데이터를 불러오는 중...';
+        this.elements.loginBtn.style.display = 'none'; // 로그인 버튼 숨기기
+
         try {
             await audioCache.init();
             await translationDBCache.init();
-        } catch (e) { console.error("Cache init failed", e); }
-        
-        this.bindGlobalEvents();
-        await api.loadWordList();
+            
+            this.bindGlobalEvents();
+            await api.loadWordList(); // 데이터를 모두 불러올 때까지 기다림
 
-        quizMode.init();
-        learningMode.init();
-        dashboard.init();
+            // 모든 로딩이 끝나면 앱 화면으로 전환
+            this.showApp(); 
 
-        const initialMode = window.location.hash.replace('#', '') || 'selection';
-        history.replaceState({ mode: initialMode, options: {} }, '', window.location.href);
-        this._renderMode(initialMode);
+            quizMode.init();
+            learningMode.init();
+            dashboard.init();
+
+            const initialMode = window.location.hash.replace('#', '') || 'selection';
+            history.replaceState({ mode: initialMode, options: {} }, '', window.location.href);
+            this._renderMode(initialMode);
+
+        } catch (error) {
+            // api.loadWordList 내부에서 showFatalError를 호출하므로, 여기서는 별도 처리 불필요
+            console.error("앱 초기화 실패:", error);
+            // 실패 시 로그인 버튼을 다시 보여줄 수 있음
+            this.showLogin();
+            this.showLoginError('앱 초기화에 실패했습니다. 새로고침 해주세요.');
+        }
     },
     bindGlobalEvents() {
         document.getElementById('select-quiz-btn').addEventListener('click', () => this.navigateTo('quiz'));
@@ -334,7 +351,9 @@ const api = {
     async fetchFromGoogleSheet(action, params = {}) {
         const url = new URL(app.config.SCRIPT_URL);
         url.searchParams.append('action', action);
-        Object.entries(params).forEach(([key, value]) => url.searchParams.append(key, value));
+        Object.entries(params).forEach(([key, value]) => {
+            if (value !== null && value !== undefined) url.searchParams.append(key, value);
+        });
         const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const data = await response.json();
@@ -427,3 +446,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
