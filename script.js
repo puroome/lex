@@ -769,7 +769,10 @@ const dashboard = {
         wordList.forEach(word => {
             const { srsMeaning, srsBlank, srsDefinition } = word;
             
-            if (srsMeaning === null && srsBlank === null && srsDefinition === null) {
+            // Check for both null and undefined to correctly categorize new words
+            if ((srsMeaning === null || srsMeaning === undefined) &&
+                (srsBlank === null || srsBlank === undefined) &&
+                (srsDefinition === null || srsDefinition === undefined)) {
                 stages[0].count++; // 새 단어
                 return;
             }
@@ -1439,3 +1442,4 @@ const learningMode = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
