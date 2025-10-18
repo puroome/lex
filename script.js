@@ -1228,12 +1228,13 @@ const learningMode = {
         };
         this.bindEvents();
     },
-    bindEvents() {
+bindEvents() {
         this.elements.startBtn.addEventListener('click', () => this.start());
         // 아래 'startWordInput'의 keydown 이벤트를 수정합니다.
         this.elements.startWordInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
-                e.preventDefault(); // 엔터 키의 기본 동작(다른 버튼 클릭 등)을 막습니다.
+                e.preventDefault(); // 엔터 키의 기본 동작을 막습니다.
+                e.stopPropagation(); // 이 이벤트가 다른 곳으로 전달(전파)되는 것을 막습니다.
                 this.start();
             }
         });
