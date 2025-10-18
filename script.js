@@ -741,12 +741,24 @@ displaySentences(sentences, containerElement) {
         containerElement.innerHTML = '';
         sentences.filter(s => s && s.trim()).forEach(sentence => {
             const p = document.createElement('p');
-            // 문장 내용과 클릭 영역을 분리하기 위해 flexbox 레이아웃을 사용합니다.
-            p.className = 'p-2 rounded transition-colors hover:bg-gray-200 flex justify-between items-center';
+            // 전체 영역에 커서를 올렸을 때 클릭 가능함을 표시합니다.
+            p.className = 'p-2 rounded transition-colors hover:bg-gray-200 cursor-pointer';
 
-            const sentenceContent = document.createElement('span'); // 문장 텍스트를 담을 span
+            // p 태그 전체에 클릭 이벤트를 추가합니다.
+            p.onclick = (e) => {
+                // 중요: 클릭된 대상이 'sentence-content-area' 또는 그 자식 요소이면 TTS를 실행하지 않고 함수를 종료합니다.
+                if (e.target.closest('.sentence-content-area')) {
+                    return;
+                }
+                // 텍스트 영역이 아닌 빈 공간을 클릭했을 때만 TTS가 실행됩니다.
+                api.speak(p.textContent, 'sample');
+            };
 
-            // 번역 툴팁 이벤트는 문장 텍스트(sentenceContent) 위에서만 동작하도록 합니다.
+            const sentenceContent = document.createElement('span');
+            // 텍스트 영역을 식별하기 위한 클래스를 추가합니다.
+            sentenceContent.className = 'sentence-content-area'; 
+            
+            // 번역 툴팁 이벤트는 그대로 유지합니다.
             sentenceContent.addEventListener('mouseenter', (e) => {
                 clearTimeout(app.state.translationTimer);
                 app.state.translationTimer = setTimeout(async () => {
@@ -759,7 +771,7 @@ displaySentences(sentences, containerElement) {
                 clearTimeout(app.state.translationTimer);
                 this.hideTranslationTooltip();
             });
-            
+
             const sentenceParts = sentence.split(/(\*.*?\*)/g);
             sentenceParts.forEach(part => {
                 if (part.startsWith('*') && part.endsWith('*')) {
@@ -771,15 +783,6 @@ displaySentences(sentences, containerElement) {
                 }
             });
             p.appendChild(sentenceContent);
-
-            // 문장 뒤 빈 공간을 채우고, 클릭 이벤트를 담당할 별도의 span을 만듭니다.
-            const ttsTrigger = document.createElement('span');
-            ttsTrigger.className = 'tts-trigger-area flex-grow h-6 cursor-pointer'; // 클릭 가능한 영역을 확보합니다.
-            ttsTrigger.onclick = () => {
-                api.speak(p.textContent, 'sample');
-            };
-            p.appendChild(ttsTrigger);
-
             containerElement.appendChild(p);
         });
     },
