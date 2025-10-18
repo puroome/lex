@@ -795,14 +795,19 @@ displaySentences(sentences, containerElement) {
             containerElement.appendChild(p);
         });
     },
-    showTranslationTooltip(text, event) {
+showTranslationTooltip(text, event) {
         const tooltip = app.elements.translationTooltip;
         tooltip.textContent = text;
         tooltip.classList.remove('hidden');
         
         const rect = event.target.getBoundingClientRect();
+        
+        // 스크롤된 Y축의 값을 더해서 실제 페이지 내의 절대 위치를 계산합니다.
+        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        
+        // 툴팁의 위치를 마우스 포인터가 아닌, 문장(p 태그)의 위치를 기준으로 설정합니다.
         tooltip.style.left = `${rect.left}px`;
-        tooltip.style.top = `${rect.bottom + 5}px`;
+        tooltip.style.top = `${rect.bottom + scrollTop + 5}px`;
     },
     hideTranslationTooltip() {
         app.elements.translationTooltip.classList.add('hidden');
