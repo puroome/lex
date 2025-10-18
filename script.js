@@ -11,8 +11,9 @@ const app = {
     config: {
         TTS_API_KEY: "AIzaSyAJmQBGY4H9DVMlhMtvAAVMi_4N7__DfKA",
         DEFINITION_API_KEY: "02d1892d-8fb1-4e2d-bc43-4ddd4a47eab3",
-        // 여기에 Google Cloud Translation API 키를 입력하세요.
-        TRANSLATE_API_KEY: "",
+        // B앱의 방식을 적용하기 위해 아래 SCRIPT_URL을 사용합니다.
+        // Google Apps Script를 배포한 후 얻은 URL로 교체해야 합니다.
+        SCRIPT_URL: "여기에_배포된_APPS_SCRIPT_URL을_붙여넣으세요",
         ALLOWED_USER_EMAIL: "puroome@gmail.com",
     },
     state: {
@@ -119,8 +120,9 @@ const app = {
         
         try {
             await audioCache.init();
+            await translationCache.init(); // 번역 캐시 초기화
         } catch (e) {
-            console.error("오디오 캐시를 초기화할 수 없습니다.", e);
+            console.error("오디오 또는 번역 캐시를 초기화할 수 없습니다.", e);
         }
         this.bindGlobalEvents();
         api.loadWordList();
@@ -406,6 +408,36 @@ const audioCache = {
     }
 };
 
+// 번역 캐시 로직 추가
+const translationCache = {
+    db: null, dbName: 'translationCacheDB', storeName: 'translations',
+    init() {
+        return new Promise((resolve, reject) => {
+            if (!('indexedDB' in window)) { console.warn('IndexedDB not supported, translation caching disabled.'); return resolve(); }
+            const request = indexedDB.open(this.dbName, 1);
+            request.onupgradeneeded = event => { const db = event.target.result; if (!db.objectStoreNames.contains(this.storeName)) db.createObjectStore(this.storeName); };
+            request.onsuccess = event => { this.db = event.target.result; resolve(); };
+            request.onerror = event => { console.error("IndexedDB error for translation cache:", event.target.error); reject(event.target.error); };
+        });
+    },
+    get(key) {
+        return new Promise((resolve, reject) => {
+            if (!this.db) return resolve(null);
+            const transaction = this.db.transaction([this.storeName], 'readonly');
+            const store = transaction.objectStore(this.storeName);
+            const request = store.get(key);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = (event) => { console.error("IndexedDB get error:", event.target.error); reject(event.target.error); };
+        });
+    },
+    save(key, data) {
+        if (!this.db) return;
+        try { const transaction = this.db.transaction([this.storeName], 'readwrite'); transaction.objectStore(this.storeName).put(data, key); } 
+        catch (e) { console.error("IndexedDB save error:", e); }
+    }
+};
+
+
 const api = {
     async loadWordList(force = false) {
         if (force) {
@@ -504,23 +536,38 @@ const api = {
         }
     },
     async translate(text) {
-        if (!app.config.TRANSLATE_API_KEY) {
-            console.warn("Translation API Key is not set.");
-            return "번역 API 키가 설정되지 않았습니다.";
-        }
-        const URL = `https://translation.googleapis.com/language/translate/v2?key=${app.config.TRANSLATE_API_KEY}`;
         try {
-            const response = await fetch(URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ q: text, target: 'ko', source: 'en' })
-            });
-            if (!response.ok) throw new Error('Translation API request failed');
+            const cached = await translationCache.get(text);
+            if (cached) {
+                return cached;
+            }
+        } catch (e) {
+            console.error("번역 캐시 조회 실패:", e);
+        }
+
+        if (!app.config.SCRIPT_URL || app.config.SCRIPT_URL === "여기에_배포된_APPS_SCRIPT_URL을_붙여넣으세요") {
+            return "번역 스크립트 URL이 설정되지 않았습니다.";
+        }
+
+        const url = new URL(app.config.SCRIPT_URL);
+        url.searchParams.append('action', 'translate');
+        url.searchParams.append('text', text);
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             const data = await response.json();
-            return data.data.translations[0].translatedText;
+
+            if (data.success) {
+                const translatedText = data.translatedText;
+                translationCache.save(text, translatedText);
+                return translatedText;
+            } else {
+                throw new Error(data.message || '번역 실패');
+            }
         } catch (error) {
             console.error('Translation failed:', error);
-            return "번역 실패";
+            return "번역 오류";
         }
     },
     async updateSRSData(word, isCorrect, quizType) {
