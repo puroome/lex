@@ -107,16 +107,17 @@ body {
 #translation-tooltip::after {
     content: '';
     position: absolute;
-    top: 100%;
-    left: 50%;
+    bottom: 100%;
+    left: 15px;
     margin-left: -5px;
     border-width: 5px;
     border-style: solid;
-    border-color: #1f2937 transparent transparent transparent; /* Tailwind gray-800 */
+    border-color: transparent transparent #1f2937 transparent;
 }
 
 /* 기본적으로 앱 컨텐츠를 숨김 */
 #app-wrapper.hidden {
     display: none;
 }
+
 
