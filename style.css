@@ -39,7 +39,7 @@ body {
 .disabled { pointer-events: none; opacity: 0.7; }
 
 /* 단어 위 텍스트 선택 방지 (터치 시 기본 메뉴 비활성화) */
-.interactive-word, .non-interactive-word {
+.interactive-word {
     -webkit-user-select: none; /* Safari */
     -moz-user-select: none;    /* Firefox */
     -ms-user-select: none;     /* IE/Edge */
@@ -47,19 +47,13 @@ body {
 }
 
 /* 클릭 가능한 단어 스타일 */
-#word-display:hover, #quiz-word:hover, .interactive-word:hover { 
-    color: #1e40af; 
-    cursor: pointer; 
+.interactive-word:hover {
     background-color: #dbeafe; /* Tailwind blue-100 */
     border-radius: 0.25rem;
+    cursor: pointer;
 }
 
-/* 클릭 불가능한 단어 스타일 */
-.non-interactive-word {
-    cursor: default;
-}
-
-#word-display, #quiz-word {
+#word-display {
     white-space: nowrap;
 }
 
@@ -98,10 +92,18 @@ body {
     min-height: 45vh; /* 화면 높이의 45%를 최소 높이로 지정 */
 }
 
-/* 퀴즈 문장 줄바꿈 시 들여쓰기 */
+/* 퀴즈 문장 줄바꿈 및 빈칸 스타일 */
 .quiz-sentence-indent {
-    padding-left: 1.5em; /* 이모지/아이콘 크기를 고려한 들여쓰기 */
-    text-indent: -1.5em; /* 첫 줄을 왼쪽으로 당겨 정렬 */
+    padding-left: 0;
+    text-indent: 0;
+}
+.quiz-blank {
+    display: inline-block;
+    white-space: nowrap;
 }
 
-
+/* 진행 상태 바 핸들 활성화 스타일 */
+#progress-bar-handle:active {
+    cursor: grabbing;
+    transform: scale(1.2) translateY(-10%);
+}
