@@ -2,13 +2,9 @@
 // App Main Controller
 // ================================================================
 
-// Firebase v9 SDK 함수를 window 객체에서 가져옵니다. (index.html에서 로드)
-// 이 함수들은 index.html의 <script type="module"> 부분에서 전역으로 사용할 수 있게 됩니다.
+// 전역 변수 선언 (Declare global variables)
 let firebaseApp, database;
-// window 객체에 초기화 함수가 로드되었다고 가정
-const { initializeApp } = window; 
-const { getDatabase, ref, get, update, set } = window;
-
+let initializeApp, getDatabase, ref, get, update, set;
 
 const app = {
     config: {
@@ -45,8 +41,6 @@ const app = {
         selectQuizBtn: document.getElementById('select-quiz-btn'),
         selectDashboardBtn: document.getElementById('select-dashboard-btn'),
         selectMistakesBtn: document.getElementById('select-mistakes-btn'),
-        // 시트 연결 아이콘을 위해 추가
-        sheetLink: document.getElementById('sheet-link'),
     },
     async init() {
         this.initializeFirebase();
@@ -67,8 +61,6 @@ const app = {
         this._renderMode(initialMode);
     },
     initializeFirebase() {
-        // Firebase v9 SDK 함수를 window 객체에서 가져옵니다. (index.html에서 로드)
-        // 기존 v8 방식 대신 v9 방식 사용
         const firebaseConfig = {
             apiKey: "AIzaSyAX-cFBU45qFZTAtLYPTolSzqqLTfEvjP0",
             authDomain: "word-91148.firebaseapp.com",
@@ -78,15 +70,10 @@ const app = {
             messagingSenderId: "53576845185",
             appId: "1:53576845185:web:f519aa3ec751e12cb88a80"
         };
-
-        // window에서 v9 모듈 함수를 가져옵니다.
-        ({ initializeApp, getDatabase, ref, get, update, set } = window.firebaseV9Modules);
-        
         firebaseApp = initializeApp(firebaseConfig);
         database = getDatabase(firebaseApp);
     },
     bindGlobalEvents() {
-        // 모든 버튼 이벤트 바인딩
         this.elements.selectQuizBtn.addEventListener('click', () => this.navigateTo('quiz'));
         this.elements.selectLearningBtn.addEventListener('click', () => this.navigateTo('learning'));
         
@@ -95,21 +82,16 @@ const app = {
             await new Promise(resolve => setTimeout(resolve, 10)); 
             dashboard.elements.content.innerHTML = `<div class="text-center p-10"><div class="loader mx-auto"></div><p class="mt-4 text-gray-600">최신 통계를 불러오는 중...</p></div>`;
             try {
-                // Global Loader를 여기서 처리하지 않고, forceReload와 통합 로직으로 처리
-                app.elements.globalLoader.classList.remove('hidden');
                 await api.loadWordList(true);
                 dashboard.render();
             } catch (e) {
                 dashboard.elements.content.innerHTML = `<div class="p-8 text-center text-red-600">통계 데이터를 불러오는데 실패했습니다: ${e.message}</div>`;
-            } finally {
-                 app.elements.globalLoader.classList.add('hidden');
             }
         });
 
         this.elements.selectMistakesBtn.addEventListener('click', async () => {
             app.showToast('오답 노트를 불러오는 중...');
             try {
-                app.elements.globalLoader.classList.remove('hidden');
                 await api.loadWordList(true);
                 const mistakeWords = app.state.wordList
                     .filter(word => word.incorrect === 1)
@@ -127,37 +109,30 @@ const app = {
                 this.navigateTo('mistakeReview', { mistakeWords });
             } catch (e) {
                 app.showToast(`오답 노트 로딩 실패: ${e.message}`, true);
-            } finally {
-                 app.elements.globalLoader.classList.add('hidden');
             }
         });
 
         this.elements.homeBtn.addEventListener('click', () => this.navigateTo('selection'));
         this.elements.refreshBtn.addEventListener('click', () => this.forceReload());
         this.elements.ttsToggleBtn.addEventListener('click', this.toggleVoiceSet.bind(this));
-        
-        // 오디오 컨텍스트 초기화 (클릭 시)
         document.body.addEventListener('click', () => {
             if (!this.state.audioContext) {
                 this.state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
         }, { once: true });
         
-        // 컨텍스트 메뉴 숨기기
         document.addEventListener('click', (e) => {
             if (!this.elements.wordContextMenu.contains(e.target)) {
                 ui.hideWordContextMenu();
             }
         });
 
-        // 뒤로가기/앞으로 가기 (popstate) 이벤트 처리
         window.addEventListener('popstate', (e) => {
             const mode = e.state?.mode || 'selection';
             const options = e.state?.options || {};
             this._renderMode(mode, options);
         });
 
-        // 우클릭 기본 메뉴 방지 (커스텀 컨텍스트 메뉴 사용)
         document.addEventListener('contextmenu', (e) => {
             const target = e.target;
             const isInteractiveTrigger = target.closest('.interactive-word, #word-display');
@@ -185,8 +160,6 @@ const app = {
         this.elements.homeBtn.classList.add('hidden');
         this.elements.ttsToggleBtn.classList.add('hidden');
         learningMode.elements.fixedButtons.classList.add('hidden');
-        // 시트 링크는 모드 선택 화면에서만 보이도록 처리
-        this.elements.sheetLink.classList.add('hidden'); 
 
         const showCommonButtons = () => {
             this.elements.homeBtn.classList.remove('hidden');
@@ -224,16 +197,13 @@ const app = {
             learningMode.startMistakeReview(mistakeWords);
         } else { // 'selection' 모드
             this.elements.selectionScreen.classList.remove('hidden');
-            this.elements.sheetLink.classList.remove('hidden'); // 시트 링크 표시
             quizMode.reset();
             learningMode.reset();
         }
     },
     async forceReload() {
-        // 새로고침 버튼 클릭 시 전역 로더 활성화 (UX 개선)
         this.elements.globalLoader.classList.remove('hidden');
         
-        // 모든 상호작용 버튼 비활성화 (UX 개선)
         const elementsToDisable = [
             this.elements.refreshBtn, this.elements.selectDashboardBtn, this.elements.selectMistakesBtn,
             this.elements.selectLearningBtn, this.elements.selectQuizBtn
@@ -247,7 +217,6 @@ const app = {
         } catch(e) {
             this.showToast('데이터 새로고침에 실패했습니다: ' + e.message, true);
         } finally {
-            // 모든 상호작용 버튼 재활성화
             elementsToDisable.forEach(el => el.classList.remove('pointer-events-none', 'opacity-50'));
             this.elements.globalLoader.classList.add('hidden');
         }
@@ -562,7 +531,6 @@ const api = {
 };
 
 const ui = {
-    // TTS 제외 단어 목록: 예문/퀴즈 문장에만 적용됩니다. (Explanation에는 적용 안 됨)
     nonInteractiveWords: new Set([
         // Pronouns
         'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
@@ -607,8 +575,6 @@ const ui = {
             catch (err) { console.error('클립보드 복사 실패:', err); }
         }
     },
-    
-    // 이 함수는 예문/퀴즈 문장처럼 단어 단위로 클릭해야 할 때 사용 (TTS 제외 단어 목록 적용)
     createInteractiveFragment(text, isForSampleSentence = false) {
         const fragment = document.createDocumentFragment();
         if (!text || !text.trim()) return fragment;
@@ -627,7 +593,6 @@ const ui = {
             // 찾은 영어 단어 처리
             const word = match[0];
             const lowerCaseWord = word.toLowerCase();
-            // TTS 제외 단어 목록 적용
             const isNonInteractive = this.nonInteractiveWords.has(lowerCaseWord) || /^\d+$/.test(word);
             const span = document.createElement('span');
             span.textContent = word;
@@ -677,99 +642,18 @@ const ui = {
 
         return fragment;
     },
-    
-    // 이 함수는 explanation처럼 덩어리 단위로 클릭해야 할 때 사용 (기존 방식 복원, TTS 제외 목록 미적용)
-    renderInteractiveExplanation(targetElement, text) {
+    renderInteractiveText(targetElement, text) {
         targetElement.innerHTML = '';
         if (!text || !text.trim()) return;
-
-        // 설명 문장 블록을 분리하는 정규식: 대괄호 안의 내용 또는 영문(공백 포함) 블록
-        // (원래 코드에서 사용되던 덩어리 블록 분리 로직)
-        const blockRegex = /(\[.*?\])|([a-zA-Z0-9'-]+(?:[\s'-]*[a-zA-Z0-9'-]+)*)/g;
-        let lastIndex = 0;
-        let match;
-
-        text.split('\n').forEach((line, lineIndex, lineArr) => {
-            lastIndex = 0;
-            const lineElement = document.createElement('span');
-            lineElement.className = 'explanation-line'; // 구조 유지를 위한 클래스
-
-            while ((match = blockRegex.exec(line))) {
-                if (match.index > lastIndex) {
-                    // 클릭할 수 없는 한국어, 구두점 등을 추가
-                    lineElement.appendChild(document.createTextNode(line.substring(lastIndex, match.index)));
-                }
-
-                const [_, nonClickableBracket, englishBlock] = match;
-
-                if (englishBlock) {
-                    const blockText = englishBlock.trim();
-                    const span = document.createElement('span');
-                    span.textContent = englishBlock;
-
-                    // Explanation은 TTS 제외 단어 목록을 적용하지 않고,
-                    // 무조건 클릭 가능하게 합니다. (기존 방식 유지)
-                    
-                    // 기존 방식의 CSS 클래스와 이벤트 적용
-                    span.className = 'cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors interactive-word';
-
-                    span.onclick = () => {
-                        clearTimeout(app.state.longPressTimer);
-                        api.speak(blockText, 'word'); // 덩어리 전체 발음
-                        this.copyToClipboard(blockText);
-                    };
-
-                    span.oncontextmenu = (e) => {
-                        e.preventDefault();
-                        // 덩어리의 첫 단어로 검색 메뉴 열기
-                        this.showWordContextMenu(e, blockText.split(/\s+/)[0]);
-                    };
-
-                    let touchMove = false;
-                    span.addEventListener('touchstart', (e) => {
-                        touchMove = false;
-                        clearTimeout(app.state.longPressTimer);
-                        app.state.longPressTimer = setTimeout(() => {
-                            if (!touchMove) {
-                                this.showWordContextMenu(e, blockText.split(/\s+/)[0]);
-                            }
-                        }, 700);
-                    });
-                    span.addEventListener('touchmove', () => {
-                        touchMove = true;
-                        clearTimeout(app.state.longPressTimer);
-                    });
-                    span.addEventListener('touchend', () => {
-                        clearTimeout(app.state.longPressTimer);
-                    });
-                    
-                    lineElement.appendChild(span);
-
-                } else if (nonClickableBracket) {
-                    lineElement.appendChild(document.createTextNode(nonClickableBracket));
-                }
-                lastIndex = blockRegex.lastIndex;
-            }
-            
-            // 나머지 텍스트 처리
-            if (lastIndex < line.length) {
-                lineElement.appendChild(document.createTextNode(line.substring(lastIndex)));
-            }
-
-            targetElement.appendChild(lineElement);
-            if (lineIndex < lineArr.length - 1) {
+        
+        text.split('\n').forEach((line, index, arr) => {
+            const fragment = this.createInteractiveFragment(line);
+            targetElement.appendChild(fragment);
+            if (index < arr.length - 1) {
                 targetElement.appendChild(document.createElement('br'));
             }
         });
     },
-
-    // 퀴즈/학습 모드에서 explanation 표시
-    renderInteractiveText(targetElement, text) {
-        // explanation 영역일 경우 덩어리 단위 TTS 방식을 적용 (기존 방식)
-        this.renderInteractiveExplanation(targetElement, text);
-    },
-    
-    // 이 함수는 예문 문장처럼 문장 단위 클릭에 내부 단어 TTS 방식을 적용해야 할 때 사용
     displaySentences(sentences, containerElement) {
         containerElement.innerHTML = '';
         sentences.filter(s => s && s.trim()).forEach(sentence => {
@@ -781,11 +665,9 @@ const ui = {
             sentenceParts.forEach(part => {
                 if (part.startsWith('*') && part.endsWith('*')) {
                     const strong = document.createElement('strong');
-                    // createInteractiveFragment 사용 (TTS 제외 단어 목록 적용됨)
                     strong.appendChild(this.createInteractiveFragment(part.slice(1, -1), true));
                     p.appendChild(strong);
                 } else if (part) {
-                    // createInteractiveFragment 사용 (TTS 제외 단어 목록 적용됨)
                     p.appendChild(this.createInteractiveFragment(part, true));
                 }
             });
@@ -861,61 +743,28 @@ const dashboard = {
 
         const wordList = app.state.wordList;
         const totalWords = wordList.length;
-
         const stages = [
             { name: '새 단어', count: 0, color: 'bg-gray-400' },
             { name: '학습 중', count: 0, color: 'bg-blue-500' },
             { name: '익숙함', count: 0, color: 'bg-yellow-500' },
             { name: '학습 완료', count: 0, color: 'bg-green-500' }
         ];
-
         wordList.forEach(word => {
             const { srsMeaning, srsBlank, srsDefinition } = word;
-            
-            // Check for both null and undefined to correctly categorize new words
-            if ((srsMeaning === null || srsMeaning === undefined) &&
-                (srsBlank === null || srsBlank === undefined) &&
-                (srsDefinition === null || srsDefinition === undefined)) {
-                stages[0].count++; // 새 단어
-                return;
+            if ((srsMeaning === null || srsMeaning === undefined) && (srsBlank === null || srsBlank === undefined) && (srsDefinition === null || srsDefinition === undefined)) {
+                stages[0].count++; return;
             }
-
             const score = (srsMeaning === 1 ? 1 : 0) + (srsBlank === 1 ? 1 : 0) + (srsDefinition === 1 ? 1 : 0);
-
-            if (score === 3) {
-                stages[3].count++; // 학습 완료
-            } else if (score === 2) {
-                stages[2].count++; // 익숙함
-            } else {
-                stages[1].count++; // 학습 중
-            }
+            if (score === 3) stages[3].count++;
+            else if (score === 2) stages[2].count++;
+            else stages[1].count++;
         });
 
-        let contentHTML = `
-            <div class="bg-gray-50 p-4 rounded-lg shadow-inner text-center">
-                <p class="text-lg text-gray-600">총 단어 수</p>
-                <p class="text-4xl font-bold text-gray-800">${totalWords}</p>
-            </div>
-            <div>
-                <h2 class="text-xl font-bold text-gray-700 mb-3 text-center">학습 단계별 분포</h2>
-                <div class="space-y-4">
-        `;
-
+        let contentHTML = `<div class="bg-gray-50 p-4 rounded-lg shadow-inner text-center"><p class="text-lg text-gray-600">총 단어 수</p><p class="text-4xl font-bold text-gray-800">${totalWords}</p></div><div><h2 class="text-xl font-bold text-gray-700 mb-3 text-center">학습 단계별 분포</h2><div class="space-y-4">`;
         stages.forEach(stage => {
             const percentage = totalWords > 0 ? ((stage.count / totalWords) * 100).toFixed(1) : 0;
-            contentHTML += `
-                <div class="w-full">
-                    <div class="flex justify-between items-center mb-1">
-                        <span class="text-base font-semibold text-gray-700">${stage.name}</span>
-                        <span class="text-sm font-medium text-gray-500">${stage.count}개 (${percentage}%)</span>
-                    </div>
-                    <div class="w-full bg-gray-200 rounded-full h-4">
-                        <div class="${stage.color} h-4 rounded-full" style="width: ${percentage}%"></div>
-                    </div>
-                </div>
-            `;
+            contentHTML += `<div class="w-full"><div class="flex justify-between items-center mb-1"><span class="text-base font-semibold text-gray-700">${stage.name}</span><span class="text-sm font-medium text-gray-500">${stage.count}개 (${percentage}%)</span></div><div class="w-full bg-gray-200 rounded-full h-4"><div class="${stage.color} h-4 rounded-full" style="width: ${percentage}%"></div></div></div>`;
         });
-
         contentHTML += `</div></div>`;
         this.elements.content.innerHTML = contentHTML;
     }
@@ -1018,17 +867,18 @@ const quizMode = {
 
         utils.shuffleArray(reviewCandidates);
         
-        const quizPromises = reviewCandidates.slice(0, batchSize).map(wordData => {
-            if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING') {
-                return this.createMeaningQuiz(wordData, allWords);
-            } else if (this.state.quizType === 'FILL_IN_THE_BLANK') {
-                return this.createBlankQuiz(wordData, allWords);
-            } else if (this.state.quizType === 'MULTIPLE_CHOICE_DEFINITION') {
-                return this.createDefinitionQuiz(wordData, allWords);
-            }
-        });
+        const quizPromises = reviewCandidates.slice(0, batchSize * 2) // API 실패 대비 2배수 후보 선정
+            .map(async (wordData) => {
+                if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING') {
+                    return this.createMeaningQuiz(wordData, allWords);
+                } else if (this.state.quizType === 'FILL_IN_THE_BLANK') {
+                    return this.createBlankQuiz(wordData, allWords);
+                } else if (this.state.quizType === 'MULTIPLE_CHOICE_DEFINITION') {
+                    return await this.createDefinitionQuiz(wordData, allWords);
+                }
+            });
         
-        const generatedQuizzes = (await Promise.all(quizPromises)).filter(q => q !== null);
+        const generatedQuizzes = (await Promise.all(quizPromises)).filter(q => q !== null).slice(0, batchSize);
         this.state.quizBatch = generatedQuizzes;
     },
     displayNextQuiz() {
@@ -1048,33 +898,26 @@ const quizMode = {
         const questionDisplay = this.elements.questionDisplay;
         questionDisplay.innerHTML = '';
 
-        if (type === 'FILL_IN_THE_BLANK') {
+        if (type === 'FILL_IN_THE_BLANK' || type === 'MULTIPLE_CHOICE_DEFINITION') {
             questionDisplay.classList.remove('justify-center', 'items-center');
             const p = document.createElement('p');
-            p.className = 'text-xl sm:text-2xl text-left text-gray-800 leading-relaxed quiz-sentence-indent';
-            // 예문용 단어 분리 및 TTS 제외 목록 적용
-            p.appendChild(ui.createInteractiveFragment(question.sentence_with_blank, true));
+            const className = type === 'FILL_IN_THE_BLANK'
+                ? 'text-xl sm:text-2xl text-left text-gray-800 leading-relaxed quiz-sentence-indent'
+                : 'text-lg sm:text-xl text-left text-gray-800 leading-relaxed';
+            p.className = className;
+            
+            const textToRender = type === 'FILL_IN_THE_BLANK' ? question.sentence_with_blank : question.definition;
+            p.appendChild(ui.createInteractiveFragment(textToRender));
             questionDisplay.appendChild(p);
         } else if (type === 'MULTIPLE_CHOICE_MEANING') {
             questionDisplay.classList.add('justify-center', 'items-center');
-            questionDisplay.innerHTML = `<h1 class="text-3xl sm:text-4xl font-bold text-center text-gray-800" id="quiz-word">${question.word}</h1>`;
-            const wordEl = questionDisplay.querySelector('h1');
+            questionDisplay.innerHTML = `<h1 id="quiz-word" class="text-3xl sm:text-4xl font-bold text-center text-gray-800 cursor-pointer">${question.word}</h1>`;
+            const wordEl = questionDisplay.querySelector('#quiz-word');
             wordEl.addEventListener('click', () => {
                 api.speak(question.word, 'word');
                 ui.copyToClipboard(question.word);
             });
-            wordEl.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                ui.showWordContextMenu(e, question.word, { hideAppSearch: true });
-            });
             ui.adjustFontSize(wordEl);
-        } else if (type === 'MULTIPLE_CHOICE_DEFINITION') {
-            questionDisplay.classList.remove('justify-center', 'items-center');
-            const p = document.createElement('p');
-            p.className = 'text-lg sm:text-xl text-left text-gray-800 leading-relaxed';
-            // 정의 문장용 단어 분리 및 TTS 제외 목록 적용
-            p.appendChild(ui.createInteractiveFragment(question.definition, true));
-            questionDisplay.appendChild(p);
         }
 
         this.elements.choices.innerHTML = '';
@@ -1157,8 +1000,7 @@ const quizMode = {
         const placeholderRegex = /\*(.*?)\*/;
         const match = firstLine.match(placeholderRegex);
         if (match) {
-            // 빈칸 채우기 퀴즈의 문장에는 정답이 아닌 '＿＿＿＿'가 들어갑니다.
-            sentenceWithBlank = firstLine.replace(placeholderRegex, "＿＿＿＿").trim(); 
+            sentenceWithBlank = firstLine.replace(placeholderRegex, "＿＿＿＿").trim();
         } else {
             const wordRegex = new RegExp(`\\b${correctWordData.word}\\b`, 'i');
             if (firstLine.match(wordRegex)) {
@@ -1184,7 +1026,6 @@ const quizMode = {
         return { type: 'FILL_IN_THE_BLANK', question: { sentence_with_blank: sentenceWithBlank, word: correctWordData.word }, choices, answer: correctWordData.word };
     },
     async createDefinitionQuiz(correctWordData, allWordsData) {
-        // API 호출을 통해 정의 가져오기 (기존 로직 유지)
         const definition = await api.fetchDefinition(correctWordData.word);
         if (!definition) return null;
 
@@ -1435,21 +1276,13 @@ const learningMode = {
         ui.adjustFontSize(this.elements.wordDisplay);
         
         this.elements.meaningDisplay.innerHTML = wordData.meaning.replace(/\n/g, '<br>');
-        // explanation 영역은 덩어리 단위 TTS 로직 적용
         ui.renderInteractiveText(this.elements.explanationDisplay, wordData.explanation);
         this.elements.explanationContainer.classList.toggle('hidden', !wordData.explanation || !wordData.explanation.trim());
         
         switch(wordData.sampleSource) {
-            case 'manual':
-                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png';
-                break;
-            case 'ai':
-                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/3-search-cat_icon-icons.com_76679.png';
-                break;
-            case 'none':
-            default:
-                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
-                break;
+            case 'manual': this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png'; break;
+            case 'ai': this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/3-search-cat_icon-icons.com_76679.png'; break;
+            default: this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png'; break;
         }
     },
     navigate(direction) {
@@ -1469,7 +1302,6 @@ const learningMode = {
             }
             
             this.elements.backTitle.textContent = wordData.word;
-            // 예문 영역은 단어 단위 TTS 로직 적용
             ui.displaySentences(wordData.sample.split('\n'), this.elements.backContent);
             this.elements.cardBack.classList.add('is-slid-up');
             this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/5-remove-cat_icon-icons.com_76681.png';
@@ -1501,27 +1333,13 @@ const learningMode = {
     isLearningModeActive() {
         return !this.elements.appContainer.classList.contains('hidden');
     },
-    handleMiddleClick(e) {
-        if (this.isLearningModeActive() && e.button === 1) {
-            e.preventDefault();
-            this.elements.sampleBtn.click();
-        }
-    },
+    handleMiddleClick(e) { if (this.isLearningModeActive() && e.button === 1) { e.preventDefault(); this.elements.sampleBtn.click(); } },
     handleKeyDown(e) {
         if (!this.isLearningModeActive() || document.activeElement.tagName.match(/INPUT|TEXTAREA/)) return;
         const keyMap = { 'ArrowLeft': -1, 'ArrowRight': 1 };
-        if (keyMap[e.key] !== undefined) {
-            e.preventDefault();
-            this.navigate(keyMap[e.key]);
-        } else if (e.key === 'Enter') {
-            e.preventDefault();
-            this.handleFlip();
-        } else if (e.key === ' ') {
-            e.preventDefault();
-            if (!this.elements.cardBack.classList.contains('is-slid-up')) {
-                api.speak(this.elements.wordDisplay.textContent, 'word');
-            }
-        }
+        if (keyMap[e.key] !== undefined) { e.preventDefault(); this.navigate(keyMap[e.key]); } 
+        else if (e.key === 'Enter') { e.preventDefault(); this.handleFlip(); } 
+        else if (e.key === ' ') { e.preventDefault(); if (!this.elements.cardBack.classList.contains('is-slid-up')) { api.speak(this.state.currentWordList[this.state.currentIndex]?.word, 'word'); } }
     },
     handleTouchStart(e) {
         if (!this.isLearningModeActive()) return;
@@ -1531,36 +1349,20 @@ const learningMode = {
     },
     handleTouchEnd(e) {
         if (!this.isLearningModeActive() || this.state.touchstartX === 0) return;
-        if (e.target.closest('button, a, input, [onclick], .interactive-word')) {
-             this.state.touchstartX = this.state.touchstartY = 0;
-             return;
-        }
+        if (e.target.closest('button, a, input, [onclick], .interactive-word')) { this.state.touchstartX = this.state.touchstartY = 0; return; }
         const deltaX = e.changedTouches[0].screenX - this.state.touchstartX;
         const deltaY = e.changedTouches[0].screenY - this.state.touchstartY;
-        
-        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
-            this.navigate(deltaX > 0 ? -1 : 1);
-        } 
-        else if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 50) {
-            if (!e.target.closest('#learning-app-container')) {
-                if (deltaY < 0) { 
-                    this.navigate(1); 
-                }
-            }
-        }
+        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) { this.navigate(deltaX > 0 ? -1 : 1); } 
+        else if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 50) { if (!e.target.closest('#learning-app-container') && deltaY < 0) { this.navigate(1); } }
         this.state.touchstartX = this.state.touchstartY = 0;
     }
 };
 
-document.addEventListener('DOMContentLoaded', () => {
-    // Firebase v9 모듈을 전역 객체에 저장하여 다른 스크립트에서도 사용 가능하게 함
-    window.firebaseV9Modules = { 
-        initializeApp: firebase.initializeApp, 
-        getDatabase: firebase.database, // v8을 v9 형식으로 매핑
-        ref: (db, path) => db.ref(path), // v8을 v9 형식으로 매핑
-        get: (ref) => ref.once('value'), // v8을 v9 형식으로 매핑 (get)
-        update: (ref, updates) => ref.update(updates), // v8을 v9 형식으로 매핑
-        set: (ref, value) => ref.set(value), // v8을 v9 형식으로 매핑
-    };
+// Firebase SDK가 로드된 후 앱 초기화 및 SDK 함수 할당
+document.addEventListener('firebaseSDKLoaded', () => {
+    // SDK 함수를 전역 변수에 할당
+    ({ initializeApp, getDatabase, ref, get, update, set } = window.firebaseSDK);
+    
+    // 이제 앱을 초기화
     app.init();
 });
