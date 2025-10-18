@@ -120,4 +120,9 @@ body {
     display: none;
 }
 
+/* 예문 TTS를 위한 클릭 영역 스타일 */
+.tts-trigger-area:hover {
+    background-color: rgba(219, 234, 254, 0.5); /* 마우스를 올렸을 때 연한 파란색 배경 표시 */
+    border-radius: 0.25rem;
+}
 
