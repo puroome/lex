@@ -1191,6 +1191,8 @@ const learningMode = {
         isMistakeMode: false,
         currentWordList: [],
         isDragging: false,
+        touchStartX: 0, // 스와이프 시작 X좌표를 기록할 변수
+        touchStartY: 0, // 스와이프 시작 Y좌표를 기록할 변수
     },
     nonInteractiveWords: new Set(['a', 'an', 'the', 'I', 'me', 'my', 'mine', 'you', 'your', 'yours', 'he', 'him', 'his', 'she', 'her', 'hers', 'it', 'its', 'we', 'us', 'our', 'ours', 'they', 'them', 'their', 'theirs', 'this', 'that', 'these', 'those', 'myself', 'yourself', 'himself', 'herself', 'itself', 'ourselves', 'yourselves',
                                   'something', 'anybody', 'anyone', 'anything', 'nobody', 'no one', 'nothing', 'everybody', 'everyone', 'everything', 'all', 'any', 'both', 'each', 'either', 'every', 'few', 'little', 'many', 'much', 'neither', 'none', 'one', 'other', 'several', 'some', 'about', 'above', 'across', 'after', 'against', 'along',
@@ -1264,7 +1266,8 @@ bindEvents() {
         });
 
         document.addEventListener('keydown', this.handleKeyDown.bind(this));
-        
+        document.addEventListener('touchstart', this.handleTouchStart.bind(this), { passive: true });
+        document.addEventListener('touchend', this.handleTouchEnd.bind(this));
         this.elements.progressBarTrack.addEventListener('mousedown', this.handleProgressBarInteraction.bind(this));
         document.addEventListener('mousemove', this.handleProgressBarInteraction.bind(this));
         document.addEventListener('mouseup', this.handleProgressBarInteraction.bind(this));
@@ -1419,6 +1422,43 @@ bindEvents() {
             else if (e.key === 'Enter') this.handleFlip();
         }
     },
+    // --- 아래 두 함수 전체를 새로 추가해주세요 ---
+    handleTouchStart(e) {
+        // 학습 모드가 아닐 때는 아무것도 하지 않습니다.
+        if (this.elements.appContainer.classList.contains('hidden')) return;
+        
+        // 터치가 시작된 지점의 X, Y 좌표를 기록합니다.
+        this.state.touchStartX = e.touches[0].clientX;
+        this.state.touchStartY = e.touches[0].clientY;
+    },
+
+    handleTouchEnd(e) {
+        // 학습 모드가 아니거나, 터치 시작점이 기록되지 않았다면 아무것도 하지 않습니다.
+        if (this.elements.appContainer.classList.contains('hidden') || this.state.touchStartX === 0) return;
+
+        // 터치가 끝난 지점의 X, Y 좌표를 가져옵니다.
+        const touchEndX = e.changedTouches[0].clientX;
+        const touchEndY = e.changedTouches[0].clientY;
+
+        const deltaX = touchEndX - this.state.touchStartX;
+        const deltaY = touchEndY - this.state.touchStartY;
+        const swipeThreshold = 50; // 최소 50픽셀 이상 움직여야 스와이프로 인식
+
+        // 상하 스크롤이 아닌 좌우 스와이프인지 확인합니다.
+        if (Math.abs(deltaX) > Math.abs(deltaY)) {
+            if (deltaX > swipeThreshold) {
+                // 오른쪽으로 스와이프 -> 이전 카드
+                this.navigate(-1);
+            } else if (deltaX < -swipeThreshold) {
+                // 왼쪽으로 스와이프 -> 다음 카드
+                this.navigate(1);
+            }
+        }
+        
+        // 다음 스와이프를 위해 시작 좌표를 초기화합니다.
+        this.state.touchStartX = 0;
+        this.state.touchStartY = 0;
+    },    
     updateProgressBar(index) {
         const total = this.state.currentWordList.length;
         if (total <= 1) {
