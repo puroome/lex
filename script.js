@@ -1230,7 +1230,13 @@ const learningMode = {
     },
     bindEvents() {
         this.elements.startBtn.addEventListener('click', () => this.start());
-        this.elements.startWordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.start(); });
+        // 아래 'startWordInput'의 keydown 이벤트를 수정합니다.
+        this.elements.startWordInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault(); // 엔터 키의 기본 동작(다른 버튼 클릭 등)을 막습니다.
+                this.start();
+            }
+        });
         this.elements.startWordInput.addEventListener('input', (e) => {
             e.target.value = e.target.value.replace(/[^a-zA-Z\s'-]/g, (match) => {
                 if (match) app.showImeWarning();
