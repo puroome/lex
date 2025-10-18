@@ -450,7 +450,7 @@ const api = {
                 const cachedData = localStorage.getItem('wordListCache');
                 if (cachedData) {
                     const { timestamp, words } = JSON.parse(cachedData);
-                    if (Date.now() - timestamp < 86400000) { // 24 hours
+                    if (Date.now() - timestamp < 864000000) { // 240 hours
                         app.state.wordList = words.sort((a, b) => a.index - b.index);
                         app.state.isWordListReady = true;
                     }
@@ -781,8 +781,8 @@ const ui = {
         tooltip.classList.remove('hidden');
         
         const rect = event.target.getBoundingClientRect();
-        tooltip.style.left = `${event.clientX}px`;
-        tooltip.style.top = `${rect.top - tooltip.offsetHeight - 5}px`;
+        tooltip.style.left = `${rect.left}px`;
+        tooltip.style.top = `${rect.bottom + 5}px`;
     },
     hideTranslationTooltip() {
         app.elements.translationTooltip.classList.add('hidden');
