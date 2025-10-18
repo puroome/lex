@@ -14,8 +14,9 @@ const app = {
         SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzyBM33LzFsAe-mES_0Qw5B8w0ZPyYTDm4K_nLif5y2bXMpiQbD1LX5TTIDA4qX_Rnp/exec",
         ALLOWED_USER_EMAIL: "puroome@gmail.com",
     },
-    state: {
+state: {
         isAppStarted: false,
+        userId: null, // 로그인한 사용자의 고유 ID를 저장할 공간
         currentVoiceSet: 'UK',
         isSpeaking: false,
         audioContext: null,
@@ -74,9 +75,10 @@ const app = {
         database = getDatabase(firebaseApp);
         auth = getAuth(firebaseApp);
 
-        onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, (user) => {
             if (user && user.email === this.config.ALLOWED_USER_EMAIL) {
                 // 허용된 사용자가 로그인한 경우
+                this.state.userId = user.uid; // 여기에 사용자 ID를 저장하는 코드를 추가합니다.
                 this.elements.loginScreen.classList.add('hidden');
                 this.elements.appWrapper.classList.remove('hidden');
                 if (!this.state.isAppStarted) {
@@ -611,14 +613,24 @@ const api = {
         }
     },
 async getLastLearnedIndex() {
-        // 웹 브라우저의 로컬 저장소에서 'lastLearnedIndex' 값을 가져옵니다.
-        const lastIndex = localStorage.getItem('lastLearnedIndex');
-        // 값이 있으면 숫자로 변환해서 사용하고, 없으면 0을 사용합니다.
-        return lastIndex ? parseInt(lastIndex, 10) : 0;
+        if (!app.state.userId) return 0; // 사용자 ID가 없으면 첫 단어로 시작
+        try {
+            const path = `/userState/${app.state.userId}/lastLearnedIndex`;
+            const snapshot = await get(ref(database, path));
+            return snapshot.val() || 0;
+        } catch (error) {
+            console.error("Firebase에서 마지막 학습 위치 로딩 실패:", error);
+            return 0;
+        }
     },
 async setLastLearnedIndex(index) {
-        // 웹 브라우저의 로컬 저장소에 'lastLearnedIndex' 라는 이름으로 현재 위치를 저장합니다.
-        localStorage.setItem('lastLearnedIndex', index);
+        if (!app.state.userId) return; // 사용자 ID가 없으면 저장하지 않음
+        try {
+            const path = `/userState/${app.state.userId}/lastLearnedIndex`;
+            await set(ref(database, path), index);
+        } catch (error) {
+            console.error("Firebase에 마지막 학습 위치 저장 실패:", error);
+        }
     },
      async fetchDefinition(word) {
         const apiKey = app.config.DEFINITION_API_KEY;
