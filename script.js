@@ -172,29 +172,20 @@ const app = {
             showCommonButtons();
             this.elements.quizModeContainer.classList.remove('hidden');
             quizMode.reset();
-        } else if (mode === 'learning' || mode === 'mistakeReview') {
+        } else if (mode === 'learning') {
             showCommonButtons();
-            this.elements.progressBarContainer.classList.remove('hidden');
             this.elements.learningModeContainer.classList.remove('hidden');
-            
-            if (mode === 'mistakeReview') {
-                const mistakeWords = options.mistakeWords;
-                if (!mistakeWords || mistakeWords.length === 0) {
-                    app.showToast('오답 노트에 단어가 없습니다.', true);
-                    this.navigateTo('selection');
-                    return;
-                }
-                learningMode.startMistakeReview(mistakeWords);
-            } else { // learning
-                learningMode.elements.appContainer.classList.add('hidden');
-                learningMode.elements.loader.classList.add('hidden');
-                learningMode.elements.startScreen.classList.remove('hidden');
-                 if (options.suggestions && options.title) {
-                    learningMode.displaySuggestions(options.suggestions.vocab, options.suggestions.explanation, options.title);
-                } else {
-                    learningMode.resetStartScreen();
-                }
+            learningMode.resetStartScreen();
+        } else if (mode === 'mistakeReview') {
+            showCommonButtons();
+            this.elements.learningModeContainer.classList.remove('hidden');
+            const mistakeWords = options.mistakeWords;
+            if (!mistakeWords || mistakeWords.length === 0) {
+                app.showToast('오답 노트에 단어가 없습니다.', true);
+                this.navigateTo('selection');
+                return;
             }
+            learningMode.startMistakeReview(mistakeWords);
         } else if (mode === 'dashboard') {
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.dashboardContainer.classList.remove('hidden');
@@ -353,28 +344,23 @@ const audioCache = {
 
 const api = {
     async loadWordList(force = false) {
-        if (force) {
-            localStorage.removeItem('wordListCache');
-            app.state.isWordListReady = false;
-        }
+        if (!force && app.state.isWordListReady) return;
+        if (force) localStorage.removeItem('wordListCache');
 
-        if (!force) {
-            try {
-                const cachedData = localStorage.getItem('wordListCache');
-                if (cachedData) {
-                    const { timestamp, words } = JSON.parse(cachedData);
-                    if (Date.now() - timestamp < 86400000) { // 24 hours
-                        app.state.wordList = words;
-                        app.state.isWordListReady = true;
-                    }
+        try {
+            const cachedData = localStorage.getItem('wordListCache');
+            if (cachedData) {
+                const { timestamp, words } = JSON.parse(cachedData);
+                if (Date.now() - timestamp < 86400000) { // 24 hours
+                    app.state.wordList = words;
+                    app.state.isWordListReady = true;
+                    return;
                 }
-            } catch (e) {
-                console.error("캐시 로딩 실패:", e);
-                localStorage.removeItem('wordListCache');
             }
+        } catch (e) {
+            console.error("캐시 로딩 실패:", e);
+            localStorage.removeItem('wordListCache');
         }
-        
-        if (app.state.isWordListReady && !force) return;
 
         try {
             const dbRef = ref(database, '/vocabulary');
@@ -382,22 +368,15 @@ const api = {
             const data = snapshot.val();
             if (!data) throw new Error("Firebase에 단어 데이터가 없습니다.");
 
-            // 'index' 필드를 기준으로 정렬
             const wordsArray = Object.values(data).sort((a, b) => a.index - b.index);
             app.state.wordList = wordsArray;
             app.state.isWordListReady = true;
 
             const cachePayload = { timestamp: Date.now(), words: wordsArray };
-            try {
-                localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
-            } catch (e) {
-                console.error("localStorage 저장 실패:", e);
-            }
+            localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
         } catch (error) {
             console.error("Firebase에서 단어 목록 로딩 실패:", error);
-            if (!app.state.isWordListReady) {
-                app.showFatalError(error.message);
-            }
+            app.showFatalError(error.message);
             throw error;
         }
     },
@@ -478,7 +457,6 @@ const api = {
             
             await update(dbRef, updates);
             
-            // 로컬 상태도 업데이트
             const wordIndex = app.state.wordList.findIndex(w => w.word === word);
             if(wordIndex !== -1) {
                 if (srsKey) app.state.wordList[wordIndex][srsKey] = isCorrect ? 1 : 0;
@@ -486,8 +464,7 @@ const api = {
                      app.state.wordList[wordIndex].incorrect = 1;
                      app.state.wordList[wordIndex].lastIncorrect = new Date().toISOString();
                 }
-                const cachePayload = { timestamp: Date.now(), words: app.state.wordList };
-                localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
+                localStorage.setItem('wordListCache', JSON.stringify({ timestamp: Date.now(), words: app.state.wordList }));
                 document.dispatchEvent(new CustomEvent('wordListUpdated'));
             }
 
@@ -502,7 +479,7 @@ const api = {
             return snapshot.val() || 0;
         } catch (error) {
             console.error("Firebase에서 마지막 학습 위치 로딩 실패:", error);
-            return 0; // 실패 시 0으로 기본값 설정
+            return 0;
         }
     },
     async setLastLearnedIndex(index) {
@@ -747,7 +724,6 @@ const quizMode = {
     state: {
         quizType: null,
         currentQuiz: null,
-        sessionTotal: 0,
         sessionAnsweredInSet: 0,
         sessionCorrectInSet: 0,
         sessionMistakes: [],
@@ -802,7 +778,6 @@ const quizMode = {
     },
     reset() {
         this.state.quizType = null;
-        this.state.sessionTotal = 0;
         this.state.sessionAnsweredInSet = 0;
         this.state.sessionCorrectInSet = 0;
         this.state.sessionMistakes = [];
@@ -846,7 +821,6 @@ const quizMode = {
             this.renderQuiz(nextQuiz);
         } else {
             app.showToast('풀 수 있는 모든 퀴즈를 완료했습니다!', false);
-            // If there was an ongoing quiz session, show the final result
             if (this.state.sessionAnsweredInSet > 0) {
                 this.showSessionResultModal(true);
             } else {
@@ -919,7 +893,6 @@ const quizMode = {
             this.state.sessionMistakes.push(this.state.currentQuiz.question.word);
         }
         
-        this.state.sessionTotal++;
         this.state.sessionAnsweredInSet++;
         if (isCorrect) this.state.sessionCorrectInSet++;
 
@@ -957,7 +930,11 @@ const quizMode = {
     },
     reviewSessionMistakes() {
         this.elements.modal.classList.add('hidden');
-        app.navigateTo('mistakeReview', { mistakeWords: [...this.state.sessionMistakes] });
+        const mistakes = [...this.state.sessionMistakes];
+        this.state.sessionAnsweredInSet = 0;
+        this.state.sessionCorrectInSet = 0;
+        this.state.sessionMistakes = [];
+        app.navigateTo('mistakeReview', { mistakeWords: mistakes });
     },
     createMeaningQuiz(correctWordData, allWordsData) {
         const wrongAnswers = new Set();
@@ -1130,6 +1107,7 @@ const learningMode = {
         this.elements.loader.classList.add('hidden');
         this.elements.appContainer.classList.remove('hidden');
         this.elements.fixedButtons.classList.remove('hidden');
+        app.elements.progressBarContainer.classList.remove('hidden');
         this.displayWord(this.state.currentIndex);
     },
     reset() {
@@ -1137,6 +1115,7 @@ const learningMode = {
         this.elements.appContainer.classList.add('hidden');
         this.elements.loader.classList.add('hidden');
         this.elements.fixedButtons.classList.add('hidden');
+        app.elements.progressBarContainer.classList.add('hidden');
         this.resetStartScreen();
     },
     resetStartScreen() {
