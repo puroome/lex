@@ -771,13 +771,16 @@ const dashboard = {
 };
 
 // ================================================================
-// Quiz Mode Controller
+// Quiz Mode Controller (개선된 버전)
 // ================================================================
 const quizMode = {
     state: {
         quizType: null,
-        quizBatch: [],
         currentQuiz: null,
+        sessionTotal: 10,
+        sessionAnswered: 0,
+        sessionCorrect: 0,
+        answeredWords: new Set(),
     },
     elements: {},
     init() {
@@ -793,6 +796,7 @@ const quizMode = {
             questionDisplay: document.getElementById('quiz-question-display'),
             choices: document.getElementById('quiz-choices'),
             finishedScreen: document.getElementById('quiz-finished-screen'),
+            finishedScore: document.getElementById('quiz-finished-score'),
             finishedMessage: document.getElementById('quiz-finished-message'),
         };
         this.bindEvents();
@@ -823,74 +827,83 @@ const quizMode = {
     },
     async start(quizType) {
         this.state.quizType = quizType;
+        this.state.sessionAnswered = 0;
+        this.state.sessionCorrect = 0;
+        this.state.answeredWords.clear();
+
         this.elements.quizSelectionScreen.classList.add('hidden');
-        this.showLoader(true);
+        this.showLoader(true, "단어 목록 동기화 중...");
 
         if (!app.state.isWordListReady) {
-            this.elements.loaderText.textContent = "단어 목록 동기화 중...";
             await api.loadWordList();
-        }
-        this.elements.loaderText.textContent = "퀴즈 생성 중...";
-        
-        await this.generateQuizBatch(10);
-
-        if(this.state.quizBatch.length === 0){
-             this.showFinishedScreen(true);
-             return;
         }
 
         this.displayNextQuiz();
     },
     reset() {
-        this.state.quizBatch = [];
         this.state.quizType = null;
+        this.state.sessionAnswered = 0;
+        this.state.sessionCorrect = 0;
+        this.state.answeredWords.clear();
         this.elements.quizSelectionScreen.classList.remove('hidden');
         this.elements.loader.classList.add('hidden');
         this.elements.contentContainer.classList.add('hidden');
         this.elements.finishedScreen.classList.add('hidden');
     },
-    async generateQuizBatch(batchSize) {
+    async generateSingleQuiz() {
         const allWords = app.state.wordList;
-        if (allWords.length < 5) {
-            this.state.quizBatch = [];
-            return;
-        }
+        if (allWords.length < 5) return null;
 
-        let reviewCandidates;
-        if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING') {
-            reviewCandidates = allWords.filter(word => word.srsMeaning !== 1);
-        } else if (this.state.quizType === 'FILL_IN_THE_BLANK') {
-            reviewCandidates = allWords.filter(word => word.srsBlank !== 1 && word.sample && word.sample.trim() !== '');
-        } else if (this.state.quizType === 'MULTIPLE_CHOICE_DEFINITION') {
-            reviewCandidates = allWords.filter(word => word.srsDefinition !== 1);
-        }
+        const getCandidates = (wordList) => {
+            if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING') {
+                return wordList.filter(word => word.srsMeaning !== 1 && !this.state.answeredWords.has(word.word));
+            }
+            if (this.state.quizType === 'FILL_IN_THE_BLANK') {
+                return wordList.filter(word => word.srsBlank !== 1 && word.sample && word.sample.trim() !== '' && !this.state.answeredWords.has(word.word));
+            }
+            if (this.state.quizType === 'MULTIPLE_CHOICE_DEFINITION') {
+                return wordList.filter(word => word.srsDefinition !== 1 && !this.state.answeredWords.has(word.word));
+            }
+            return [];
+        };
 
-        utils.shuffleArray(reviewCandidates);
-        
-        const quizPromises = reviewCandidates.slice(0, batchSize * 2) // API 실패 대비 2배수 후보 선정
-            .map(async (wordData) => {
-                if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING') {
-                    return this.createMeaningQuiz(wordData, allWords);
-                } else if (this.state.quizType === 'FILL_IN_THE_BLANK') {
-                    return this.createBlankQuiz(wordData, allWords);
-                } else if (this.state.quizType === 'MULTIPLE_CHOICE_DEFINITION') {
-                    return await this.createDefinitionQuiz(wordData, allWords);
-                }
-            });
-        
-        const generatedQuizzes = (await Promise.all(quizPromises)).filter(q => q !== null).slice(0, batchSize);
-        this.state.quizBatch = generatedQuizzes;
+        const reviewCandidates = utils.shuffleArray(getCandidates(allWords));
+        if (reviewCandidates.length === 0) return null;
+
+        for (const wordData of reviewCandidates) {
+            let quiz = null;
+            if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING') {
+                quiz = this.createMeaningQuiz(wordData, allWords);
+            } else if (this.state.quizType === 'FILL_IN_THE_BLANK') {
+                quiz = this.createBlankQuiz(wordData, allWords);
+            } else if (this.state.quizType === 'MULTIPLE_CHOICE_DEFINITION') {
+                quiz = await this.createDefinitionQuiz(wordData, allWords);
+            }
+
+            if (quiz) {
+                this.state.answeredWords.add(wordData.word);
+                return quiz;
+            }
+        }
+        return null;
     },
-    displayNextQuiz() {
-        if (this.state.quizBatch.length === 0) {
+    async displayNextQuiz() {
+        if (this.state.sessionAnswered >= this.state.sessionTotal) {
             this.showFinishedScreen();
             return;
         }
+
+        this.showLoader(true, "다음 문제 생성 중...");
         
-        const nextQuiz = this.state.quizBatch.shift();
-        this.state.currentQuiz = nextQuiz;
-        this.showLoader(false);
-        this.renderQuiz(nextQuiz);
+        const nextQuiz = await this.generateSingleQuiz();
+        
+        if (nextQuiz) {
+            this.state.currentQuiz = nextQuiz;
+            this.showLoader(false);
+            this.renderQuiz(nextQuiz);
+        } else {
+            this.showFinishedScreen(true);
+        }
     },
     renderQuiz(quizData) {
         this.elements.cardFront.classList.remove('hidden');
@@ -954,6 +967,11 @@ const quizMode = {
             correctAnswerEl?.classList.add('correct');
         }
         
+        this.state.sessionAnswered++;
+        if (isCorrect) {
+            this.state.sessionCorrect++;
+        }
+
         const word = this.state.currentQuiz.question.word;
         await api.updateSRSData(word, isCorrect, this.state.quizType);
         
@@ -970,10 +988,14 @@ const quizMode = {
         this.showLoader(false);
         this.elements.contentContainer.classList.add('hidden');
         this.elements.finishedScreen.classList.remove('hidden');
-        if (allWordsLearned) {
-            this.elements.finishedMessage.innerHTML = "축하합니다!<br>모든 단어 학습을 완료했습니다!";
+
+        const totalAnswered = Math.min(this.state.sessionAnswered, this.state.sessionTotal);
+        this.elements.finishedScore.textContent = `${totalAnswered}문제 중 ${this.state.sessionCorrect}개를 맞혔습니다.`;
+
+        if (allWordsLearned && this.state.sessionAnswered < this.state.sessionTotal) {
+            this.elements.finishedMessage.innerHTML = "풀 수 있는 모든 퀴즈를 완료했습니다!<br>새로운 단어를 학습하거나 내일 다시 도전해 주세요.";
         } else {
-            this.elements.finishedMessage.innerHTML = "풀 수 있는 퀴즈를 모두 완료했습니다.<br>새로운 단어를 학습하거나 내일 다시 도전해 주세요.";
+            this.elements.finishedMessage.innerHTML = "";
         }
     },
     createMeaningQuiz(correctWordData, allWordsData) {
@@ -1366,3 +1388,4 @@ document.addEventListener('firebaseSDKLoaded', () => {
     // 이제 앱을 초기화
     app.init();
 });
+
