@@ -382,7 +382,8 @@ const api = {
             const data = snapshot.val();
             if (!data) throw new Error("Firebase에 단어 데이터가 없습니다.");
 
-            const wordsArray = Object.values(data);
+            // 'index' 필드를 기준으로 정렬
+            const wordsArray = Object.values(data).sort((a, b) => a.index - b.index);
             app.state.wordList = wordsArray;
             app.state.isWordListReady = true;
 
@@ -544,7 +545,7 @@ const ui = {
     createInteractiveFragment(text, isForSampleSentence = false) {
         const fragment = document.createDocumentFragment();
         if (!text || !text.trim()) return fragment;
-
+    
         const parts = text.split(/([a-zA-Z0-9'-]+)/g);
         
         parts.forEach(part => {
@@ -746,8 +747,9 @@ const quizMode = {
     state: {
         quizType: null,
         currentQuiz: null,
-        sessionAnswered: 0,
-        sessionCorrect: 0,
+        sessionTotal: 0,
+        sessionAnsweredInSet: 0,
+        sessionCorrectInSet: 0,
         sessionMistakes: [],
         answeredWords: new Set(),
     },
@@ -800,8 +802,9 @@ const quizMode = {
     },
     reset() {
         this.state.quizType = null;
-        this.state.sessionAnswered = 0;
-        this.state.sessionCorrect = 0;
+        this.state.sessionTotal = 0;
+        this.state.sessionAnsweredInSet = 0;
+        this.state.sessionCorrectInSet = 0;
         this.state.sessionMistakes = [];
         this.state.answeredWords.clear();
         this.elements.quizSelectionScreen.classList.remove('hidden');
@@ -833,11 +836,6 @@ const quizMode = {
         return null;
     },
     async displayNextQuiz() {
-        if (this.state.sessionAnswered > 0 && this.state.sessionAnswered % 10 === 0) {
-            this.showSessionResultModal();
-            return;
-        }
-
         this.showLoader(true, "다음 문제 생성 중...");
         const nextQuiz = await this.generateSingleQuiz();
         
@@ -848,20 +846,36 @@ const quizMode = {
             this.renderQuiz(nextQuiz);
         } else {
             app.showToast('풀 수 있는 모든 퀴즈를 완료했습니다!', false);
-            app.navigateTo('selection');
+            // If there was an ongoing quiz session, show the final result
+            if (this.state.sessionAnsweredInSet > 0) {
+                this.showSessionResultModal(true);
+            } else {
+                app.navigateTo('selection');
+            }
         }
     },
     renderQuiz(quizData) {
         const { type, question, choices } = quizData;
         const questionDisplay = this.elements.questionDisplay;
         questionDisplay.innerHTML = '';
+        questionDisplay.classList.remove('justify-center', 'items-center');
 
         if (type === 'FILL_IN_THE_BLANK') {
             const p = document.createElement('p');
             p.className = 'text-xl sm:text-2xl text-left text-gray-800 leading-relaxed';
             const parts = question.sentence_with_blank.split('___BLANK___');
             parts.forEach((part, index) => {
-                p.appendChild(ui.createInteractiveFragment(part));
+                const textParts = part.split(/(\*.*?\*)/g);
+                textParts.forEach(textPart => {
+                    if (textPart.startsWith('*') && textPart.endsWith('*')) {
+                        const strong = document.createElement('strong');
+                        strong.textContent = textPart.slice(1, -1);
+                        p.appendChild(strong);
+                    } else {
+                        p.appendChild(document.createTextNode(textPart));
+                    }
+                });
+
                 if (index < parts.length - 1) {
                     const blankSpan = document.createElement('span');
                     blankSpan.className = 'quiz-blank';
@@ -905,25 +919,39 @@ const quizMode = {
             this.state.sessionMistakes.push(this.state.currentQuiz.question.word);
         }
         
-        this.state.sessionAnswered++;
-        if (isCorrect) this.state.sessionCorrect++;
+        this.state.sessionTotal++;
+        this.state.sessionAnsweredInSet++;
+        if (isCorrect) this.state.sessionCorrectInSet++;
 
         await api.updateSRSData(this.state.currentQuiz.question.word, isCorrect, this.state.quizType);
-        setTimeout(() => this.displayNextQuiz(), 1200);
+        
+        setTimeout(() => {
+            if (this.state.sessionAnsweredInSet >= 10) {
+                this.showSessionResultModal();
+            } else {
+                this.displayNextQuiz();
+            }
+        }, 1200);
     },
     showLoader(isLoading, message = '퀴즈를 준비 중입니다...') {
         this.elements.loader.classList.toggle('hidden', !isLoading);
         this.elements.loaderText.textContent = message;
         this.elements.contentContainer.classList.toggle('hidden', isLoading);
     },
-    showSessionResultModal() {
-        this.elements.modalScore.textContent = `10문제 중 ${this.state.sessionCorrect}개 정답!`;
+    showSessionResultModal(isFinal = false) {
+        this.elements.modalScore.textContent = `${this.state.sessionAnsweredInSet}문제 중 ${this.state.sessionCorrectInSet}개 정답!`;
         this.elements.modalMistakesBtn.classList.toggle('hidden', this.state.sessionMistakes.length === 0);
+        this.elements.modalContinueBtn.textContent = isFinal ? "메인으로 돌아가기" : "다음 퀴즈 계속";
         this.elements.modal.classList.remove('hidden');
     },
     continueAfterResult() {
         this.elements.modal.classList.add('hidden');
-        this.state.sessionCorrect = 0;
+        if (this.elements.modalContinueBtn.textContent === "메인으로 돌아가기") {
+            app.navigateTo('selection');
+            return;
+        }
+        this.state.sessionAnsweredInSet = 0;
+        this.state.sessionCorrectInSet = 0;
         this.state.sessionMistakes = [];
         this.displayNextQuiz();
     },
@@ -946,8 +974,11 @@ const quizMode = {
     createBlankQuiz(correctWordData, allWordsData) {
         if (!correctWordData.sample || correctWordData.sample.trim() === '') return null;
         const firstLine = correctWordData.sample.split('\n')[0].replace(/\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu, "").trim();
-        const placeholderRegex = new RegExp(`\\*${correctWordData.word}\\*|\\b${correctWordData.word}\\b`, 'i');
-        if (!firstLine.match(placeholderRegex)) return null;
+        const placeholderRegex = new RegExp(`(\\*)?${correctWordData.word}(\\*)?|\\b${correctWordData.word}\\b`, 'i');
+        
+        let match = firstLine.match(placeholderRegex);
+        if (!match) return null;
+
         const sentenceWithBlank = firstLine.replace(placeholderRegex, "___BLANK___").trim();
 
         const wrongAnswers = new Set();
@@ -1079,7 +1110,7 @@ const learningMode = {
         
         const searchRegex = new RegExp(`\\b${lowerCaseStartWord}\\b`, 'i');
         const explanationMatches = this.state.currentWordList
-            .map((item, index) => ({ word: item.word, index }))
+            .map((item, index) => ({ ...item, index }))
             .filter(item => item.explanation && searchRegex.test(item.explanation.replace(/\[.*?\]/g, '')));
         const levenshteinSuggestions = this.state.currentWordList.map((item, index) => ({
             word: item.word, index, distance: utils.levenshteinDistance(lowerCaseStartWord, item.word.toLowerCase())
