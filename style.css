@@ -47,12 +47,13 @@ body {
 }
 
 /* 클릭 가능한 단어 스타일 */
-#word-display:hover, .interactive-word:hover { 
+#word-display:hover, #quiz-word:hover, .interactive-word:hover { 
     color: #1e40af; 
     cursor: pointer; 
     background-color: #dbeafe; /* Tailwind blue-100 */
     border-radius: 0.25rem;
 }
+
 /* 클릭 불가능한 단어 스타일 */
 .non-interactive-word {
     cursor: default;
@@ -103,3 +104,4 @@ body {
     padding-left: 1.5em; /* 이모지/아이콘 크기를 고려한 들여쓰기 */
     text-indent: -1.5em; /* 첫 줄을 왼쪽으로 당겨 정렬 */
 }
+
