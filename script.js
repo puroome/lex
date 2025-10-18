@@ -2,9 +2,9 @@
 // App Main Controller
 // ================================================================
 
-// 전역 변수 초기화
+// 전역 변수 선언 (Declare global variables)
 let firebaseApp, database;
-const { initializeApp, getDatabase, ref, get, update, set } = window.firebaseSDK;
+let initializeApp, getDatabase, ref, get, update, set;
 
 const app = {
     config: {
@@ -74,10 +74,10 @@ const app = {
         database = getDatabase(firebaseApp);
     },
     bindGlobalEvents() {
-        document.getElementById('select-quiz-btn').addEventListener('click', () => this.navigateTo('quiz'));
-        document.getElementById('select-learning-btn').addEventListener('click', () => this.navigateTo('learning'));
+        this.elements.selectQuizBtn.addEventListener('click', () => this.navigateTo('quiz'));
+        this.elements.selectLearningBtn.addEventListener('click', () => this.navigateTo('learning'));
         
-        document.getElementById('select-dashboard-btn').addEventListener('click', async () => {
+        this.elements.selectDashboardBtn.addEventListener('click', async () => {
             this.navigateTo('dashboard');
             await new Promise(resolve => setTimeout(resolve, 10)); 
             dashboard.elements.content.innerHTML = `<div class="text-center p-10"><div class="loader mx-auto"></div><p class="mt-4 text-gray-600">최신 통계를 불러오는 중...</p></div>`;
@@ -89,7 +89,7 @@ const app = {
             }
         });
 
-        document.getElementById('select-mistakes-btn').addEventListener('click', async () => {
+        this.elements.selectMistakesBtn.addEventListener('click', async () => {
             app.showToast('오답 노트를 불러오는 중...');
             try {
                 await api.loadWordList(true);
@@ -1352,8 +1352,12 @@ const learningMode = {
     }
 };
 
-// Firebase SDK가 로드된 후 앱 초기화
+// Firebase SDK가 로드된 후 앱 초기화 및 SDK 함수 할당
 document.addEventListener('firebaseSDKLoaded', () => {
+    // SDK 함수를 전역 변수에 할당
+    ({ initializeApp, getDatabase, ref, get, update, set } = window.firebaseSDK);
+    
+    // 이제 앱을 초기화
     app.init();
 });
 
