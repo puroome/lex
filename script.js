@@ -743,46 +743,41 @@ displaySentences(sentences, containerElement) {
             const p = document.createElement('p');
             p.className = 'p-2 rounded transition-colors hover:bg-gray-200 cursor-pointer';
 
-            // 번역을 실행하고 툴팁을 보여주는 헬퍼 함수를 만듭니다.
             const showTranslation = async (event) => {
                 const translatedText = await api.translate(p.textContent);
                 this.showTranslationTooltip(translatedText, event);
             };
 
-            // p 태그 전체에 클릭 이벤트를 설정합니다.
             p.onclick = (e) => {
-                // 만약 클릭된 곳이 텍스트 영역('.sentence-content-area')이면, 아무것도 하지 않습니다.
-                if (e.target.closest('.sentence-content-area')) {
-                    return;
-                }
-                // 텍스트가 아닌 빈 공간을 클릭하면 TTS를 재생하고, 즉시 번역을 보여줍니다.
+                if (e.target.closest('.sentence-content-area')) return;
                 api.speak(p.textContent, 'sample');
-                showTranslation(e); 
+                showTranslation(e);
             };
             
-            // p 태그 전체에 마우스 진입 이벤트를 설정합니다.
+            // p 태그(전체 영역)에 마우스를 올리면 일단 번역 타이머를 시작합니다.
             p.addEventListener('mouseenter', (e) => {
-                // 만약 마우스가 텍스트 영역 위에 있다면, 아무것도 하지 않습니다.
-                if (e.target.closest('.sentence-content-area')) {
-                    return;
-                }
-                // 텍스트가 아닌 빈 공간에 마우스를 올리면 1초 후 번역을 보여주는 타이머를 설정합니다.
                 clearTimeout(app.state.translationTimer);
                 app.state.translationTimer = setTimeout(() => {
                     showTranslation(e);
                 }, 1000);
             });
 
-            // p 태그 전체에서 마우스가 벗어날 때의 이벤트를 설정합니다.
+            // p 태그(전체 영역)에서 마우스가 벗어나면 타이머를 취소하고 툴팁을 숨깁니다.
             p.addEventListener('mouseleave', () => {
-                // 마우스가 영역을 벗어나면, 설정된 번역 타이머를 취소하고 툴팁을 숨깁니다.
                 clearTimeout(app.state.translationTimer);
                 this.hideTranslationTooltip();
             });
 
             const sentenceContent = document.createElement('span');
-            sentenceContent.className = 'sentence-content-area'; 
+            sentenceContent.className = 'sentence-content-area';
             
+            // *** 핵심 수정 ***
+            // 텍스트 영역(sentenceContent)에 마우스가 들어오면, p에서 시작된 타이머를 취소하고 툴팁을 숨깁니다.
+            sentenceContent.addEventListener('mouseenter', () => {
+                clearTimeout(app.state.translationTimer);
+                this.hideTranslationTooltip();
+            });
+
             const sentenceParts = sentence.split(/(\*.*?\*)/g);
             sentenceParts.forEach(part => {
                 if (part.startsWith('*') && part.endsWith('*')) {
