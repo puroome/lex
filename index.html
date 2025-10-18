@@ -18,13 +18,15 @@
         <p id="global-loader-text" class="mt-4 text-gray-700 font-semibold text-lg">최신 데이터를 불러오는 중...</p>
     </div>
 
+    <!-- 번역 툴팁 -->
+    <div id="translation-tooltip" class="hidden absolute bg-black/80 text-white text-sm rounded-lg px-3 py-2 z-[250] pointer-events-none transition-opacity duration-200"></div>
+
     <div class="fixed top-0 left-0 right-0 z-50 flex justify-center pointer-events-none">
         <div class="w-full max-w-2xl relative px-4 flex items-center h-20">
             <button id="tts-toggle-btn" class="hidden bg-indigo-700 hover:bg-indigo-800 text-white font-bold p-3 rounded-full shadow-lg w-12 h-12 flex items-center justify-center text-sm pointer-events-auto flex-shrink-0">
                 <span id="tts-toggle-text">UK</span>
             </button>
             
-            <!-- 학습 진행 상태 바 -->
             <div id="progress-bar-container" class="hidden w-full mx-4 pointer-events-auto">
                 <div id="progress-bar-track" class="relative w-full h-2 bg-gray-300 rounded-full cursor-pointer">
                     <div id="progress-bar-fill" class="absolute h-full bg-blue-500 rounded-full"></div>
