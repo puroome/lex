@@ -5,16 +5,18 @@
 // 전역 변수 선언 (Declare global variables)
 let firebaseApp, database, auth;
 let initializeApp, getDatabase, ref, get, update, set;
-let getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup;
+let getAuth, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup;
 
 const app = {
     config: {
-        // 클라이언트에 API 키를 더 이상 노출하지 않습니다.
-        // TTS, Definition, Translate 기능은 Apps Script를 통해 호출해야 합니다. (추후 구현 필요)
+        TTS_API_KEY: "AIzaSyAJmQBGY4H9DVMlhMtvAAVMi_4N7__DfKA",
+        DEFINITION_API_KEY: "02d1892d-8fb1-4e2d-bc43-4ddd4a47eab3",
+        // 여기에 Google Cloud Translation API 키를 입력하세요.
+        TRANSLATE_API_KEY: "",
         ALLOWED_USER_EMAIL: "puroome@gmail.com",
     },
     state: {
-        currentUser: null,
+        isAppStarted: false,
         currentVoiceSet: 'UK',
         isSpeaking: false,
         audioContext: null,
@@ -24,10 +26,14 @@ const app = {
         translationTimer: null,
     },
     elements: {
+        // Login elements
         loginScreen: document.getElementById('login-screen'),
-        loginBtn: document.getElementById('login-btn'),
-        loginStatus: document.getElementById('login-status'),
+        googleLoginBtn: document.getElementById('google-login-btn'),
+        loginError: document.getElementById('login-error'),
+        logoutBtn: document.getElementById('logout-btn'),
         appWrapper: document.getElementById('app-wrapper'),
+        
+        // App elements
         selectionScreen: document.getElementById('selection-screen'),
         homeBtn: document.getElementById('home-btn'),
         refreshBtn: document.getElementById('refresh-btn'),
@@ -53,55 +59,64 @@ const app = {
         translationTooltip: document.getElementById('translation-tooltip'),
     },
     init() {
-        this.initializeFirebase();
-        this.handleAuthState();
-        
-        this.elements.loginBtn.addEventListener('click', this.signIn.bind(this));
+        this.initializeFirebaseAndAuth();
     },
-    initializeFirebase() {
+    initializeFirebaseAndAuth() {
         const firebaseConfig = {
             apiKey: "AIzaSyAX-cFBU45qFZTAtLYPTolSzqqLTfEvjP0",
             authDomain: "word-91148.firebaseapp.com",
             databaseURL: "https://word-91148-default-rtdb.asia-southeast1.firebasedatabase.app",
             projectId: "word-91148",
-            storageBucket: "word-91148.wordspot.com",
+            storageBucket: "word-91148.firebasestorage.app",
             messagingSenderId: "53576845185",
             appId: "1:53576845185:web:f519aa3ec751e12cb88a80"
         };
         firebaseApp = initializeApp(firebaseConfig);
         database = getDatabase(firebaseApp);
         auth = getAuth(firebaseApp);
-    },
-    handleAuthState() {
-        onAuthStateChanged(auth, user => {
+
+        onAuthStateChanged(auth, (user) => {
             if (user && user.email === this.config.ALLOWED_USER_EMAIL) {
-                this.state.currentUser = user;
+                // 허용된 사용자가 로그인한 경우
                 this.elements.loginScreen.classList.add('hidden');
                 this.elements.appWrapper.classList.remove('hidden');
-                this.startApp();
+                if (!this.state.isAppStarted) {
+                    this.startApp();
+                }
             } else {
-                this.state.currentUser = null;
+                // 로그아웃 상태이거나 허용되지 않은 사용자인 경우
                 this.elements.loginScreen.classList.remove('hidden');
                 this.elements.appWrapper.classList.add('hidden');
-                if (user) { // 다른 계정으로 로그인한 경우
-                    this.elements.loginStatus.textContent = "접근 권한이 없습니다.";
-                } else { // 로그아웃 상태
-                     this.elements.loginStatus.textContent = "";
+                if (user) { // 허용되지 않은 사용자가 로그인 시도 시 자동 로그아웃
+                    signOut(auth);
                 }
             }
         });
+        
+        this.bindAuthEvents();
     },
-    async signIn() {
+    bindAuthEvents() {
+        this.elements.googleLoginBtn.addEventListener('click', () => this.signInWithGoogle());
+        this.elements.logoutBtn.addEventListener('click', () => signOut(auth));
+    },
+    async signInWithGoogle() {
         const provider = new GoogleAuthProvider();
+        this.elements.loginError.textContent = '';
         try {
-            this.elements.loginStatus.textContent = "로그인 시도 중...";
             await signInWithPopup(auth, provider);
+            // onAuthStateChanged will handle the rest
         } catch (error) {
-            console.error("로그인 실패:", error);
-            this.elements.loginStatus.textContent = "로그인에 실패했습니다.";
+            console.error("Google Sign-In failed:", error);
+            if (error.code === 'auth/popup-closed-by-user') {
+                this.elements.loginError.textContent = '로그인 팝업이 닫혔습니다.';
+            } else {
+                this.elements.loginError.textContent = 'Google 로그인 중 오류가 발생했습니다.';
+            }
         }
     },
     async startApp() {
+        this.state.isAppStarted = true;
+        
         try {
             await audioCache.init();
         } catch (e) {
@@ -118,7 +133,6 @@ const app = {
         this._renderMode(initialMode);
     },
     bindGlobalEvents() {
-        // ... (기존 bindGlobalEvents 내용은 그대로 유지) ...
         this.elements.selectQuizBtn.addEventListener('click', () => this.navigateTo('quiz'));
         this.elements.selectLearningBtn.addEventListener('click', () => this.navigateTo('learning'));
         
@@ -187,7 +201,6 @@ const app = {
             }
         });
     },
-    // ... (navigateTo, _renderMode, forceReload, showToast, toggleVoiceSet, showFatalError, etc. 함수는 기존과 동일하게 유지)
     navigateTo(mode, options = {}) {
         if (history.state?.mode === mode && mode !== 'learning' && mode !== 'mistakeReview') return;
 
@@ -290,7 +303,8 @@ const app = {
     showFatalError(message) {
         const selectionDiv = this.elements.selectionScreen;
         selectionDiv.innerHTML = `<div class="p-8 text-center"><h1 class="text-3xl font-bold text-red-600 mb-4">앱 시작 실패</h1><p class="text-gray-700 mb-6">Firebase에서 데이터를 불러오는 중 문제가 발생했습니다. <br>네트워크 연결을 확인하고 잠시 후 페이지를 새로고침 해주세요.</p><div class="bg-red-50 text-red-700 p-4 rounded-lg text-left text-sm break-all"><p class="font-semibold">오류 정보:</p><p>${message}</p></div></div>`;
-        selectionDiv.classList.remove('hidden');
+        this.elements.appWrapper.classList.remove('hidden'); // Show wrapper to display error
+        this.elements.selectionScreen.classList.remove('hidden');
         this.elements.quizModeContainer.classList.add('hidden');
         this.elements.learningModeContainer.classList.add('hidden');
     },
@@ -362,8 +376,6 @@ const app = {
     },
 };
 
-// ... (audioCache, api, ui, utils, dashboard, quizMode, learningMode 객체는 기존과 거의 동일하게 유지)
-// 단, API 키가 제거되었으므로, API 호출 부분은 추후 수정이 필요합니다.
 const audioCache = {
     db: null, dbName: 'ttsAudioCacheDB', storeName: 'audioStore',
     init() {
@@ -436,14 +448,78 @@ const api = {
         }
     },
     async speak(text, contentType = 'word') {
-       // 중요: 이 기능은 이제 서버(Apps Script)를 통해 구현해야 합니다.
-       // 현재 클라이언트에서는 API 키가 없으므로 작동하지 않습니다.
-       console.warn("TTS 기능은 서버 측 구현이 필요합니다.");
+        const voiceSets = {
+            'UK': { 'word': { languageCode: 'en-GB', name: 'en-GB-Wavenet-D', ssmlGender: 'MALE' }, 'sample': { languageCode: 'en-GB', name: 'en-GB-Journey-D', ssmlGender: 'MALE' } },
+            'US': { 'word': { languageCode: 'en-US', name: 'en-US-Wavenet-F', ssmlGender: 'FEMALE' }, 'sample': { languageCode: 'en-US', name: 'en-US-Journey-F', ssmlGender: 'FEMALE' } }
+        };
+
+        if (!text || !text.trim() || app.state.isSpeaking) return;
+        if (app.state.audioContext.state === 'suspended') app.state.audioContext.resume();
+        
+        app.state.isSpeaking = true;
+        const textWithoutEmoji = text.replace(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u, '');
+        const processedText = textWithoutEmoji.replace(/\bsb\b/g, 'somebody').replace(/\bsth\b/g, 'something');
+        const voiceConfig = voiceSets[app.state.currentVoiceSet][contentType];
+        
+        const cacheKey = `${processedText}|${voiceConfig.languageCode}|${voiceConfig.name}`;
+
+        const playAudio = async (audioArrayBuffer) => {
+            const audioBuffer = await app.state.audioContext.decodeAudioData(audioArrayBuffer);
+            const source = app.state.audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(app.state.audioContext.destination);
+            source.start(0);
+            source.onended = () => { app.state.isSpeaking = false; };
+        };
+
+        try {
+            const cachedAudio = await audioCache.getAudio(cacheKey);
+            if (cachedAudio) {
+                await playAudio(cachedAudio.slice(0)); 
+                return;
+            }
+
+            const TTS_URL = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${app.config.TTS_API_KEY}`;
+            const response = await fetch(TTS_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ input: { text: processedText }, voice: voiceConfig, audioConfig: { audioEncoding: 'MP3' } })
+            });
+            if (!response.ok) throw new Error(`TTS API Error: ${(await response.json()).error.message}`);
+            
+            const data = await response.json();
+            const byteCharacters = atob(data.audioContent);
+            const byteArray = new Uint8Array(byteCharacters.length).map((_, i) => byteCharacters.charCodeAt(i));
+            const audioArrayBuffer = byteArray.buffer;
+            
+            audioCache.saveAudio(cacheKey, audioArrayBuffer.slice(0)); 
+            
+            await playAudio(audioArrayBuffer);
+
+        } catch (error) {
+            console.error('TTS 재생 또는 캐싱에 실패했습니다:', error);
+            app.state.isSpeaking = false;
+        }
     },
     async translate(text) {
-        // 중요: 이 기능은 이제 서버(Apps Script)를 통해 구현해야 합니다.
-        console.warn("Translate 기능은 서버 측 구현이 필요합니다.");
-        return "번역 기능은 현재 비활성화되었습니다.";
+        if (!app.config.TRANSLATE_API_KEY) {
+            console.warn("Translation API Key is not set.");
+            return "번역 API 키가 설정되지 않았습니다.";
+        }
+        const URL = `https://translation.googleapis.com/language/translate/v2?key=${app.config.TRANSLATE_API_KEY}`;
+        try {
+            const response = await fetch(URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ q: text, target: 'ko', source: 'en' })
+            });
+            if (!response.ok) throw new Error('Translation API request failed');
+            const data = await response.json();
+            return data.data.translations[0].translatedText;
+        } catch (error) {
+            console.error('Translation failed:', error);
+            return "번역 실패";
+        }
     },
     async updateSRSData(word, isCorrect, quizType) {
         try {
@@ -486,7 +562,7 @@ const api = {
     },
     async getLastLearnedIndex() {
         try {
-            const snapshot = await get(ref(database, `/userState/${app.state.currentUser.uid}/lastLearnedIndex`));
+            const snapshot = await get(ref(database, '/userState/lastLearnedIndex'));
             return snapshot.val() || 0;
         } catch (error) {
             console.error("Firebase에서 마지막 학습 위치 로딩 실패:", error);
@@ -495,15 +571,31 @@ const api = {
     },
     async setLastLearnedIndex(index) {
         try {
-            await set(ref(database, `/userState/${app.state.currentUser.uid}/lastLearnedIndex`), index);
+            await set(ref(database, '/userState/lastLearnedIndex'), index);
         } catch (error) {
             console.error("Firebase에 마지막 학습 위치 저장 실패:", error);
         }
     },
      async fetchDefinition(word) {
-        // 중요: 이 기능은 이제 서버(Apps Script)를 통해 구현해야 합니다.
-        console.warn("Definition 기능은 서버 측 구현이 필요합니다.");
-        return "영영사전 기능은 현재 비활성화되었습니다.";
+        const apiKey = app.config.DEFINITION_API_KEY;
+        const url = `https://dictionaryapi.com/api/v3/references/learners/json/${encodeURIComponent(word)}?key=${apiKey}`;
+        
+        try {
+            const response = await fetch(url);
+            if (!response.ok) return null;
+
+            const data = await response.json();
+            if (Array.isArray(data) && data.length > 0) {
+                const firstResult = data[0];
+                if (typeof firstResult === 'object' && firstResult !== null && firstResult.shortdef && Array.isArray(firstResult.shortdef) && firstResult.shortdef.length > 0) {
+                    return firstResult.shortdef[0];
+                }
+            }
+            return null;
+        } catch (e) {
+            console.error(`Merriam-Webster API 호출 실패 for "${word}": ${e.message}`);
+            return null;
+        }
     }
 };
 
@@ -603,7 +695,7 @@ const ui = {
             p.className = 'p-2 rounded transition-colors cursor-pointer hover:bg-gray-200';
             
             p.onclick = (e) => {
-                if (e.target === p) {
+                if (e.target === p) { // 클릭된 대상이 p 태그 자체일 때만 실행
                     api.speak(p.textContent, 'sample');
                 }
             };
@@ -742,6 +834,9 @@ const dashboard = {
     }
 };
 
+// ================================================================
+// Quiz Mode Controller
+// ================================================================
 const quizMode = {
     state: {
         quizType: null,
@@ -1282,12 +1377,11 @@ const learningMode = {
     },
 };
 
-
 document.addEventListener('firebaseSDKLoaded', () => {
     ({ 
-        initializeApp, 
-        getDatabase, ref, get, update, set,
-        getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup 
+        initializeApp, getDatabase, ref, get, update, set, 
+        getAuth, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup
     } = window.firebaseSDK);
     app.init();
 });
+
