@@ -13,7 +13,7 @@ const app = {
         DEFINITION_API_KEY: "02d1892d-8fb1-4e2d-bc43-4ddd4a47eab3",
         // B앱의 방식을 적용하기 위해 아래 SCRIPT_URL을 사용합니다.
         // Google Apps Script를 배포한 후 얻은 URL로 교체해야 합니다.
-        SCRIPT_URL: "여기에_배포된_APPS_SCRIPT_URL을_붙여넣으세요",
+        SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxPcT5G-McvxKr6JTh3-g0AS9S_vkvTr5TVQhoKlytx63anqheeiFOVTvyD8DkUQk4V/exec",
         ALLOWED_USER_EMAIL: "puroome@gmail.com",
     },
     state: {
