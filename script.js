@@ -1139,9 +1139,15 @@ const quizMode = {
         const choices = utils.shuffleArray([correctWordData.meaning, ...Array.from(wrongAnswers)]);
         return { type: 'MULTIPLE_CHOICE_MEANING', question: { word: correctWordData.word }, choices, answer: correctWordData.meaning };
     },
-    createBlankQuiz(correctWordData, allWordsData) {
+createBlankQuiz(correctWordData, allWordsData) {
         if (!correctWordData.sample || correctWordData.sample.trim() === '') return null;
-        const firstLine = correctWordData.sample.split('\n')[0].replace(/\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu, "").trim();
+        
+        // 예문에서 이모지와 함께 별표(*)도 모두 제거합니다.
+        const firstLine = correctWordData.sample.split('\n')[0]
+            .replace(/\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu, "")
+            .replace(/\*/g, '') // 별표(*)를 제거하는 코드를 추가했습니다.
+            .trim();
+
         const placeholderRegex = new RegExp(`\\b${correctWordData.word}\\b`, 'i');
         
         if (!firstLine.match(placeholderRegex)) return null;
