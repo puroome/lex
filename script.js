@@ -737,19 +737,17 @@ const ui = {
             }
         });
     },
-    displaySentences(sentences, containerElement) {
+displaySentences(sentences, containerElement) {
         containerElement.innerHTML = '';
         sentences.filter(s => s && s.trim()).forEach(sentence => {
             const p = document.createElement('p');
-            p.className = 'p-2 rounded transition-colors cursor-pointer hover:bg-gray-200';
-            
-            p.onclick = (e) => {
-                if (e.target === p) { // 클릭된 대상이 p 태그 자체일 때만 실행
-                    api.speak(p.textContent, 'sample');
-                }
-            };
+            // 문장 내용과 클릭 영역을 분리하기 위해 flexbox 레이아웃을 사용합니다.
+            p.className = 'p-2 rounded transition-colors hover:bg-gray-200 flex justify-between items-center';
 
-            p.addEventListener('mouseenter', (e) => {
+            const sentenceContent = document.createElement('span'); // 문장 텍스트를 담을 span
+
+            // 번역 툴팁 이벤트는 문장 텍스트(sentenceContent) 위에서만 동작하도록 합니다.
+            sentenceContent.addEventListener('mouseenter', (e) => {
                 clearTimeout(app.state.translationTimer);
                 app.state.translationTimer = setTimeout(async () => {
                     const translatedText = await api.translate(p.textContent);
@@ -757,7 +755,7 @@ const ui = {
                 }, 1000);
             });
 
-            p.addEventListener('mouseleave', () => {
+            sentenceContent.addEventListener('mouseleave', () => {
                 clearTimeout(app.state.translationTimer);
                 this.hideTranslationTooltip();
             });
@@ -767,11 +765,21 @@ const ui = {
                 if (part.startsWith('*') && part.endsWith('*')) {
                     const strong = document.createElement('strong');
                     strong.appendChild(this.createInteractiveFragment(part.slice(1, -1), true));
-                    p.appendChild(strong);
+                    sentenceContent.appendChild(strong);
                 } else if (part) {
-                    p.appendChild(this.createInteractiveFragment(part, true));
+                    sentenceContent.appendChild(this.createInteractiveFragment(part, true));
                 }
             });
+            p.appendChild(sentenceContent);
+
+            // 문장 뒤 빈 공간을 채우고, 클릭 이벤트를 담당할 별도의 span을 만듭니다.
+            const ttsTrigger = document.createElement('span');
+            ttsTrigger.className = 'tts-trigger-area flex-grow h-6 cursor-pointer'; // 클릭 가능한 영역을 확보합니다.
+            ttsTrigger.onclick = () => {
+                api.speak(p.textContent, 'sample');
+            };
+            p.appendChild(ttsTrigger);
+
             containerElement.appendChild(p);
         });
     },
