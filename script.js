@@ -1,23 +1,11 @@
 // ================================================================
-// Firebase 설정
-// ================================================================
-const firebaseConfig = {
-  apiKey: "AIzaSyAX-cFBU45qFZTAtLYPTolSzqqLTfEvjP0",
-  authDomain: "word-91148.firebaseapp.com",
-  databaseURL: "https://word-91148-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "word-91148",
-  storageBucket: "word-91148.firebasestorage.app",
-  messagingSenderId: "53576845185",
-  appId: "1:53576845185:web:f519aa3ec751e12cb88a80"
-};
-
-// Firebase 앱 초기화
-firebase.initializeApp(firebaseConfig);
-const database = firebase.database();
-
-// ================================================================
 // App Main Controller
 // ================================================================
+
+// 전역 변수 초기화
+let firebaseApp, database;
+const { initializeApp, getDatabase, ref, get, update, set } = window.firebaseSDK;
+
 const app = {
     config: {
         TTS_API_KEY: "AIzaSyAJmQBGY4H9DVMlhMtvAAVMi_4N7__DfKA",
@@ -41,6 +29,7 @@ const app = {
         learningModeContainer: document.getElementById('learning-mode-container'),
         dashboardContainer: document.getElementById('dashboard-container'),
         imeWarning: document.getElementById('ime-warning'),
+        globalLoader: document.getElementById('global-loader'),
         noSampleMessage: document.getElementById('no-sample-message'),
         wordContextMenu: document.getElementById('word-context-menu'),
         searchAppContextBtn: document.getElementById('search-app-context-btn'),
@@ -54,6 +43,8 @@ const app = {
         selectMistakesBtn: document.getElementById('select-mistakes-btn'),
     },
     async init() {
+        this.initializeFirebase();
+
         try {
             await audioCache.init();
         } catch (e) {
@@ -69,6 +60,19 @@ const app = {
         history.replaceState({ mode: initialMode, options: {} }, '', window.location.href);
         this._renderMode(initialMode);
     },
+    initializeFirebase() {
+        const firebaseConfig = {
+            apiKey: "AIzaSyAX-cFBU45qFZTAtLYPTolSzqqLTfEvjP0",
+            authDomain: "word-91148.firebaseapp.com",
+            databaseURL: "https://word-91148-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "word-91148",
+            storageBucket: "word-91148.firebasestorage.app",
+            messagingSenderId: "53576845185",
+            appId: "1:53576845185:web:f519aa3ec751e12cb88a80"
+        };
+        firebaseApp = initializeApp(firebaseConfig);
+        database = getDatabase(firebaseApp);
+    },
     bindGlobalEvents() {
         document.getElementById('select-quiz-btn').addEventListener('click', () => this.navigateTo('quiz'));
         document.getElementById('select-learning-btn').addEventListener('click', () => this.navigateTo('learning'));
@@ -78,7 +82,7 @@ const app = {
             await new Promise(resolve => setTimeout(resolve, 10)); 
             dashboard.elements.content.innerHTML = `<div class="text-center p-10"><div class="loader mx-auto"></div><p class="mt-4 text-gray-600">최신 통계를 불러오는 중...</p></div>`;
             try {
-                await api.loadWordList(true); // 항상 최신 데이터로 대시보드 렌더링
+                await api.loadWordList(true);
                 dashboard.render();
             } catch (e) {
                 dashboard.elements.content.innerHTML = `<div class="p-8 text-center text-red-600">통계 데이터를 불러오는데 실패했습니다: ${e.message}</div>`;
@@ -88,7 +92,7 @@ const app = {
         document.getElementById('select-mistakes-btn').addEventListener('click', async () => {
             app.showToast('오답 노트를 불러오는 중...');
             try {
-                await api.loadWordList(true); // 최신 오답 노트를 위해 데이터 새로고침
+                await api.loadWordList(true);
                 const mistakeWords = app.state.wordList
                     .filter(word => word.incorrect === 1)
                     .sort((a, b) => {
@@ -180,7 +184,7 @@ const app = {
         } else if (mode === 'dashboard') {
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.dashboardContainer.classList.remove('hidden');
-            dashboard.render(); // 대시보드 화면으로 올 때마다 렌더링
+            dashboard.render();
         } else if (mode === 'mistakeReview') {
             const mistakeWords = options.mistakeWords;
             if (!mistakeWords || mistakeWords.length === 0) {
@@ -198,37 +202,23 @@ const app = {
         }
     },
     async forceReload() {
-        const isSelectionScreen = !this.elements.selectionScreen.classList.contains('hidden');
-        if (!isSelectionScreen) {
-            this.showToast('새로고침은 모드 선택 화면에서만 가능합니다.', true);
-            return;
-        }
+        this.elements.globalLoader.classList.remove('hidden');
         
         const elementsToDisable = [
-            this.elements.refreshBtn,
-            this.elements.selectDashboardBtn,
-            this.elements.selectMistakesBtn,
-        ];
-        const elementsToStyle = [
-             this.elements.selectLearningBtn,
-             this.elements.selectQuizBtn,
+            this.elements.refreshBtn, this.elements.selectDashboardBtn, this.elements.selectMistakesBtn,
+            this.elements.selectLearningBtn, this.elements.selectQuizBtn
         ];
 
-        elementsToDisable.forEach(el => { if(el) el.disabled = true; });
-        elementsToStyle.forEach(el => { if(el) el.classList.add('pointer-events-none', 'opacity-50'); });
+        elementsToDisable.forEach(el => el.classList.add('pointer-events-none', 'opacity-50'));
         
-        const refreshIcon = this.elements.refreshBtn.querySelector('svg');
-        if (refreshIcon) refreshIcon.classList.add('animate-spin');
-
         try {
             await api.loadWordList(true);
             this.showToast('데이터를 성공적으로 새로고침했습니다!');
         } catch(e) {
             this.showToast('데이터 새로고침에 실패했습니다: ' + e.message, true);
         } finally {
-            elementsToDisable.forEach(el => { if(el) el.disabled = false; });
-            elementsToStyle.forEach(el => { if(el) el.classList.remove('pointer-events-none', 'opacity-50'); });
-            if (refreshIcon) refreshIcon.classList.remove('animate-spin');
+            elementsToDisable.forEach(el => el.classList.remove('pointer-events-none', 'opacity-50'));
+            this.elements.globalLoader.classList.add('hidden');
         }
     },
     showToast(message, isError = false) {
@@ -383,7 +373,8 @@ const api = {
         if (app.state.isWordListReady && !force) return;
 
         try {
-            const snapshot = await database.ref('/vocabulary').once('value');
+            const dbRef = ref(database, '/vocabulary');
+            const snapshot = await get(dbRef);
             const data = snapshot.val();
             if (!data) throw new Error("Firebase에 단어 데이터가 없습니다.");
 
@@ -463,6 +454,8 @@ const api = {
         try {
             const safeKey = word.replace(/[.#$\[\]\/]/g, '_');
             const updates = {};
+            const dbRef = ref(database);
+
             const srsKey = {
                 'MULTIPLE_CHOICE_MEANING': 'srsMeaning',
                 'FILL_IN_THE_BLANK': 'srsBlank',
@@ -478,7 +471,7 @@ const api = {
                  updates[`/vocabulary/${safeKey}/lastIncorrect`] = new Date().toISOString();
             }
             
-            await database.ref().update(updates);
+            await update(dbRef, updates);
             
             // 로컬 상태도 업데이트
             const wordIndex = app.state.wordList.findIndex(w => w.word === word);
@@ -500,7 +493,7 @@ const api = {
     },
     async getLastLearnedIndex() {
         try {
-            const snapshot = await database.ref('/userState/lastLearnedIndex').once('value');
+            const snapshot = await get(ref(database, '/userState/lastLearnedIndex'));
             return snapshot.val() || 0;
         } catch (error) {
             console.error("Firebase에서 마지막 학습 위치 로딩 실패:", error);
@@ -509,7 +502,7 @@ const api = {
     },
     async setLastLearnedIndex(index) {
         try {
-            await database.ref('/userState/lastLearnedIndex').set(index);
+            await set(ref(database, '/userState/lastLearnedIndex'), index);
         } catch (error) {
             console.error("Firebase에 마지막 학습 위치 저장 실패:", error);
         }
@@ -538,6 +531,33 @@ const api = {
 };
 
 const ui = {
+    nonInteractiveWords: new Set([
+        // Pronouns
+        'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
+        'my', 'your', 'his', 'its', 'our', 'their', 'mine', 'yours', 'hers', 'ours', 'theirs',
+        'this', 'that', 'these', 'those', 'myself', 'yourself', 'himself', 'herself', 'itself',
+        'ourselves', 'yourselves', 'themselves', 'one', 'all', 'some', 'any', 'other', 'another',
+        'many', 'much', 'few', 'little', 'everyone', 'everything', 'everywhere', 'someone',
+        'something', 'somewhere', 'anyone', 'anything', 'anywhere', 'no one', 'nothing', 'nowhere',
+        // Articles
+        'a', 'an', 'the',
+        // Prepositions
+        'of', 'in', 'to', 'for', 'with', 'on', 'at', 'by', 'from', 'under', 'over', 'above',
+        'below', 'near', 'next', 'beside', 'between', 'among', 'behind', 'front', 'since',
+        'into', 'out', 'up', 'down', 'across', 'through', 'along', 'around', 'about', 'as',
+        'like', 'without', 'than', 'until', 'during',
+        // Conjunctions
+        'and', 'but', 'or', 'so', 'yet', 'nor', 'neither', 'either', 'when', 'while', 'before',
+        'after', 'because', 'if', 'unless', 'although', 'though', 'even', 'whether',
+        // Interrogatives
+        'who', 'what', 'whose', 'whom', 'which', 'where', 'why', 'how',
+        // Relatives
+        'that', 'whatever', 'whichever', 'whoever', 'whenever', 'wherever', 'however',
+        // Auxiliary Verbs
+        'will', 'would', 'can', 'could', 'may', 'might', 'should', 'must', 'shall', 'ought',
+        'have', 'be', 'am', 'is', 'are', 'was', 'were', 'has', 'had', 'do', 'does', 'did'
+    ]),
+
     adjustFontSize(element) {
         element.style.fontSize = '';
         let currentFontSize = parseFloat(window.getComputedStyle(element).fontSize);
@@ -555,119 +575,96 @@ const ui = {
             catch (err) { console.error('클립보드 복사 실패:', err); }
         }
     },
+    createInteractiveFragment(text, isForSampleSentence = false) {
+        const fragment = document.createDocumentFragment();
+        if (!text || !text.trim()) return fragment;
+
+        // 문장 부호와 공백을 포함하여 단어를 분리하는 정규식
+        const regex = /([a-zA-Z0-9'-]+)|(\s+|[.,?!;:"]+)/g;
+        let match;
+
+        while ((match = regex.exec(text)) !== null) {
+            const [fullMatch, word, separator] = match;
+
+            if (word) {
+                const lowerCaseWord = word.toLowerCase();
+                const isNonInteractive = this.nonInteractiveWords.has(lowerCaseWord) || /^\d+$/.test(word);
+
+                const span = document.createElement('span');
+                span.textContent = word;
+
+                if (isNonInteractive) {
+                    span.className = 'non-interactive-word';
+                } else {
+                    span.className = 'interactive-word';
+                    span.onclick = (e) => { 
+                        if (isForSampleSentence) e.stopPropagation();
+                        clearTimeout(app.state.longPressTimer); 
+                        api.speak(word, 'word'); 
+                        this.copyToClipboard(word); 
+                    };
+                    
+                    span.oncontextmenu = (e) => { 
+                        e.preventDefault(); 
+                        if (isForSampleSentence) e.stopPropagation();
+                        this.showWordContextMenu(e, word); 
+                    };
+                    
+                    let touchMove = false;
+                    span.addEventListener('touchstart', (e) => { 
+                        if (isForSampleSentence) e.stopPropagation();
+                        touchMove = false; 
+                        clearTimeout(app.state.longPressTimer); 
+                        app.state.longPressTimer = setTimeout(() => { if (!touchMove) { this.showWordContextMenu(e, word); } }, 700); 
+                    }, { passive: true });
+                    span.addEventListener('touchmove', (e) => { 
+                        if (isForSampleSentence) e.stopPropagation();
+                        touchMove = true; 
+                        clearTimeout(app.state.longPressTimer); 
+                    });
+                    span.addEventListener('touchend', (e) => { 
+                        if (isForSampleSentence) e.stopPropagation();
+                        clearTimeout(app.state.longPressTimer); 
+                    });
+                }
+                fragment.appendChild(span);
+            } else if (separator) {
+                fragment.appendChild(document.createTextNode(separator));
+            }
+        }
+        return fragment;
+    },
     renderInteractiveText(targetElement, text) {
         targetElement.innerHTML = '';
         if (!text || !text.trim()) return;
-        const regex = /(\[.*?\])|([a-zA-Z0-9'-]+(?:[\s'-]*[a-zA-Z0-9'-]+)*)/g;
-        text.split('\n').forEach(line => {
-            let lastIndex = 0;
-            let match;
-            while ((match = regex.exec(line))) {
-                if (match.index > lastIndex) {
-                    targetElement.appendChild(document.createTextNode(line.substring(lastIndex, match.index)));
-                }
-                const [_, nonClickable, englishPhrase] = match;
-                if (englishPhrase) {
-                    const span = document.createElement('span');
-                    span.textContent = englishPhrase;
-                    span.className = 'cursor-pointer hover:bg-yellow-200 p-1 rounded-sm transition-colors interactive-word';
-
-                    span.onclick = () => {
-                        clearTimeout(app.state.longPressTimer);
-                        api.speak(englishPhrase, 'word');
-                        this.copyToClipboard(englishPhrase);
-                    };
-
-                    span.oncontextmenu = (e) => {
-                        e.preventDefault();
-                        this.showWordContextMenu(e, englishPhrase);
-                    };
-
-                    let touchMove = false;
-                    span.addEventListener('touchstart', (e) => {
-                        touchMove = false;
-                        clearTimeout(app.state.longPressTimer);
-                        app.state.longPressTimer = setTimeout(() => {
-                            if (!touchMove) {
-                                this.showWordContextMenu(e, englishPhrase);
-                            }
-                        }, 700);
-                    });
-                    span.addEventListener('touchmove', () => {
-                        touchMove = true;
-                        clearTimeout(app.state.longPressTimer);
-                    });
-                    span.addEventListener('touchend', () => {
-                        clearTimeout(app.state.longPressTimer);
-                    });
-                    targetElement.appendChild(span);
-                } else if (nonClickable) {
-                    targetElement.appendChild(document.createTextNode(nonClickable));
-                }
-                lastIndex = regex.lastIndex;
+        
+        const textWithBrackets = text.replace(/\[/g, ' [').replace(/\]/g, '] ');
+        
+        textWithBrackets.split('\n').forEach((line, index, arr) => {
+            const fragment = this.createInteractiveFragment(line);
+            targetElement.appendChild(fragment);
+            if (index < arr.length - 1) {
+                targetElement.appendChild(document.createElement('br'));
             }
-            if (lastIndex < line.length) {
-                targetElement.appendChild(document.createTextNode(line.substring(lastIndex)));
-            }
-            targetElement.appendChild(document.createElement('br'));
         });
-        if (targetElement.lastChild && targetElement.lastChild.tagName === 'BR') {
-            targetElement.removeChild(targetElement.lastChild);
-        }
     },
     displaySentences(sentences, containerElement) {
         containerElement.innerHTML = '';
         sentences.filter(s => s && s.trim()).forEach(sentence => {
             const p = document.createElement('p');
-            p.className = 'p-2 rounded transition-colors cursor-pointer hover:bg-gray-200 sample-sentence';
-
+            p.className = 'p-2 rounded transition-colors cursor-pointer hover:bg-gray-200';
             p.onclick = () => api.speak(p.textContent, 'sample');
             
-            const processTextInto = (targetElement, text) => {
-                const parts = text.split(/([,\s\.'])/g).filter(part => part);
-
-                parts.forEach(part => {
-                    if (/[a-zA-Z]/.test(part)) {
-                        const span = document.createElement('span');
-                        span.textContent = part;
-                        span.className = 'hover:bg-yellow-200 rounded-sm transition-colors interactive-word';
-                        
-                        span.onclick = (e) => { 
-                            e.stopPropagation(); 
-                            clearTimeout(app.state.longPressTimer); 
-                            api.speak(part, 'word'); 
-                            this.copyToClipboard(part); 
-                        };
-                        
-                        span.oncontextmenu = (e) => { 
-                            e.preventDefault(); 
-                            e.stopPropagation(); 
-                            this.showWordContextMenu(e, part); 
-                        };
-                        
-                        let touchMove = false;
-                        span.addEventListener('touchstart', (e) => { e.stopPropagation(); touchMove = false; clearTimeout(app.state.longPressTimer); app.state.longPressTimer = setTimeout(() => { if (!touchMove) { this.showWordContextMenu(e, part); } }, 700); }, { passive: true });
-                        span.addEventListener('touchmove', (e) => { e.stopPropagation(); touchMove = true; clearTimeout(app.state.longPressTimer); });
-                        span.addEventListener('touchend', (e) => { e.stopPropagation(); clearTimeout(app.state.longPressTimer); });
-                        
-                        targetElement.appendChild(span);
-                    } else {
-                        targetElement.appendChild(document.createTextNode(part));
-                    }
-                });
-            };
-
             const sentenceParts = sentence.split(/(\*.*?\*)/g);
             sentenceParts.forEach(part => {
                 if (part.startsWith('*') && part.endsWith('*')) {
                     const strong = document.createElement('strong');
-                    processTextInto(strong, part.slice(1, -1));
+                    strong.appendChild(this.createInteractiveFragment(part.slice(1, -1), true));
                     p.appendChild(strong);
                 } else if (part) {
-                    processTextInto(p, part);
+                    p.appendChild(this.createInteractiveFragment(part, true));
                 }
             });
-
             containerElement.appendChild(p);
         });
     },
@@ -687,29 +684,11 @@ const ui = {
 
         const encodedWord = encodeURIComponent(word);
 
-        app.elements.searchAppContextBtn.onclick = () => {
-            app.searchWordInLearningMode(word);
-        };
-        
-        app.elements.searchDaumContextBtn.onclick = () => {
-            window.open(`https://dic.daum.net/search.do?q=${encodedWord}`, 'daum_dictionary_window');
-            this.hideWordContextMenu();
-        };
-        
-        app.elements.searchNaverContextBtn.onclick = () => {
-            window.open(`https://en.dict.naver.com/#/search?query=${encodedWord}`, 'naver_dictionary_window');
-            this.hideWordContextMenu();
-        };
-
-        app.elements.searchEtymContextBtn.onclick = () => {
-            window.open(`https://www.etymonline.com/search?q=${encodedWord}`, 'etymonline_window');
-            this.hideWordContextMenu();
-        };
-
-        app.elements.searchLongmanContextBtn.onclick = () => {
-            window.open(`https://www.ldoceonline.com/dictionary/${encodedWord}`, 'longman_dictionary_window');
-            this.hideWordContextMenu();
-        };
+        app.elements.searchAppContextBtn.onclick = () => app.searchWordInLearningMode(word);
+        app.elements.searchDaumContextBtn.onclick = () => { window.open(`https://dic.daum.net/search.do?q=${encodedWord}`); this.hideWordContextMenu(); };
+        app.elements.searchNaverContextBtn.onclick = () => { window.open(`https://en.dict.naver.com/#/search?query=${encodedWord}`); this.hideWordContextMenu(); };
+        app.elements.searchEtymContextBtn.onclick = () => { window.open(`https://www.etymonline.com/search?q=${encodedWord}`); this.hideWordContextMenu(); };
+        app.elements.searchLongmanContextBtn.onclick = () => { window.open(`https://www.ldoceonline.com/dictionary/${encodedWord}`); this.hideWordContextMenu(); };
     },
     hideWordContextMenu() {
         app.elements.wordContextMenu.classList.add('hidden');
@@ -758,61 +737,28 @@ const dashboard = {
 
         const wordList = app.state.wordList;
         const totalWords = wordList.length;
-
         const stages = [
             { name: '새 단어', count: 0, color: 'bg-gray-400' },
             { name: '학습 중', count: 0, color: 'bg-blue-500' },
             { name: '익숙함', count: 0, color: 'bg-yellow-500' },
             { name: '학습 완료', count: 0, color: 'bg-green-500' }
         ];
-
         wordList.forEach(word => {
             const { srsMeaning, srsBlank, srsDefinition } = word;
-            
-            // Check for both null and undefined to correctly categorize new words
-            if ((srsMeaning === null || srsMeaning === undefined) &&
-                (srsBlank === null || srsBlank === undefined) &&
-                (srsDefinition === null || srsDefinition === undefined)) {
-                stages[0].count++; // 새 단어
-                return;
+            if ((srsMeaning === null || srsMeaning === undefined) && (srsBlank === null || srsBlank === undefined) && (srsDefinition === null || srsDefinition === undefined)) {
+                stages[0].count++; return;
             }
-
             const score = (srsMeaning === 1 ? 1 : 0) + (srsBlank === 1 ? 1 : 0) + (srsDefinition === 1 ? 1 : 0);
-
-            if (score === 3) {
-                stages[3].count++; // 학습 완료
-            } else if (score === 2) {
-                stages[2].count++; // 익숙함
-            } else {
-                stages[1].count++; // 학습 중
-            }
+            if (score === 3) stages[3].count++;
+            else if (score === 2) stages[2].count++;
+            else stages[1].count++;
         });
 
-        let contentHTML = `
-            <div class="bg-gray-50 p-4 rounded-lg shadow-inner text-center">
-                <p class="text-lg text-gray-600">총 단어 수</p>
-                <p class="text-4xl font-bold text-gray-800">${totalWords}</p>
-            </div>
-            <div>
-                <h2 class="text-xl font-bold text-gray-700 mb-3 text-center">학습 단계별 분포</h2>
-                <div class="space-y-4">
-        `;
-
+        let contentHTML = `<div class="bg-gray-50 p-4 rounded-lg shadow-inner text-center"><p class="text-lg text-gray-600">총 단어 수</p><p class="text-4xl font-bold text-gray-800">${totalWords}</p></div><div><h2 class="text-xl font-bold text-gray-700 mb-3 text-center">학습 단계별 분포</h2><div class="space-y-4">`;
         stages.forEach(stage => {
             const percentage = totalWords > 0 ? ((stage.count / totalWords) * 100).toFixed(1) : 0;
-            contentHTML += `
-                <div class="w-full">
-                    <div class="flex justify-between items-center mb-1">
-                        <span class="text-base font-semibold text-gray-700">${stage.name}</span>
-                        <span class="text-sm font-medium text-gray-500">${stage.count}개 (${percentage}%)</span>
-                    </div>
-                    <div class="w-full bg-gray-200 rounded-full h-4">
-                        <div class="${stage.color} h-4 rounded-full" style="width: ${percentage}%"></div>
-                    </div>
-                </div>
-            `;
+            contentHTML += `<div class="w-full"><div class="flex justify-between items-center mb-1"><span class="text-base font-semibold text-gray-700">${stage.name}</span><span class="text-sm font-medium text-gray-500">${stage.count}개 (${percentage}%)</span></div><div class="w-full bg-gray-200 rounded-full h-4"><div class="${stage.color} h-4 rounded-full" style="width: ${percentage}%"></div></div></div>`;
         });
-
         contentHTML += `</div></div>`;
         this.elements.content.innerHTML = contentHTML;
     }
@@ -915,17 +861,18 @@ const quizMode = {
 
         utils.shuffleArray(reviewCandidates);
         
-        const quizPromises = reviewCandidates.slice(0, batchSize).map(wordData => {
-            if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING') {
-                return this.createMeaningQuiz(wordData, allWords);
-            } else if (this.state.quizType === 'FILL_IN_THE_BLANK') {
-                return this.createBlankQuiz(wordData, allWords);
-            } else if (this.state.quizType === 'MULTIPLE_CHOICE_DEFINITION') {
-                return this.createDefinitionQuiz(wordData, allWords);
-            }
-        });
+        const quizPromises = reviewCandidates.slice(0, batchSize * 2) // API 실패 대비 2배수 후보 선정
+            .map(async (wordData) => {
+                if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING') {
+                    return this.createMeaningQuiz(wordData, allWords);
+                } else if (this.state.quizType === 'FILL_IN_THE_BLANK') {
+                    return this.createBlankQuiz(wordData, allWords);
+                } else if (this.state.quizType === 'MULTIPLE_CHOICE_DEFINITION') {
+                    return await this.createDefinitionQuiz(wordData, allWords);
+                }
+            });
         
-        const generatedQuizzes = (await Promise.all(quizPromises)).filter(q => q !== null);
+        const generatedQuizzes = (await Promise.all(quizPromises)).filter(q => q !== null).slice(0, batchSize);
         this.state.quizBatch = generatedQuizzes;
     },
     displayNextQuiz() {
@@ -945,27 +892,26 @@ const quizMode = {
         const questionDisplay = this.elements.questionDisplay;
         questionDisplay.innerHTML = '';
 
-        if (type === 'FILL_IN_THE_BLANK') {
+        if (type === 'FILL_IN_THE_BLANK' || type === 'MULTIPLE_CHOICE_DEFINITION') {
             questionDisplay.classList.remove('justify-center', 'items-center');
             const p = document.createElement('p');
-            p.className = 'text-xl sm:text-2xl text-left text-gray-800 leading-relaxed quiz-sentence-indent';
-            ui.renderInteractiveText(p, question.sentence_with_blank);
+            const className = type === 'FILL_IN_THE_BLANK'
+                ? 'text-xl sm:text-2xl text-left text-gray-800 leading-relaxed quiz-sentence-indent'
+                : 'text-lg sm:text-xl text-left text-gray-800 leading-relaxed';
+            p.className = className;
+            
+            const textToRender = type === 'FILL_IN_THE_BLANK' ? question.sentence_with_blank : question.definition;
+            p.appendChild(ui.createInteractiveFragment(textToRender));
             questionDisplay.appendChild(p);
         } else if (type === 'MULTIPLE_CHOICE_MEANING') {
             questionDisplay.classList.add('justify-center', 'items-center');
-            questionDisplay.innerHTML = `<h1 class="text-3xl sm:text-4xl font-bold text-center text-gray-800">${question.word}</h1>`;
-            const wordEl = questionDisplay.querySelector('h1');
+            questionDisplay.innerHTML = `<h1 id="quiz-word" class="text-3xl sm:text-4xl font-bold text-center text-gray-800 cursor-pointer">${question.word}</h1>`;
+            const wordEl = questionDisplay.querySelector('#quiz-word');
             wordEl.addEventListener('click', () => {
                 api.speak(question.word, 'word');
                 ui.copyToClipboard(question.word);
             });
             ui.adjustFontSize(wordEl);
-        } else if (type === 'MULTIPLE_CHOICE_DEFINITION') {
-            questionDisplay.classList.remove('justify-center', 'items-center');
-            const p = document.createElement('p');
-            p.className = 'text-lg sm:text-xl text-left text-gray-800 leading-relaxed';
-            ui.renderInteractiveText(p, question.definition);
-            questionDisplay.appendChild(p);
         }
 
         this.elements.choices.innerHTML = '';
@@ -1328,16 +1274,9 @@ const learningMode = {
         this.elements.explanationContainer.classList.toggle('hidden', !wordData.explanation || !wordData.explanation.trim());
         
         switch(wordData.sampleSource) {
-            case 'manual':
-                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png';
-                break;
-            case 'ai':
-                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/3-search-cat_icon-icons.com_76679.png';
-                break;
-            case 'none':
-            default:
-                this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
-                break;
+            case 'manual': this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png'; break;
+            case 'ai': this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/3-search-cat_icon-icons.com_76679.png'; break;
+            default: this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png'; break;
         }
     },
     navigate(direction) {
@@ -1388,27 +1327,13 @@ const learningMode = {
     isLearningModeActive() {
         return !this.elements.appContainer.classList.contains('hidden');
     },
-    handleMiddleClick(e) {
-        if (this.isLearningModeActive() && e.button === 1) {
-            e.preventDefault();
-            this.elements.sampleBtn.click();
-        }
-    },
+    handleMiddleClick(e) { if (this.isLearningModeActive() && e.button === 1) { e.preventDefault(); this.elements.sampleBtn.click(); } },
     handleKeyDown(e) {
         if (!this.isLearningModeActive() || document.activeElement.tagName.match(/INPUT|TEXTAREA/)) return;
         const keyMap = { 'ArrowLeft': -1, 'ArrowRight': 1 };
-        if (keyMap[e.key] !== undefined) {
-            e.preventDefault();
-            this.navigate(keyMap[e.key]);
-        } else if (e.key === 'Enter') {
-            e.preventDefault();
-            this.handleFlip();
-        } else if (e.key === ' ') {
-            e.preventDefault();
-            if (!this.elements.cardBack.classList.contains('is-slid-up')) {
-                api.speak(this.elements.wordDisplay.textContent, 'word');
-            }
-        }
+        if (keyMap[e.key] !== undefined) { e.preventDefault(); this.navigate(keyMap[e.key]); } 
+        else if (e.key === 'Enter') { e.preventDefault(); this.handleFlip(); } 
+        else if (e.key === ' ') { e.preventDefault(); if (!this.elements.cardBack.classList.contains('is-slid-up')) { api.speak(this.state.currentWordList[this.state.currentIndex]?.word, 'word'); } }
     },
     handleTouchStart(e) {
         if (!this.isLearningModeActive()) return;
@@ -1418,28 +1343,17 @@ const learningMode = {
     },
     handleTouchEnd(e) {
         if (!this.isLearningModeActive() || this.state.touchstartX === 0) return;
-        if (e.target.closest('button, a, input, [onclick], .interactive-word')) {
-             this.state.touchstartX = this.state.touchstartY = 0;
-             return;
-        }
+        if (e.target.closest('button, a, input, [onclick], .interactive-word')) { this.state.touchstartX = this.state.touchstartY = 0; return; }
         const deltaX = e.changedTouches[0].screenX - this.state.touchstartX;
         const deltaY = e.changedTouches[0].screenY - this.state.touchstartY;
-        
-        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
-            this.navigate(deltaX > 0 ? -1 : 1);
-        } 
-        else if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 50) {
-            if (!e.target.closest('#learning-app-container')) {
-                if (deltaY < 0) { 
-                    this.navigate(1); 
-                }
-            }
-        }
+        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) { this.navigate(deltaX > 0 ? -1 : 1); } 
+        else if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 50) { if (!e.target.closest('#learning-app-container') && deltaY < 0) { this.navigate(1); } }
         this.state.touchstartX = this.state.touchstartY = 0;
     }
 };
 
-document.addEventListener('DOMContentLoaded', () => {
+// Firebase SDK가 로드된 후 앱 초기화
+document.addEventListener('firebaseSDKLoaded', () => {
     app.init();
 });
 
