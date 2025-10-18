@@ -579,68 +579,74 @@ const ui = {
         const fragment = document.createDocumentFragment();
         if (!text || !text.trim()) return fragment;
 
-        // 문장 부호와 공백을 포함하여 단어를 분리하는 정규식
-        const regex = /([a-zA-Z0-9'-]+)|(\s+|[.,?!;:"]+)/g;
+        // 영어 단어만 찾는 정규식
+        const regex = /([a-zA-Z0-9'-]+)/g;
         let match;
+        let lastIndex = 0;
 
         while ((match = regex.exec(text)) !== null) {
-            const [fullMatch, word, separator] = match;
-
-            if (word) {
-                const lowerCaseWord = word.toLowerCase();
-                const isNonInteractive = this.nonInteractiveWords.has(lowerCaseWord) || /^\d+$/.test(word);
-
-                const span = document.createElement('span');
-                span.textContent = word;
-
-                if (isNonInteractive) {
-                    span.className = 'non-interactive-word';
-                } else {
-                    span.className = 'interactive-word';
-                    span.onclick = (e) => { 
-                        if (isForSampleSentence) e.stopPropagation();
-                        clearTimeout(app.state.longPressTimer); 
-                        api.speak(word, 'word'); 
-                        this.copyToClipboard(word); 
-                    };
-                    
-                    span.oncontextmenu = (e) => { 
-                        e.preventDefault(); 
-                        if (isForSampleSentence) e.stopPropagation();
-                        this.showWordContextMenu(e, word); 
-                    };
-                    
-                    let touchMove = false;
-                    span.addEventListener('touchstart', (e) => { 
-                        if (isForSampleSentence) e.stopPropagation();
-                        touchMove = false; 
-                        clearTimeout(app.state.longPressTimer); 
-                        app.state.longPressTimer = setTimeout(() => { if (!touchMove) { this.showWordContextMenu(e, word); } }, 700); 
-                    }, { passive: true });
-                    span.addEventListener('touchmove', (e) => { 
-                        if (isForSampleSentence) e.stopPropagation();
-                        touchMove = true; 
-                        clearTimeout(app.state.longPressTimer); 
-                    });
-                    span.addEventListener('touchend', (e) => { 
-                        if (isForSampleSentence) e.stopPropagation();
-                        clearTimeout(app.state.longPressTimer); 
-                    });
-                }
-                fragment.appendChild(span);
-            } else if (separator) {
-                fragment.appendChild(document.createTextNode(separator));
+            // 영어 단어 이전의 텍스트(한글, 공백, 구두점 등)를 추가
+            if (match.index > lastIndex) {
+                fragment.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
             }
+
+            // 찾은 영어 단어 처리
+            const word = match[0];
+            const lowerCaseWord = word.toLowerCase();
+            const isNonInteractive = this.nonInteractiveWords.has(lowerCaseWord) || /^\d+$/.test(word);
+            const span = document.createElement('span');
+            span.textContent = word;
+
+            if (isNonInteractive) {
+                span.className = 'non-interactive-word';
+            } else {
+                span.className = 'interactive-word';
+                span.onclick = (e) => {
+                    if (isForSampleSentence) e.stopPropagation();
+                    clearTimeout(app.state.longPressTimer);
+                    api.speak(word, 'word');
+                    this.copyToClipboard(word);
+                };
+                span.oncontextmenu = (e) => {
+                    e.preventDefault();
+                    if (isForSampleSentence) e.stopPropagation();
+                    this.showWordContextMenu(e, word);
+                };
+
+                let touchMove = false;
+                span.addEventListener('touchstart', (e) => {
+                    if (isForSampleSentence) e.stopPropagation();
+                    touchMove = false;
+                    clearTimeout(app.state.longPressTimer);
+                    app.state.longPressTimer = setTimeout(() => { if (!touchMove) { this.showWordContextMenu(e, word); } }, 700);
+                }, { passive: true });
+                span.addEventListener('touchmove', (e) => {
+                    if (isForSampleSentence) e.stopPropagation();
+                    touchMove = true;
+                    clearTimeout(app.state.longPressTimer);
+                });
+                span.addEventListener('touchend', (e) => {
+                    if (isForSampleSentence) e.stopPropagation();
+                    clearTimeout(app.state.longPressTimer);
+                });
+            }
+            fragment.appendChild(span);
+
+            lastIndex = regex.lastIndex;
         }
+
+        // 마지막 영어 단어 이후의 나머지 텍스트를 추가
+        if (lastIndex < text.length) {
+            fragment.appendChild(document.createTextNode(text.substring(lastIndex)));
+        }
+
         return fragment;
     },
     renderInteractiveText(targetElement, text) {
         targetElement.innerHTML = '';
         if (!text || !text.trim()) return;
         
-        const textWithBrackets = text.replace(/\[/g, ' [').replace(/\]/g, '] ');
-        
-        textWithBrackets.split('\n').forEach((line, index, arr) => {
+        text.split('\n').forEach((line, index, arr) => {
             const fragment = this.createInteractiveFragment(line);
             targetElement.appendChild(fragment);
             if (index < arr.length - 1) {
@@ -1360,4 +1366,5 @@ document.addEventListener('firebaseSDKLoaded', () => {
     // 이제 앱을 초기화
     app.init();
 });
+
 
