@@ -93,10 +93,6 @@ body {
 }
 
 /* 퀴즈 문장 줄바꿈 및 빈칸 스타일 */
-.quiz-sentence-indent {
-    padding-left: 0;
-    text-indent: 0;
-}
 .quiz-blank {
     display: inline-block;
     white-space: nowrap;
@@ -107,3 +103,4 @@ body {
     cursor: grabbing;
     transform: scale(1.2) translateY(-10%);
 }
+
