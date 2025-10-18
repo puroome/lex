@@ -217,6 +217,7 @@ const app = {
         this.elements.learningModeContainer.classList.add('hidden');
         this.elements.dashboardContainer.classList.add('hidden');
         this.elements.homeBtn.classList.add('hidden');
+        this.elements.logoutBtn.classList.add('hidden');
         this.elements.ttsToggleBtn.classList.add('hidden');
         this.elements.progressBarContainer.classList.add('hidden');
         learningMode.elements.fixedButtons.classList.add('hidden');
@@ -253,6 +254,7 @@ const app = {
             dashboard.render();
         } else { // 'selection' 모드
             this.elements.selectionScreen.classList.remove('hidden');
+            this.elements.logoutBtn.classList.remove('hidden');
             quizMode.reset();
             learningMode.reset();
         }
