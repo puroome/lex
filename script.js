@@ -610,21 +610,15 @@ const api = {
             app.showToast('학습 상태 업데이트에 실패했습니다.', true);
         }
     },
-    async getLastLearnedIndex() {
-        try {
-            const snapshot = await get(ref(database, '/userState/lastLearnedIndex'));
-            return snapshot.val() || 0;
-        } catch (error) {
-            console.error("Firebase에서 마지막 학습 위치 로딩 실패:", error);
-            return 0;
-        }
+async getLastLearnedIndex() {
+        // 웹 브라우저의 로컬 저장소에서 'lastLearnedIndex' 값을 가져옵니다.
+        const lastIndex = localStorage.getItem('lastLearnedIndex');
+        // 값이 있으면 숫자로 변환해서 사용하고, 없으면 0을 사용합니다.
+        return lastIndex ? parseInt(lastIndex, 10) : 0;
     },
-    async setLastLearnedIndex(index) {
-        try {
-            await set(ref(database, '/userState/lastLearnedIndex'), index);
-        } catch (error) {
-            console.error("Firebase에 마지막 학습 위치 저장 실패:", error);
-        }
+async setLastLearnedIndex(index) {
+        // 웹 브라우저의 로컬 저장소에 'lastLearnedIndex' 라는 이름으로 현재 위치를 저장합니다.
+        localStorage.setItem('lastLearnedIndex', index);
     },
      async fetchDefinition(word) {
         const apiKey = app.config.DEFINITION_API_KEY;
