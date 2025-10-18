@@ -104,3 +104,14 @@ body {
     transform: scale(1.2) translateY(-10%);
 }
 
+#translation-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: #1f2937 transparent transparent transparent; /* Tailwind gray-800 */
+}
+
