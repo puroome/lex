@@ -11,8 +11,6 @@ const app = {
     config: {
         TTS_API_KEY: "AIzaSyAJmQBGY4H9DVMlhMtvAAVMi_4N7__DfKA",
         DEFINITION_API_KEY: "02d1892d-8fb1-4e2d-bc43-4ddd4a47eab3",
-        // B앱의 방식을 적용하기 위해 아래 SCRIPT_URL을 사용합니다.
-        // Google Apps Script를 배포한 후 얻은 URL로 교체해야 합니다.
         SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzyBM33LzFsAe-mES_0Qw5B8w0ZPyYTDm4K_nLif5y2bXMpiQbD1LX5TTIDA4qX_Rnp/exec",
         ALLOWED_USER_EMAIL: "puroome@gmail.com",
     },
