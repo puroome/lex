@@ -451,6 +451,7 @@ const api = {
                 if (cachedData) {
                     const { timestamp, words } = JSON.parse(cachedData);
                     if (Date.now() - timestamp < 864000000) { // 240 hours
+                        // 캐시에서 불러온 데이터도 index 기준으로 정렬합니다.
                         app.state.wordList = words.sort((a, b) => a.index - b.index);
                         app.state.isWordListReady = true;
                     }
@@ -469,7 +470,9 @@ const api = {
             const data = snapshot.val();
             if (!data) throw new Error("Firebase에 단어 데이터가 없습니다.");
 
+            // 중요: Firebase에서 받은 데이터를 index 기준으로 정렬합니다.
             const wordsArray = Object.values(data).sort((a, b) => a.index - b.index);
+            
             app.state.wordList = wordsArray;
             app.state.isWordListReady = true;
 
