@@ -1408,8 +1408,8 @@ bindEvents() {
         populateList(this.elements.suggestionsExplanationList, explanationSuggestions);
         this.elements.suggestionsContainer.classList.remove('hidden');
     },
-displayWord(index) {
-        if (!this.state.isMistakeMode) this.setLastLearnedIndex(index);
+    displayWord(index) {
+        if (!this.state.isMistakeMode) api.setLastLearnedIndex(index);
         this.updateProgressBar(index);
         this.elements.cardBack.classList.remove('is-slid-up');
         const wordData = this.state.currentWordList[index];
@@ -1424,7 +1424,6 @@ displayWord(index) {
         const imgName = imgMap[wordData.sampleSource] || '19-add-cat_icon-icons.com_76695';
         this.elements.sampleBtnImg.src = `https://images.icon-icons.com/1055/PNG/128/${imgName}.png`;
     },
-
     navigate(direction) {
         const len = this.state.currentWordList.length;
         if (len === 0) return;
@@ -1566,4 +1565,3 @@ document.addEventListener('firebaseSDKLoaded', () => {
     } = window.firebaseSDK);
     app.init();
 });
-
