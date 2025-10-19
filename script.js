@@ -115,20 +115,31 @@ onAuthStateChanged(auth, (user) => {
             }
         }
     },
-    async startApp() {
+async startApp() {
         this.state.isAppStarted = true;
         
         try {
             await audioCache.init();
-            await translationCache.init(); // 번역 캐시 초기화
+            await translationCache.init();
         } catch (e) {
             console.error("오디오 또는 번역 캐시를 초기화할 수 없습니다.", e);
         }
         this.bindGlobalEvents();
-        api.loadWordList();
+
+        try {
+            // 앱의 모든 기능이 단어 목록에 의존하므로, 가장 먼저 불러옵니다.
+            await api.loadWordList();
+        } catch (e) {
+            // loadWordList가 이미 치명적 오류를 처리하므로, 여기서는 중단만 합니다.
+            return;
+        }
+
         quizMode.init();
         learningMode.init();
         dashboard.init();
+        
+        // 단어 목록이 준비되었으니, 첫 번째 영영풀이 퀴즈 예비 로딩을 시작합니다.
+        quizMode.preloadNextDefinitionQuiz();
 
         const initialMode = window.location.hash.replace('#', '') || 'selection';
         history.replaceState({ mode: initialMode, options: {} }, '', window.location.href);
@@ -902,6 +913,8 @@ const quizMode = {
         sessionCorrectInSet: 0,
         sessionMistakes: [],
         answeredWords: new Set(),
+        preloadedDefinitionQuiz: null, // 미리 불러온 영영풀이 퀴즈를 저장할 공간
+        preloadingDefinitionWord: null, // 현재 불러오는 중인 단어를 기록 (중복 방지)
     },
     elements: {},
     init() {
@@ -942,12 +955,16 @@ const quizMode = {
             }
         });
     },
-    async start(quizType) {
+async start(quizType) {
         this.reset();
         this.state.quizType = quizType;
         this.elements.quizSelectionScreen.classList.add('hidden');
-        this.showLoader(true, "단어 목록 동기화 중...");
-        if (!app.state.isWordListReady) await api.loadWordList();
+        // 단어 목록은 이미 로드되었으므로, 해당 로직을 제거하고 바로 퀴즈를 표시합니다.
+        if (!app.state.isWordListReady) {
+            app.showToast("단어 목록이 아직 준비되지 않았습니다. 잠시 후 다시 시도해주세요.", true);
+            app.navigateTo('selection');
+            return;
+        }
         this.displayNextQuiz();
     },
     reset() {
@@ -984,15 +1001,29 @@ const quizMode = {
         }
         return null;
     },
-    async displayNextQuiz() {
+async displayNextQuiz() {
         this.showLoader(true, "다음 문제 생성 중...");
-        const nextQuiz = await this.generateSingleQuiz();
+        let nextQuiz = null;
+
+        // 만약 현재 퀴즈가 영영풀이이고, 미리 불러온 퀴즈가 있다면 그것을 사용합니다.
+        if (this.state.quizType === 'MULTIPLE_CHOICE_DEFINITION' && this.state.preloadedDefinitionQuiz) {
+            nextQuiz = this.state.preloadedDefinitionQuiz;
+            this.state.preloadedDefinitionQuiz = null; // 사용했으니 비워줍니다.
+        } else {
+            // 그렇지 않으면 기존처럼 즉석에서 퀴즈를 생성합니다.
+            nextQuiz = await this.generateSingleQuiz();
+        }
         
         if (nextQuiz) {
             this.state.currentQuiz = nextQuiz;
             this.state.answeredWords.add(nextQuiz.question.word);
             this.showLoader(false);
             this.renderQuiz(nextQuiz);
+
+            // 현재 퀴즈가 영영풀이라면, 다음 퀴즈를 미리 불러오도록 명령합니다.
+            if (this.state.quizType === 'MULTIPLE_CHOICE_DEFINITION') {
+                this.preloadNextDefinitionQuiz();
+            }
         } else {
             app.showToast('풀 수 있는 모든 퀴즈를 완료했습니다!', false);
             if (this.state.sessionAnsweredInSet > 0) {
@@ -1102,6 +1133,40 @@ const quizMode = {
         this.state.sessionMistakes = [];
         this.displayNextQuiz();
     },
+    async preloadNextDefinitionQuiz() {
+        // 이미 불러온 퀴즈가 있거나, 현재 다른 퀴즈를 불러오는 중이면 실행하지 않습니다.
+        if (this.state.preloadedDefinitionQuiz || this.state.preloadingDefinitionWord) {
+            return;
+        }
+
+        const allWords = app.state.wordList;
+        if (allWords.length < 5) return;
+
+        // 아직 풀지 않은 영영풀이 퀴즈 후보 단어들을 찾습니다.
+        const candidates = utils.shuffleArray(allWords.filter(w => 
+            w.srsDefinition !== 1 && 
+            !this.state.answeredWords.has(w.word)
+        ));
+
+        for (const wordData of candidates) {
+            try {
+                this.state.preloadingDefinitionWord = wordData.word; // "지금 이 단어 불러오는 중" 이라고 기록
+                
+                const quiz = await this.createDefinitionQuiz(wordData, allWords);
+                
+                if (quiz) {
+                    this.state.preloadedDefinitionQuiz = quiz; // 성공하면 예비 퀴즈 저장소에 저장
+                    this.state.preloadingDefinitionWord = null; // 기록 삭제
+                    return; // 하나만 미리 불러오고 함수 종료
+                }
+            } catch (error) {
+                // 에러 발생 시 다음 후보 단어로 계속 진행
+            }
+        }
+        // 모든 후보를 시도했지만 실패한 경우
+        this.state.preloadingDefinitionWord = null; // 기록 삭제
+    },
+    
     reviewSessionMistakes() {
         this.elements.modal.classList.add('hidden');
         const mistakes = [...this.state.sessionMistakes];
