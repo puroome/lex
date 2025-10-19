@@ -340,66 +340,22 @@ onAuthStateChanged(auth, (user) => {
     },
 searchWordInLearningMode(word) {
         if (!word) return;
-        const wordList = this.state.wordList;
-        const lowerCaseWord = word.toLowerCase();
-        const exactMatchIndex = wordList.findIndex(item => item.word.toLowerCase() === lowerCaseWord);
-        
-        if (exactMatchIndex !== -1) {
-            // 1. 다른 모든 메인 화면을 숨깁니다.
-            this.elements.selectionScreen.classList.add('hidden');
-            this.elements.quizModeContainer.classList.add('hidden');
-            this.elements.dashboardContainer.classList.add('hidden');
 
-            // 2. 학습 모드에 필요한 요소들을 화면에 표시합니다.
-            this.elements.learningModeContainer.classList.remove('hidden');
-            this.elements.homeBtn.classList.remove('hidden');
-            this.elements.ttsToggleBtn.classList.remove('hidden');
+        // 1. 학습 모드의 첫 화면(단어 입력창)으로 이동합니다.
+        this.navigateTo('learning');
+
+        // 2. 화면이 완전히 그려질 시간을 아주 잠깐 (0.01초) 줍니다.
+        setTimeout(() => {
+            // 3. 단어 입력창을 찾아서, 넘어온 단어를 값으로 넣어줍니다.
+            learningMode.elements.startWordInput.value = word;
             
-            // 3. 학습 모드의 상태를 직접 설정합니다.
-            learningMode.state.isMistakeMode = false;
-            learningMode.state.currentWordList = app.state.wordList;
-            learningMode.state.currentIndex = exactMatchIndex;
+            // 4. *** 여기가 핵심입니다 ***
+            // "혹시 이 단어를 찾으시나요?" 기능이 포함된 '학습 시작' 함수를 그대로 실행합니다.
+            learningMode.start();
             
-            // 4. 설정된 상태로 어휘 카드를 바로 보여달라고 명령합니다.
-            learningMode.launchApp();
-            
+            // 5. 열려있던 팝업 메뉴를 닫습니다.
             ui.hideWordContextMenu();
-            return;
-        }
-
-        const searchRegex = new RegExp(`\\b${lowerCaseWord}\\b`, 'i');
-        const explanationMatches = wordList
-            .map((item, index) => ({ word: item.word, index }))
-            .filter((_, index) => {
-                if (!wordList[index].explanation) return false;
-                const cleanedExplanation = wordList[index].explanation.replace(/\[.*?\]/g, '');
-                return searchRegex.test(cleanedExplanation);
-            });
-
-        const levenshteinSuggestions = wordList.map((item, index) => ({
-            word: item.word,
-            index,
-            distance: utils.levenshteinDistance(lowerCaseWord, item.word.toLowerCase())
-        }))
-        .sort((a, b) => a.distance - b.distance)
-        .slice(0, 5);
-
-        if (explanationMatches.length > 0 || levenshteinSuggestions.length > 0) {
-            const title = `'<strong>${word}</strong>' 관련 단어를 찾았습니다.`;
-            this.navigateTo('learning', { 
-                suggestions: {
-                    vocab: levenshteinSuggestions,
-                    explanation: explanationMatches
-                }, 
-                title: title 
-            });
-            ui.hideWordContextMenu();
-            return;
-        }
-        
-        const title = `입력하신 단어를 찾을 수 없습니다.<br>혹시 이 단어를 찾으시나요?`;
-        this.navigateTo('learning', { suggestions: { vocab: [], explanation: [] }, title: title });
-        ui.hideWordContextMenu();
+        }, 10);
     },
 };
 
