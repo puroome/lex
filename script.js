@@ -235,11 +235,22 @@ onAuthStateChanged(auth, (user) => {
             showCommonButtons();
             this.elements.quizModeContainer.classList.remove('hidden');
             quizMode.reset();
-        } else if (mode === 'learning') {
+} else if (mode === 'learning') {
             showCommonButtons();
             this.elements.learningModeContainer.classList.remove('hidden');
-            this.elements.learningModeContainer.querySelector('#learning-start-screen').classList.remove('hidden');
-            learningMode.resetStartScreen();
+
+            // startIndex 옵션이 있는지 확인합니다.
+            if (options.startIndex !== undefined && options.startIndex > -1) {
+                // 옵션이 있으면, 바로 해당 단어의 어휘 카드를 보여줍니다.
+                learningMode.state.isMistakeMode = false;
+                learningMode.state.currentWordList = app.state.wordList;
+                learningMode.state.currentIndex = options.startIndex;
+                learningMode.launchApp();
+            } else {
+                // 옵션이 없으면, 기존처럼 단어 입력 화면을 보여줍니다.
+                this.elements.learningModeContainer.querySelector('#learning-start-screen').classList.remove('hidden');
+                learningMode.resetStartScreen();
+            }
         } else if (mode === 'mistakeReview') {
             showCommonButtons();
             this.elements.learningModeContainer.classList.remove('hidden');
@@ -327,19 +338,14 @@ onAuthStateChanged(auth, (user) => {
             setTimeout(() => msgEl.classList.add('hidden'), 500);
         }, 1500);
     },
-    searchWordInLearningMode(word) {
+searchWordInLearningMode(word) {
         if (!word) return;
         const wordList = this.state.wordList;
         const lowerCaseWord = word.toLowerCase();
         const exactMatchIndex = wordList.findIndex(item => item.word.toLowerCase() === lowerCaseWord);
         if (exactMatchIndex !== -1) {
-            this.navigateTo('learning');
-            setTimeout(() => {
-                learningMode.state.isMistakeMode = false;
-                learningMode.state.currentWordList = app.state.wordList;
-                learningMode.state.currentIndex = exactMatchIndex;
-                learningMode.launchApp();
-            }, 50);
+            // 'learning' 모드로 이동하면서, 'startIndex' 라는 옵션에 찾은 단어의 위치를 담아 보냅니다.
+            this.navigateTo('learning', { startIndex: exactMatchIndex });
             ui.hideWordContextMenu();
             return;
         }
