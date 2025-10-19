@@ -338,24 +338,36 @@ onAuthStateChanged(auth, (user) => {
             setTimeout(() => msgEl.classList.add('hidden'), 500);
         }, 1500);
     },
-        searchWordInLearningMode(word) {
+searchWordInLearningMode(word) {
         if (!word) return;
+        const wordList = this.state.wordList;
+        const lowerCaseWord = word.toLowerCase();
+        const exactMatchIndex = wordList.findIndex(item => item.word.toLowerCase() === lowerCaseWord);
+        
+        if (exactMatchIndex !== -1) {
+            // 1. 다른 모든 메인 화면을 숨깁니다.
+            this.elements.selectionScreen.classList.add('hidden');
+            this.elements.quizModeContainer.classList.add('hidden');
+            this.elements.dashboardContainer.classList.add('hidden');
 
-        // 1. 먼저 학습 모드 화면으로 이동시킵니다.
-        this.navigateTo('learning');
-
-        // 2. 화면이 전환될 아주 잠깐의 시간을 기다립니다.
-        setTimeout(() => {
-            // 3. 단어 입력창에 전달받은 단어를 채워 넣습니다.
-            learningMode.elements.startWordInput.value = word;
+            // 2. 학습 모드에 필요한 요소들을 화면에 표시합니다.
+            this.elements.learningModeContainer.classList.remove('hidden');
+            this.elements.homeBtn.classList.remove('hidden');
+            this.elements.ttsToggleBtn.classList.remove('hidden');
             
-            // 4. '학습 시작' 버튼을 눌렀을 때와 동일한 함수를 실행합니다.
-            learningMode.start();
+            // 3. 학습 모드의 상태를 직접 설정합니다.
+            learningMode.state.isMistakeMode = false;
+            learningMode.state.currentWordList = app.state.wordList;
+            learningMode.state.currentIndex = exactMatchIndex;
             
-            // 5. 팝업 메뉴를 닫습니다.
+            // 4. 설정된 상태로 어휘 카드를 바로 보여달라고 명령합니다.
+            learningMode.launchApp();
+            
             ui.hideWordContextMenu();
-        }, 10); // 0.01초의 짧은 딜레이
-    },
+            return;
+        }
+
+        const searchRegex = new RegExp(`\\b${lowerCaseWord}\\b`, 'i');
         const explanationMatches = wordList
             .map((item, index) => ({ word: item.word, index }))
             .filter((_, index) => {
