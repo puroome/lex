@@ -1109,7 +1109,7 @@ async displayNextQuiz() {
             } else {
                 this.displayNextQuiz();
             }
-        }, 1200);
+        }, 300);
     },
     showLoader(isLoading, message = '퀴즈를 준비 중입니다...') {
         this.elements.loader.classList.toggle('hidden', !isLoading);
