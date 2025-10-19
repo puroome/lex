@@ -343,9 +343,26 @@ searchWordInLearningMode(word) {
         const wordList = this.state.wordList;
         const lowerCaseWord = word.toLowerCase();
         const exactMatchIndex = wordList.findIndex(item => item.word.toLowerCase() === lowerCaseWord);
+        
         if (exactMatchIndex !== -1) {
-            // 'learning' 모드로 이동하면서, 'startIndex' 라는 옵션에 찾은 단어의 위치를 담아 보냅니다.
-            this.navigateTo('learning', { startIndex: exactMatchIndex });
+            // 1. 다른 모든 메인 화면을 숨깁니다.
+            this.elements.selectionScreen.classList.add('hidden');
+            this.elements.quizModeContainer.classList.add('hidden');
+            this.elements.dashboardContainer.classList.add('hidden');
+
+            // 2. 학습 모드에 필요한 요소들을 화면에 표시합니다.
+            this.elements.learningModeContainer.classList.remove('hidden');
+            this.elements.homeBtn.classList.remove('hidden');
+            this.elements.ttsToggleBtn.classList.remove('hidden');
+            
+            // 3. 학습 모드의 상태를 직접 설정합니다.
+            learningMode.state.isMistakeMode = false;
+            learningMode.state.currentWordList = app.state.wordList;
+            learningMode.state.currentIndex = exactMatchIndex;
+            
+            // 4. 설정된 상태로 어휘 카드를 바로 보여달라고 명령합니다.
+            learningMode.launchApp();
+            
             ui.hideWordContextMenu();
             return;
         }
