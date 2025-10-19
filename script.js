@@ -1408,7 +1408,7 @@ bindEvents() {
         populateList(this.elements.suggestionsExplanationList, explanationSuggestions);
         this.elements.suggestionsContainer.classList.remove('hidden');
     },
-    displayWord(index) {
+displayWord(index) {
         if (!this.state.isMistakeMode) this.setLastLearnedIndex(index);
         this.updateProgressBar(index);
         this.elements.cardBack.classList.remove('is-slid-up');
@@ -1416,9 +1416,6 @@ bindEvents() {
         if (!wordData) return;
         
         this.elements.wordDisplay.innerHTML = `${wordData.word} <span class="pronunciation-inline">${wordData.pronunciation || ''}</span>`;
-        
-        this.adjustWordFontSize(); // 폰트 크기를 조절하는 함수를 여기서 호출합니다.
-        
         this.elements.meaningDisplay.innerHTML = wordData.meaning.replace(/\n/g, '<br>');
         ui.renderExplanationText(this.elements.explanationDisplay, wordData.explanation);
         this.elements.explanationContainer.classList.toggle('hidden', !wordData.explanation?.trim());
@@ -1427,24 +1424,7 @@ bindEvents() {
         const imgName = imgMap[wordData.sampleSource] || '19-add-cat_icon-icons.com_76695';
         this.elements.sampleBtnImg.src = `https://images.icon-icons.com/1055/PNG/128/${imgName}.png`;
     },
-    adjustWordFontSize() {
-        const wordDisplay = this.elements.wordDisplay;
-        const container = wordDisplay.parentElement; // 단어를 감싸고 있는 부모 영역
 
-        // 다음 단어를 위해 폰트 크기를 기본값으로 리셋합니다.
-        wordDisplay.style.fontSize = '';
-        
-        // Tailwind CSS 클래스(text-3xl, sm:text-4xl)에 의해 설정된 현재 폰트 크기를 가져옵니다.
-        const defaultFontSize = parseFloat(window.getComputedStyle(wordDisplay).fontSize);
-        let currentFontSize = defaultFontSize;
-
-        // 단어의 실제 너비가 컨테이너 너비보다 클 경우, 폰트가 딱 맞을 때까지 1px씩 줄여나갑니다.
-        // (컨테이너 너비에서 16px을 빼서 좌우에 약간의 여백을 줍니다.)
-        while (wordDisplay.scrollWidth > container.clientWidth - 16 && currentFontSize > 12) {
-            currentFontSize -= 1; // 1px씩 줄입니다.
-            wordDisplay.style.fontSize = `${currentFontSize}px`;
-        }
-    },
     navigate(direction) {
         const len = this.state.currentWordList.length;
         if (len === 0) return;
