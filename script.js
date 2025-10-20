@@ -2,13 +2,48 @@ let firebaseApp, database, auth;
 let initializeApp, getDatabase, ref, get, update, set;
 let getAuth, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup;
 
-const app = {
-    config: {
-        TTS_API_KEY: "AIzaSyAJmQBGY4H9DVMlhMtvAAVMi_4N7__DfKA",
-        DEFINITION_API_KEY: "02d1892d-8fb1-4e2d-bc43-4ddd4a47eab3",
-        SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzyBM33LzFsAe-mES_0Qw5B8w0ZPyYTDm4K_nLif5y2bXMpiQbD1LX5TTIDA4qX_Rnp/exec",
-        ALLOWED_USER_EMAIL: "puroome@gmail.com",
+const config = {
+    TTS_API_KEY: "AIzaSyAJmQBGY4H9DVMlhMtvAAVMi_4N7__DfKA",
+    DEFINITION_API_KEY: "02d1892d-8fb1-4e2d-bc43-4ddd4a47eab3",
+    SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzyBM33LzFsAe-mES_0Qw5B8w0ZPyYTDm4K_nLif5y2bXMpiQbD1LX5TTIDA4qX_Rnp/exec",
+    ALLOWED_USER_EMAIL: "puroome@gmail.com",
+};
+
+const activityTracker = {
+    sessionSeconds: 0,
+    lastActivityTimestamp: 0,
+    timerInterval: null,
+    INACTIVITY_LIMIT: 30000, 
+
+    start() {
+        if (this.timerInterval) return;
+        this.lastActivityTimestamp = Date.now();
+        this.sessionSeconds = 0;
+        this.timerInterval = setInterval(() => {
+            if (document.hidden) return;
+            const now = Date.now();
+            if (now - this.lastActivityTimestamp < this.INACTIVITY_LIMIT) {
+                this.sessionSeconds++;
+            }
+        }, 1000);
     },
+
+    stopAndSave() {
+        if (!this.timerInterval) return;
+        clearInterval(this.timerInterval);
+        this.timerInterval = null;
+        if (this.sessionSeconds > 0) {
+            api.saveStudyHistory(this.sessionSeconds);
+        }
+        this.sessionSeconds = 0;
+    },
+
+    recordActivity() {
+        this.lastActivityTimestamp = Date.now();
+    }
+};
+
+const app = {
     state: {
         isAppStarted: false,
         userId: null,
@@ -19,7 +54,6 @@ const app = {
         isWordListReady: false,
         longPressTimer: null,
         translationTimer: null,
-        favorites: [],
     },
     elements: {
         loginScreen: document.getElementById('login-screen'),
@@ -70,7 +104,7 @@ const app = {
         auth = getAuth(firebaseApp);
 
         onAuthStateChanged(auth, (user) => {
-            if (user && user.email === this.config.ALLOWED_USER_EMAIL) {
+            if (user && user.email === config.ALLOWED_USER_EMAIL) {
                 this.state.userId = user.uid;
                 this.elements.loginScreen.classList.add('hidden');
                 this.elements.appWrapper.classList.remove('hidden');
@@ -98,7 +132,6 @@ const app = {
         try {
             await signInWithPopup(auth, provider);
         } catch (error) {
-            console.error("Google Sign-In failed:", error);
             if (error.code === 'auth/popup-closed-by-user') {
                 this.elements.loginError.textContent = '로그인 팝업이 닫혔습니다.';
             } else {
@@ -112,11 +145,9 @@ const app = {
         try {
             await audioCache.init();
             await translationCache.init();
-        } catch (e) {
-            console.error("오디오 또는 번역 캐시를 초기화할 수 없습니다.", e);
-        }
+        } catch (e) {}
+
         this.bindGlobalEvents();
-        studyTracker.init();
 
         try {
             await api.loadWordList();
@@ -137,10 +168,11 @@ const app = {
     bindGlobalEvents() {
         this.elements.selectQuizBtn.addEventListener('click', () => this.navigateTo('quiz'));
         this.elements.selectLearningBtn.addEventListener('click', () => this.navigateTo('learning'));
+        
         this.elements.selectDashboardBtn.addEventListener('click', () => this.navigateTo('dashboard'));
-        this.elements.selectFavoritesBtn.addEventListener('click', () => this.navigateTo('favorites'));
 
         this.elements.selectMistakesBtn.addEventListener('click', async () => {
+            await api.loadWordList(true);
             const mistakeWords = app.state.wordList
                 .filter(word => word.incorrect === 1)
                 .sort((a, b) => {
@@ -155,6 +187,16 @@ const app = {
                 return;
             }
             this.navigateTo('mistakeReview', { mistakeWords });
+        });
+        
+        this.elements.selectFavoritesBtn.addEventListener('click', async () => {
+            await api.loadWordList(true);
+            const favoriteWords = app.state.wordList.filter(word => word.favorite).map(wordObj => wordObj.word);
+            if(favoriteWords.length === 0) {
+                app.showToast('즐겨찾기에 등록된 단어가 없습니다.', true);
+                return;
+            }
+            this.navigateTo('favoriteReview', { favoriteWords });
         });
 
         this.elements.homeBtn.addEventListener('click', () => this.navigateTo('selection'));
@@ -186,19 +228,21 @@ const app = {
                 e.preventDefault();
             }
         });
+        
+        window.addEventListener('beforeunload', () => {
+            activityTracker.stopAndSave();
+        });
     },
     navigateTo(mode, options = {}) {
-        if (history.state?.mode === mode && !['learning', 'mistakeReview', 'favorites'].includes(mode)) return;
-
+        if (history.state?.mode === mode && mode !== 'learning' && mode !== 'mistakeReview' && mode !== 'favoriteReview') return;
         const newPath = mode === 'selection' 
             ? window.location.pathname + window.location.search
             : `#${mode}`;
-
         history.pushState({ mode, options }, '', newPath);
         this._renderMode(mode, options);
     },
     _renderMode(mode, options = {}) {
-        studyTracker.stop();
+        activityTracker.stopAndSave();
         this.elements.selectionScreen.classList.add('hidden');
         this.elements.quizModeContainer.classList.add('hidden');
         this.elements.learningModeContainer.classList.add('hidden');
@@ -216,8 +260,9 @@ const app = {
             this.elements.ttsToggleBtn.classList.remove('hidden');
         };
 
-        if (mode === 'quiz' || mode === 'learning' || mode === 'mistakeReview' || mode === 'favorites') {
-             studyTracker.start();
+        const startModes = ['quiz', 'learning', 'mistakeReview', 'favoriteReview'];
+        if(startModes.includes(mode)){
+            activityTracker.start();
         }
 
         if (mode === 'quiz') {
@@ -237,14 +282,17 @@ const app = {
                 this.elements.learningModeContainer.querySelector('#learning-start-screen').classList.remove('hidden');
                 learningMode.resetStartScreen();
             }
-        } else if (mode === 'mistakeReview') {
+        } else if (mode === 'mistakeReview' || mode === 'favoriteReview') {
             showCommonButtons();
             this.elements.learningModeContainer.classList.remove('hidden');
-            learningMode.startMistakeReview(options.mistakeWords);
-        } else if (mode === 'favorites') {
-            showCommonButtons();
-            this.elements.learningModeContainer.classList.remove('hidden');
-            learningMode.startFavoriteMode();
+            const words = (mode === 'mistakeReview') ? options.mistakeWords : options.favoriteWords;
+            if (!words || words.length === 0) {
+                const message = (mode === 'mistakeReview') ? '오답 노트에 단어가 없습니다.' : '즐겨찾기에 단어가 없습니다.';
+                app.showToast(message, true);
+                this.navigateTo('selection');
+                return;
+            }
+            learningMode.startSpecialReview(words, mode);
         } else if (mode === 'dashboard') {
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.dashboardContainer.classList.remove('hidden');
@@ -258,14 +306,11 @@ const app = {
     },
     async forceReload() {
         this.elements.globalLoader.classList.remove('hidden');
-        
         const elementsToDisable = [
             this.elements.refreshBtn, this.elements.selectDashboardBtn, this.elements.selectMistakesBtn,
             this.elements.selectLearningBtn, this.elements.selectQuizBtn
         ];
-
         elementsToDisable.forEach(el => el.classList.add('pointer-events-none', 'opacity-50'));
-        
         try {
             await api.loadWordList(true);
             this.showToast('데이터를 성공적으로 새로고침했습니다!');
@@ -333,74 +378,15 @@ const app = {
     },
 };
 
-const studyTracker = {
-    inactivityTimer: null,
-    sessionSeconds: 0,
-    saveInterval: null,
-
-    init() {
-        document.addEventListener('visibilitychange', this.handleVisibilityChange.bind(this));
-    },
-    start() {
-        this.stop();
-        this.sessionSeconds = 0;
-        this.resetInactivityTimer();
-        this.saveInterval = setInterval(() => this.saveData(), 10000); 
-        const activityEvents = ['click', 'keydown', 'touchstart'];
-        activityEvents.forEach(event => document.body.addEventListener(event, this.recordActivity.bind(this), true));
-    },
-    stop() {
-        clearTimeout(this.inactivityTimer);
-        clearInterval(this.saveInterval);
-        this.saveData(); 
-        this.sessionSeconds = 0;
-        const activityEvents = ['click', 'keydown', 'touchstart'];
-        activityEvents.forEach(event => document.body.removeEventListener(event, this.recordActivity.bind(this), true));
-    },
-    recordActivity() {
-        this.resetInactivityTimer();
-    },
-    resetInactivityTimer() {
-        clearTimeout(this.inactivityTimer);
-        this.inactivityTimer = setTimeout(() => {
-            this.saveData();
-        }, 30000);
-    },
-    handleVisibilityChange() {
-        if (document.visibilityState === 'hidden') {
-            this.saveData();
-            clearTimeout(this.inactivityTimer);
-        } else {
-            this.resetInactivityTimer();
-        }
-    },
-    async saveData() {
-        const now = Date.now();
-        if (this.lastActivityTime) {
-            const duration = now - this.lastActivityTime;
-            this.sessionSeconds += Math.min(duration / 1000, 31); 
-        }
-        this.lastActivityTime = now;
-
-        const secondsToSave = Math.floor(this.sessionSeconds);
-        if (secondsToSave > 0) {
-            this.sessionSeconds -= secondsToSave;
-            if (app.state.userId) {
-                await api.updateStudyTime(secondsToSave);
-            }
-        }
-    }
-};
-
 const audioCache = {
     db: null, dbName: 'ttsAudioCacheDB', storeName: 'audioStore',
     init() {
         return new Promise((resolve, reject) => {
-            if (!('indexedDB' in window)) { console.warn('IndexedDB not supported, TTS caching disabled.'); return resolve(); }
+            if (!('indexedDB' in window)) { return resolve(); }
             const request = indexedDB.open(this.dbName, 1);
             request.onupgradeneeded = event => { const db = event.target.result; if (!db.objectStoreNames.contains(this.storeName)) { db.createObjectStore(this.storeName); } };
             request.onsuccess = event => { this.db = event.target.result; resolve(); };
-            request.onerror = event => { console.error("IndexedDB error:", event.target.error); reject(event.target.error); };
+            request.onerror = event => { reject(event.target.error); };
         });
     },
     getAudio(key) {
@@ -410,13 +396,13 @@ const audioCache = {
             const store = transaction.objectStore(this.storeName);
             const request = store.get(key);
             request.onsuccess = () => resolve(request.result);
-            request.onerror = (event) => { console.error("IndexedDB get error:", event.target.error); reject(event.target.error); };
+            request.onerror = (event) => { reject(event.target.error); };
         });
     },
     saveAudio(key, audioData) {
         if (!this.db) return;
         try { const transaction = this.db.transaction([this.storeName], 'readwrite'); transaction.objectStore(this.storeName).put(audioData, key); } 
-        catch (e) { console.error("IndexedDB save error:", e); }
+        catch (e) {}
     }
 };
 
@@ -424,11 +410,11 @@ const translationCache = {
     db: null, dbName: 'translationCacheDB', storeName: 'translations',
     init() {
         return new Promise((resolve, reject) => {
-            if (!('indexedDB' in window)) { console.warn('IndexedDB not supported, translation caching disabled.'); return resolve(); }
+            if (!('indexedDB' in window)) { return resolve(); }
             const request = indexedDB.open(this.dbName, 1);
             request.onupgradeneeded = event => { const db = event.target.result; if (!db.objectStoreNames.contains(this.storeName)) db.createObjectStore(this.storeName); };
             request.onsuccess = event => { this.db = event.target.result; resolve(); };
-            request.onerror = event => { console.error("IndexedDB error for translation cache:", event.target.error); reject(event.target.error); };
+            request.onerror = event => { reject(event.target.error); };
         });
     },
     get(key) {
@@ -438,13 +424,13 @@ const translationCache = {
             const store = transaction.objectStore(this.storeName);
             const request = store.get(key);
             request.onsuccess = () => resolve(request.result);
-            request.onerror = (event) => { console.error("IndexedDB get error:", event.target.error); reject(event.target.error); };
+            request.onerror = (event) => { reject(event.target.error); };
         });
     },
     save(key, data) {
         if (!this.db) return;
         try { const transaction = this.db.transaction([this.storeName], 'readwrite'); transaction.objectStore(this.storeName).put(data, key); } 
-        catch (e) { console.error("IndexedDB save error:", e); }
+        catch (e) {}
     }
 };
 
@@ -466,7 +452,6 @@ const api = {
                     }
                 }
             } catch (e) {
-                console.error("캐시 로딩 실패:", e);
                 localStorage.removeItem('wordListCache');
             }
         }
@@ -487,7 +472,6 @@ const api = {
             const cachePayload = { timestamp: Date.now(), words: wordsArray };
             localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
         } catch (error) {
-            console.error("Firebase에서 단어 목록 로딩 실패:", error);
             if (!app.state.isWordListReady) app.showFatalError(error.message);
             throw error;
         }
@@ -499,13 +483,13 @@ const api = {
         };
 
         if (!text || !text.trim() || app.state.isSpeaking) return;
+        activityTracker.recordActivity();
         if (app.state.audioContext.state === 'suspended') app.state.audioContext.resume();
         
         app.state.isSpeaking = true;
         const textWithoutEmoji = text.replace(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u, '');
         const processedText = textWithoutEmoji.replace(/\bsb\b/g, 'somebody').replace(/\bsth\b/g, 'something');
         const voiceConfig = voiceSets[app.state.currentVoiceSet][contentType];
-        
         const cacheKey = `${processedText}|${voiceConfig.languageCode}|${voiceConfig.name}`;
 
         const playAudio = async (audioArrayBuffer) => {
@@ -524,7 +508,7 @@ const api = {
                 return;
             }
 
-            const TTS_URL = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${app.config.TTS_API_KEY}`;
+            const TTS_URL = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${config.TTS_API_KEY}`;
             const response = await fetch(TTS_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -538,29 +522,20 @@ const api = {
             const audioArrayBuffer = byteArray.buffer;
             
             audioCache.saveAudio(cacheKey, audioArrayBuffer.slice(0)); 
-            
             await playAudio(audioArrayBuffer);
 
         } catch (error) {
-            console.error('TTS 재생 또는 캐싱에 실패했습니다:', error);
             app.state.isSpeaking = false;
         }
     },
     async translate(text) {
         try {
             const cached = await translationCache.get(text);
-            if (cached) {
-                return cached;
-            }
-        } catch (e) {
-            console.error("번역 캐시 조회 실패:", e);
-        }
+            if (cached) return cached;
+        } catch (e) {}
 
-        if (!app.config.SCRIPT_URL || app.config.SCRIPT_URL === "여기에_배포된_APPS_SCRIPT_URL을_붙여넣으세요") {
-            return "번역 스크립트 URL이 설정되지 않았습니다.";
-        }
-
-        const url = new URL(app.config.SCRIPT_URL);
+        if (!config.SCRIPT_URL) return "번역 스크립트 URL이 설정되지 않았습니다.";
+        const url = new URL(config.SCRIPT_URL);
         url.searchParams.append('action', 'translate');
         url.searchParams.append('text', text);
 
@@ -577,7 +552,6 @@ const api = {
                 throw new Error(data.message || '번역 실패');
             }
         } catch (error) {
-            console.error('Translation failed:', error);
             return "번역 오류";
         }
     },
@@ -596,20 +570,10 @@ const api = {
             if (srsKey) {
                 updates[`/vocabulary/${safeKey}/${srsKey}`] = isCorrect ? 1 : 0;
             }
-
             if (!isCorrect) {
                  updates[`/vocabulary/${safeKey}/incorrect`] = 1;
                  updates[`/vocabulary/${safeKey}/lastIncorrect`] = new Date().toISOString();
             }
-            
-            const today = new Date().toISOString().slice(0, 10);
-            const quizHistoryPath = `/userState/${app.state.userId}/quizHistory/${today}/${quizType}`;
-            const snapshot = await get(ref(database, quizHistoryPath));
-            const currentHistory = snapshot.val() || { correct: 0, total: 0 };
-            currentHistory.total += 1;
-            if(isCorrect) currentHistory.correct += 1;
-            updates[quizHistoryPath] = currentHistory;
-
             await update(dbRef, updates);
             
             const wordIndex = app.state.wordList.findIndex(w => w.word === word);
@@ -622,8 +586,8 @@ const api = {
                 localStorage.setItem('wordListCache', JSON.stringify({ timestamp: Date.now(), words: app.state.wordList }));
                 document.dispatchEvent(new CustomEvent('wordListUpdated'));
             }
+            api.saveQuizHistory(quizType, isCorrect);
         } catch (error) {
-            console.error('Firebase SRS 데이터 업데이트 실패:', error);
             app.showToast('학습 상태 업데이트에 실패했습니다.', true);
         }
     },
@@ -634,7 +598,6 @@ const api = {
             const snapshot = await get(ref(database, path));
             return snapshot.val() || 0;
         } catch (error) {
-            console.error("Firebase에서 마지막 학습 위치 로딩 실패:", error);
             return 0;
         }
     },
@@ -643,12 +606,10 @@ const api = {
         try {
             const path = `/userState/${app.state.userId}/lastLearnedIndex`;
             await set(ref(database, path), index);
-        } catch (error) {
-            console.error("Firebase에 마지막 학습 위치 저장 실패:", error);
-        }
+        } catch (error) {}
     },
     async fetchDefinition(word) {
-        const apiKey = app.config.DEFINITION_API_KEY;
+        const apiKey = config.DEFINITION_API_KEY;
         const url = `https://dictionaryapi.com/api/v3/references/learners/json/${encodeURIComponent(word)}?key=${apiKey}`;
         try {
             const response = await fetch(url);
@@ -662,62 +623,58 @@ const api = {
             }
             return null;
         } catch (e) {
-            console.error(`Merriam-Webster API 호출 실패 for "${word}": ${e.message}`);
             return null;
         }
     },
-    async loadFavorites() {
-        if (!app.state.userId) return [];
-        try {
-            const path = `/userState/${app.state.userId}/favorites`;
-            const snapshot = await get(ref(database, path));
-            return snapshot.val() ? Object.keys(snapshot.val()) : [];
-        } catch (error) {
-            console.error("즐겨찾기 로딩 실패:", error);
-            return [];
-        }
-    },
     async toggleFavorite(word) {
-        if (!app.state.userId) return;
-        const path = `/userState/${app.state.userId}/favorites/${word.replace(/[.#$\[\]\/]/g, '_')}`;
-        const isFavorite = app.state.favorites.includes(word);
         try {
-            if (isFavorite) {
-                await set(ref(database, path), null);
-                app.state.favorites = app.state.favorites.filter(w => w !== word);
-            } else {
-                await set(ref(database, path), true);
-                app.state.favorites.push(word);
-            }
-            return !isFavorite;
+            const safeKey = word.replace(/[.#$\[\]\/]/g, '_');
+            const updates = {};
+            const dbRef = ref(database);
+            const wordIndex = app.state.wordList.findIndex(w => w.word === word);
+            if (wordIndex === -1) return false;
+
+            const currentIsFavorite = app.state.wordList[wordIndex].favorite || false;
+            const newIsFavorite = !currentIsFavorite;
+
+            updates[`/vocabulary/${safeKey}/favorite`] = newIsFavorite;
+            updates[`/vocabulary/${safeKey}/favoritedAt`] = newIsFavorite ? new Date().toISOString() : null;
+            
+            await update(dbRef, updates);
+            
+            app.state.wordList[wordIndex].favorite = newIsFavorite;
+            app.state.wordList[wordIndex].favoritedAt = newIsFavorite ? new Date().toISOString() : null;
+            
+            localStorage.setItem('wordListCache', JSON.stringify({ timestamp: Date.now(), words: app.state.wordList }));
+            document.dispatchEvent(new CustomEvent('wordListUpdated'));
+            
+            return newIsFavorite;
         } catch (error) {
-            console.error("즐겨찾기 업데이트 실패:", error);
-            return isFavorite;
+            app.showToast('즐겨찾기 상태 변경에 실패했습니다.', true);
+            return false;
         }
     },
-    async updateStudyTime(seconds) {
-        if (!app.state.userId) return;
-        const today = new Date().toISOString().slice(0, 10);
-        const path = `/userState/${app.state.userId}/studyHistory/${today}`;
+    async saveStudyHistory(seconds) {
+        if (!app.state.userId || seconds < 1) return;
         try {
+            const today = new Date().toISOString().slice(0, 10);
+            const path = `/userHistory/${app.state.userId}/study/${today}`;
             const snapshot = await get(ref(database, path));
             const currentSeconds = snapshot.val() || 0;
             await set(ref(database, path), currentSeconds + seconds);
-        } catch (error) {
-            console.error("학습 시간 업데이트 실패:", error);
-        }
+        } catch (e) {}
     },
-    async getStudyHistory(days) {
-        if (!app.state.userId) return {};
-        const path = `/userState/${app.state.userId}/studyHistory`;
-        const snapshot = await get(ref(database, path));
-        return snapshot.val() || {};
-    },
-    async getQuizHistory() {
-        if (!app.state.userId) return {};
-        const path = `/userState/${app.state.userId}/quizHistory`;
-        const snapshot = await get(ref(database, path));
-        return snapshot.val() || {};
+    async saveQuizHistory(quizType, isCorrect) {
+        if (!app.state.userId || !quizType) return;
+        try {
+            const today = new Date().toISOString().slice(0, 10);
+            const path = `/userHistory/${app.state.userId}/quiz/${today}/${quizType}`;
+            const snapshot = await get(ref(database, path));
+            const currentStats = snapshot.val() || { correct: 0, total: 0 };
+            currentStats.total += 1;
+            if (isCorrect) currentStats.correct += 1;
+            await set(ref(database, path), currentStats);
+        } catch(e) {}
     }
 };
 
@@ -725,7 +682,7 @@ const ui = {
     async copyToClipboard(text) {
         if (navigator.clipboard) {
             try { await navigator.clipboard.writeText(text); } 
-            catch (err) { console.error('클립보드 복사 실패:', err); }
+            catch (err) {}
         }
     },
     createInteractiveFragment(text, isForSampleSentence = false) {
@@ -735,8 +692,9 @@ const ui = {
         const parts = text.split(/([a-zA-Z0-9'-]+)/g);
         
         parts.forEach(part => {
-            if (/([a-zA-Z0-9'-]+)/.test(part) && learningMode.nonInteractiveWords && !learningMode.nonInteractiveWords.has(part.toLowerCase())) {
-                 const span = document.createElement('span');
+            const isInteractive = /([a-zA-Z0-9'-]+)/.test(part) && !learningMode.nonInteractiveWords.has(part.toLowerCase());
+            if (isInteractive) {
+                const span = document.createElement('span');
                 span.textContent = part;
                 span.className = 'interactive-word';
                 span.onclick = (e) => {
@@ -778,7 +736,9 @@ const ui = {
                     targetElement.appendChild(document.createTextNode(line.substring(lastIndex, match.index)));
                 }
                 const [_, nonClickable, englishPhrase] = match;
-                if (englishPhrase) {
+                const isInteractive = englishPhrase && !learningMode.nonInteractiveWords.has(englishPhrase.toLowerCase());
+
+                if (isInteractive) {
                     const span = document.createElement('span');
                     span.textContent = englishPhrase;
                     span.className = 'interactive-word';
@@ -797,6 +757,8 @@ const ui = {
                     span.addEventListener('touchmove', () => { touchMove = true; clearTimeout(app.state.longPressTimer); });
                     span.addEventListener('touchend', () => { clearTimeout(app.state.longPressTimer); });
                     targetElement.appendChild(span);
+                } else if (englishPhrase) {
+                    targetElement.appendChild(document.createTextNode(englishPhrase));
                 } else if (nonClickable) {
                     targetElement.appendChild(document.createTextNode(nonClickable));
                 }
@@ -814,52 +776,40 @@ const ui = {
         containerElement.innerHTML = '';
         sentences.filter(s => s && s.trim()).forEach(sentence => {
             const p = document.createElement('p');
-            p.className = 'p-2 rounded transition-colors hover:bg-gray-200 cursor-pointer';
-
-            const showTranslation = async (event) => {
-                const translatedText = await api.translate(p.textContent);
-                this.showTranslationTooltip(translatedText, event);
-            };
+            p.className = 'p-2 rounded transition-colors hover:bg-gray-200';
 
             p.onclick = (e) => {
                 if (e.target.closest('.interactive-word')) return;
                 api.speak(p.textContent, 'sample');
-                showTranslation(e);
+                this.handleSentenceMouseOver(e, p.textContent);
             };
             
-            p.addEventListener('mouseenter', (e) => {
-                clearTimeout(app.state.translationTimer);
-                app.state.translationTimer = setTimeout(() => {
-                    showTranslation(e);
-                }, 1000);
+            p.addEventListener('mouseover', (e) => {
+                if (e.target.closest('.interactive-word')) return;
+                 this.handleSentenceMouseOver(e, p.textContent);
             });
 
-            p.addEventListener('mouseleave', () => {
-                clearTimeout(app.state.translationTimer);
-                this.hideTranslationTooltip();
-            });
-
-            const sentenceContent = document.createElement('span');
-            sentenceContent.className = 'sentence-content-area';
-            
-            sentenceContent.addEventListener('mouseenter', () => {
-                clearTimeout(app.state.translationTimer);
-                this.hideTranslationTooltip();
-            });
+            p.addEventListener('mouseout', this.hideTranslationTooltip);
 
             const sentenceParts = sentence.split(/(\*.*?\*)/g);
             sentenceParts.forEach(part => {
                 if (part.startsWith('*') && part.endsWith('*')) {
                     const strong = document.createElement('strong');
                     strong.appendChild(this.createInteractiveFragment(part.slice(1, -1), true));
-                    sentenceContent.appendChild(strong);
+                    p.appendChild(strong);
                 } else if (part) {
-                    sentenceContent.appendChild(this.createInteractiveFragment(part, true));
+                    p.appendChild(this.createInteractiveFragment(part, true));
                 }
             });
-            p.appendChild(sentenceContent);
             containerElement.appendChild(p);
         });
+    },
+    handleSentenceMouseOver(event, sentence) {
+        clearTimeout(app.state.translationTimer);
+        app.state.translationTimer = setTimeout(async () => {
+            const translatedText = await api.translate(sentence);
+            this.showTranslationTooltip(translatedText, event);
+        }, 1000);
     },
     showTranslationTooltip(text, event) {
         const tooltip = app.elements.translationTooltip;
@@ -871,24 +821,20 @@ const ui = {
         tooltip.style.top = `${rect.bottom + scrollTop + 5}px`;
     },
     hideTranslationTooltip() {
+        clearTimeout(app.state.translationTimer);
         app.elements.translationTooltip.classList.add('hidden');
     },
     showWordContextMenu(event, word, options = {}) {
         event.preventDefault();
         const menu = app.elements.wordContextMenu;
-
         app.elements.searchAppContextBtn.style.display = options.hideAppSearch ? 'none' : 'block';
-        
         const touch = event.touches ? event.touches[0] : null;
         const x = touch ? touch.clientX : event.clientX;
         const y = touch ? touch.clientY : event.clientY;
-
         menu.style.top = `${y}px`;
         menu.style.left = `${x}px`;
         menu.classList.remove('hidden');
-
         const encodedWord = encodeURIComponent(word);
-
         app.elements.searchAppContextBtn.onclick = () => app.searchWordInLearningMode(word);
         app.elements.searchDaumContextBtn.onclick = () => { window.open(`https://dic.daum.net/search.do?q=${encodedWord}`); this.hideWordContextMenu(); };
         app.elements.searchNaverContextBtn.onclick = () => { window.open(`https://en.dict.naver.com/#/search?query=${encodedWord}`); this.hideWordContextMenu(); };
@@ -919,25 +865,14 @@ const utils = {
             [array[i], array[j]] = [array[j], array[i]];
         }
         return array;
-    },
-    formatSeconds(totalSeconds) {
-        if (totalSeconds < 60) return `${totalSeconds}초`;
-        const d = Math.floor(totalSeconds / 86400);
-        const h = Math.floor((totalSeconds % 86400) / 3600);
-        const m = Math.floor((totalSeconds % 3600) / 60);
-        let result = '';
-        if (d > 0) result += `${d}일 `;
-        if (h > 0) result += `${h}시간 `;
-        if (m > 0) result += `${m}분`;
-        return result.trim();
     }
 };
 
 const dashboard = {
     elements: {
         container: document.getElementById('dashboard-container'),
-        content: document.getElementById('dashboard-content'),
         summary: document.getElementById('dashboard-summary'),
+        content: document.getElementById('dashboard-content'),
     },
     init() {
         document.addEventListener('wordListUpdated', () => {
@@ -951,7 +886,13 @@ const dashboard = {
             this.elements.content.innerHTML = `<div class="text-center p-10"><p class="text-gray-600">단어 목록을 먼저 불러와주세요.</p></div>`;
             return;
         }
-
+        this.elements.summary.innerHTML = `<div class="text-center p-4"><div class="loader mx-auto"></div></div>`;
+        this.elements.content.innerHTML = ``;
+        
+        this.renderBaseStats();
+        this.renderSummaryStats();
+    },
+    renderBaseStats() {
         const wordList = app.state.wordList;
         const totalWords = wordList.length;
         const stages = [
@@ -978,73 +919,98 @@ const dashboard = {
         });
         contentHTML += `</div></div>`;
         this.elements.content.innerHTML = contentHTML;
-        await this.renderSummary();
     },
-    async renderSummary() {
-        const studyHistory = await api.getStudyHistory();
-        const quizHistory = await api.getQuizHistory();
-        const today = new Date();
+    async renderSummaryStats() {
+        if (!app.state.userId) return;
+        try {
+            const studyHistoryRef = ref(database, `/userHistory/${app.state.userId}/study`);
+            const quizHistoryRef = ref(database, `/userHistory/${app.state.userId}/quiz`);
+            const studySnapshot = await get(studyHistoryRef);
+            const quizSnapshot = await get(quizHistoryRef);
+            const studyHistory = studySnapshot.val() || {};
+            const quizHistory = quizSnapshot.val() || {};
+            const today = new Date();
 
-        const getStatsForPeriod = (days) => {
-            let totalSeconds = 0;
-            const quizStats = {
-                'MULTIPLE_CHOICE_MEANING': { correct: 0, total: 0 },
-                'FILL_IN_THE_BLANK': { correct: 0, total: 0 },
-                'MULTIPLE_CHOICE_DEFINITION': { correct: 0, total: 0 },
-            };
-            
-            for (let i = 0; i < days; i++) {
-                const d = new Date(today);
-                d.setDate(d.getDate() - i);
-                const dateString = d.toISOString().slice(0, 10);
-                totalSeconds += studyHistory[dateString] || 0;
-                if (quizHistory[dateString]) {
-                    for (const type in quizStats) {
-                        if(quizHistory[dateString][type]) {
-                            quizStats[type].correct += quizHistory[dateString][type].correct;
-                            quizStats[type].total += quizHistory[dateString][type].total;
-                        }
+            const getStatsForPeriod = (days) => {
+                let totalSeconds = 0;
+                const quizStats = {
+                    'MULTIPLE_CHOICE_MEANING': { correct: 0, total: 0 },
+                    'FILL_IN_THE_BLANK': { correct: 0, total: 0 },
+                    'MULTIPLE_CHOICE_DEFINITION': { correct: 0, total: 0 },
+                };
+
+                for (let i = 0; i < days; i++) {
+                    const d = new Date(today);
+                    d.setDate(d.getDate() - i);
+                    const dateString = d.toISOString().slice(0, 10);
+                    
+                    totalSeconds += studyHistory[dateString] || 0;
+
+                    if (quizHistory[dateString]) {
+                        Object.keys(quizStats).forEach(type => {
+                            if (quizHistory[dateString][type]) {
+                                quizStats[type].correct += quizHistory[dateString][type].correct || 0;
+                                quizStats[type].total += quizHistory[dateString][type].total || 0;
+                            }
+                        });
                     }
                 }
-            }
-            return { totalSeconds, quizStats };
+                return { totalSeconds, quizStats };
+            };
+            
+            const totalStats = (() => {
+                let totalSeconds = Object.values(studyHistory).reduce((sum, seconds) => sum + seconds, 0);
+                const quizStats = { 'MULTIPLE_CHOICE_MEANING': { correct: 0, total: 0 }, 'FILL_IN_THE_BLANK': { correct: 0, total: 0 }, 'MULTIPLE_CHOICE_DEFINITION': { correct: 0, total: 0 }};
+                Object.values(quizHistory).forEach(dailyStats => {
+                    Object.keys(quizStats).forEach(type => {
+                        if (dailyStats[type]) {
+                            quizStats[type].correct += dailyStats[type].correct || 0;
+                            quizStats[type].total += dailyStats[type].total || 0;
+                        }
+                    });
+                });
+                return { totalSeconds, quizStats };
+            })();
+            
+            const stats7 = getStatsForPeriod(7);
+            const stats30 = getStatsForPeriod(30);
+
+            const formatSec = this.formatSeconds;
+            const formatQuiz = this.formatQuizStats;
+
+            const timeHtml = `<div class="font-semibold">📖 학습시간</div><div><span class="font-bold text-gray-500"> ∙ 7일:</span> ${formatSec(stats7.totalSeconds)} <span class="font-bold text-gray-500 ml-2"> ∙ 30일:</span> ${formatSec(stats30.totalSeconds)} <span class="font-bold text-gray-500 ml-2"> ∙ 총계:</span> ${formatSec(totalStats.totalSeconds)}</div>`;
+            const quizHtml = `<div class="font-semibold mt-2">🔡 퀴즈정답률</div><div>${formatQuiz('7일', stats7.quizStats)}</div><div>${formatQuiz('30일', stats30.quizStats)}</div><div>${formatQuiz('총계', totalStats.quizStats)}</div>`;
+            
+            this.elements.summary.innerHTML = timeHtml + quizHtml;
+
+        } catch (e) {
+            this.elements.summary.innerHTML = `<p class="text-red-500">통계 정보를 불러오는 데 실패했습니다.</p>`;
         }
-        
-        const totalStudySeconds = Object.values(studyHistory).reduce((a, b) => a + b, 0);
-        const totalQuizStats = {
-            'MULTIPLE_CHOICE_MEANING': { correct: 0, total: 0 },
-            'FILL_IN_THE_BLANK': { correct: 0, total: 0 },
-            'MULTIPLE_CHOICE_DEFINITION': { correct: 0, total: 0 },
-        };
-        Object.values(quizHistory).forEach(dailyStats => {
-            for(const type in totalQuizStats) {
-                if(dailyStats[type]) {
-                    totalQuizStats[type].correct += dailyStats[type].correct;
-                    totalQuizStats[type].total += dailyStats[type].total;
-                }
-            }
-        });
+    },
 
-        const stats7 = getStatsForPeriod(7);
-        const stats30 = getStatsForPeriod(30);
+    formatSeconds(totalSeconds) {
+        if (!totalSeconds || totalSeconds < 60) return `0분`;
+        const d = Math.floor(totalSeconds / 86400);
+        const h = Math.floor((totalSeconds % 86400) / 3600);
+        const m = Math.floor((totalSeconds % 3600) / 60);
+        let result = '';
+        if (d > 0) result += `${d}일 `;
+        if (h > 0) result += `${h}시간 `;
+        if (m > 0) result += `${m}분`;
+        return result.trim() || '0분';
+    },
 
-        const formatQuizStats = (stats) => {
-            return `퀴즈1 (${stats['MULTIPLE_CHOICE_MEANING'].correct}/${stats['MULTIPLE_CHOICE_MEANING'].total}, ${stats['MULTIPLE_CHOICE_MEANING'].total > 0 ? (stats['MULTIPLE_CHOICE_MEANING'].correct / stats['MULTIPLE_CHOICE_MEANING'].total * 100).toFixed(0) : 0}%) | 
-                    퀴즈2 (${stats['FILL_IN_THE_BLANK'].correct}/${stats['FILL_IN_THE_BLANK'].total}, ${stats['FILL_IN_THE_BLANK'].total > 0 ? (stats['FILL_IN_THE_BLANK'].correct / stats['FILL_IN_THE_BLANK'].total * 100).toFixed(0) : 0}%) | 
-                    퀴즈3 (${stats['MULTIPLE_CHOICE_DEFINITION'].correct}/${stats['MULTIPLE_CHOICE_DEFINITION'].total}, ${stats['MULTIPLE_CHOICE_DEFINITION'].total > 0 ? (stats['MULTIPLE_CHOICE_DEFINITION'].correct / stats['MULTIPLE_CHOICE_DEFINITION'].total * 100).toFixed(0) : 0}%)`;
-        };
-
-        this.elements.summary.innerHTML = `
-            <p>📖 <span class="font-bold">학습 시간:</span> 최근 7일간 (${utils.formatSeconds(stats7.totalSeconds)}), 최근 30일간 (${utils.formatSeconds(stats30.totalSeconds)}), 총계 (${utils.formatSeconds(totalStudySeconds)})</p>
-            <div>
-                <p class="font-bold">🔡 퀴즈 정답률</p>
-                <div class="pl-4 text-sm">
-                    <p><span class="font-semibold">최근 7일간:</span> ${formatQuizStats(stats7.quizStats)}</p>
-                    <p><span class="font-semibold">최근 30일간:</span> ${formatQuizStats(stats30.quizStats)}</p>
-                    <p><span class="font-semibold">총계:</span> ${formatQuizStats(totalQuizStats)}</p>
-                </div>
-            </div>`;
-    }
+    formatQuizStats(period, quizStats) {
+        const quizNames = { 'MULTIPLE_CHOICE_MEANING': '퀴즈1', 'FILL_IN_THE_BLANK': '퀴즈2', 'MULTIPLE_CHOICE_DEFINITION': '퀴즈3' };
+        let result = `<span class="font-bold text-gray-500"> ∙ ${period}:</span> `;
+        let statsStrings = [];
+        for (const type in quizStats) {
+            const { correct, total } = quizStats[type];
+            const percentage = total > 0 ? `${Math.round((correct / total) * 100)}%` : '0%';
+            statsStrings.push(`${quizNames[type]} (${correct}/${total}, ${percentage})`);
+        }
+        return result + statsStrings.join(', ');
+    },
 };
 
 const quizMode = {
@@ -1087,6 +1053,7 @@ const quizMode = {
         document.addEventListener('keydown', (e) => {
             const isQuizModeActive = !this.elements.contentContainer.classList.contains('hidden') && !this.elements.choices.classList.contains('disabled');
             if (!isQuizModeActive) return;
+            activityTracker.recordActivity();
 
             if (e.key >= '1' && e.key <= '4') {
                 e.preventDefault();
@@ -1227,6 +1194,7 @@ const quizMode = {
         this.elements.choices.classList.remove('disabled');
     },
     async checkAnswer(selectedLi, selectedChoice) {
+        activityTracker.recordActivity();
         this.elements.choices.classList.add('disabled');
         const isCorrect = selectedChoice === this.state.currentQuiz.answer;
         
@@ -1278,7 +1246,6 @@ const quizMode = {
 
         const allWords = app.state.wordList;
         if (allWords.length < 5) return;
-
         const candidates = utils.shuffleArray(allWords.filter(w => 
             w.srsDefinition !== 1 && 
             !this.state.answeredWords.has(w.word)
@@ -1297,6 +1264,7 @@ const quizMode = {
         }
         this.state.preloadingDefinitionWord = null;
     },
+    
     reviewSessionMistakes() {
         this.elements.modal.classList.add('hidden');
         const mistakes = [...this.state.sessionMistakes];
@@ -1319,18 +1287,10 @@ const quizMode = {
     },
     createBlankQuiz(correctWordData, allWordsData) {
         if (!correctWordData.sample || correctWordData.sample.trim() === '') return null;
-        
-        const firstLine = correctWordData.sample.split('\n')[0]
-            .replace(/\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu, "")
-            .replace(/\*/g, '')
-            .trim();
-
+        const firstLine = correctWordData.sample.split('\n')[0].replace(/\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu, "").replace(/\*/g, '').trim();
         const placeholderRegex = new RegExp(`\\b${correctWordData.word}\\b`, 'i');
-        
         if (!firstLine.match(placeholderRegex)) return null;
-
         const sentenceWithBlank = firstLine.replace(placeholderRegex, "___BLANK___").trim();
-
         const wrongAnswers = new Set();
         let candidates = allWordsData.filter(w => w.pos === correctWordData.pos && w.word !== correctWordData.word);
         utils.shuffleArray(candidates);
@@ -1368,7 +1328,7 @@ const learningMode = {
         touchStartX: 0,
         touchStartY: 0,
     },
-    nonInteractiveWords: new Set(['a', 'an', 'the', 'I', 'me', 'my', 'mine', 'you', 'your', 'yours', 'he', 'him', 'his', 'she', 'her', 'hers', 'it', 'its', 'we', 'us', 'our', 'ours', 'they', 'them', 'their', 'theirs', 'this', 'that', 'these', 'those', 'myself', 'yourself', 'himself', 'herself', 'itself', 'ourselves', 'yourselves', 'something', 'anybody', 'anyone', 'anything', 'nobody', 'no one', 'nothing', 'everybody', 'everyone', 'everything', 'all', 'any', 'both', 'each', 'either', 'every', 'few', 'little', 'many', 'much', 'neither', 'none', 'one', 'other', 'several', 'some', 'about', 'above', 'across', 'after', 'against', 'along', 'among', 'around', 'at', 'before', 'behind', 'below', 'beneath', 'beside', 'between', 'beyond', 'by', 'down', 'during', 'for', 'from', 'in', 'inside', 'into', 'like', 'near', 'of', 'off', 'on', 'onto', 'out', 'outside', 'over', 'past', 'since', 'through', 'throughout', 'to', 'toward', 'under', 'underneath', 'until', 'unto', 'up', 'upon', 'with', 'within', 'without', 'and', 'but', 'or', 'nor', 'for', 'yet', 'so', 'after', 'although', 'as', 'because', 'before', 'if', 'once', 'since', 'than', 'that', 'though', 'till', 'unless', 'until', 'when', 'whenever', 'where', 'whereas', 'wherever', 'whether', 'while', 'that', 'which', 'who', 'whom', 'whose', 'when', 'where', 'why', 'what', 'whatever', 'whichever', 'whoever', 'whomever', 'who', 'whom', 'whose', 'what', 'which', 'when', 'where', 'why', 'how', 'be', 'am', 'is', 'are', 'was', 'were', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'done', 'can', 'could', 'may', 'might', 'must', 'shall', 'should', 'will', 'would', 'ought', 'not', 'very', 'too', 'so', 'just', 'well', 'often', 'always', 'never', 'sometimes', 'here', 'there', 'now', 'then', 'again', 'also', 'ever', 'even', 'how', 'quite', 'rather', 'soon', 'still', 'more', 'most', 'less', 'least', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'then', 'there', 'here', "don't", "didn't", "can't", "couldn't", "she's", "he's", "i'm", "you're", "they're", "we're", "it's", "that's"]),
+    nonInteractiveWords: new Set(['a', 'an', 'the', 'I', 'me', 'my', 'mine', 'you', 'your', 'yours', 'he', 'him', 'his', 'she', 'her', 'hers', 'it', 'its', 'we', 'us', 'our', 'ours', 'they', 'them', 'their', 'theirs', 'this', 'that', 'these', 'those', 'myself', 'yourself', 'himself', 'herself', 'itself', 'ourselves', 'yourselves', 'something', 'anybody', 'anyone', 'anything', 'nobody', 'no one', 'nothing', 'everybody', 'everyone', 'everything', 'all', 'any', 'both', 'each', 'either', 'every', 'few', 'little', 'many', 'much', 'neither', 'none', 'one', 'other', 'several', 'some', 'about', 'above', 'across', 'after', 'against', 'along', 'among', 'around', 'at', 'before', 'behind', 'below', 'beneath', 'beside', 'between', 'beyond', 'by', 'down', 'during', 'for', 'from', 'in', 'inside', 'into', 'like', 'near', 'of', 'off', 'on', 'onto', 'out', 'outside', 'over', 'past', 'since', 'through', 'throughout', 'to', 'toward', 'under', 'underneath', 'until', 'unto', 'up', 'upon', 'with', 'within', 'without', 'and', 'but', 'or', 'nor', 'for', 'yet', 'so', 'after', 'although', 'as', 'because', 'before', 'if', 'once', 'since', 'than', 'that', 'though', 'till', 'unless', 'until', 'when', 'whenever', 'where', 'whereas', 'wherever', 'whether', 'while', 'that', 'which', 'who', 'whom', 'whose', 'when', 'where', 'why', 'what', 'whatever', 'whichever', 'whoever', 'whomever', 'who', 'whom', 'whose', 'what', 'which', 'when', 'where', 'why', 'how', 'be', 'am', 'is', 'are', 'was', 'were', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'done', 'can', 'could', 'may', 'might', 'must', 'shall', 'should', 'will', 'would', 'ought', 'not', 'very', 'too', 'so', 'just', 'well', 'often', 'always', 'never', 'sometimes', 'here', 'there', 'now', 'then', 'again', 'also', 'ever', 'even', 'how', 'quite', 'rather', 'soon', 'still', 'more', 'most', 'less', 'least', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'then', 'there', 'here', "don't", "didn't", "can't", "couldn't", "she's", "he's", "I'm", "you're", "they're", "we're", "it's", "that's"]),
     elements: {},
     init() {
         this.elements = {
@@ -1446,9 +1406,10 @@ const learningMode = {
         document.addEventListener('touchend', this.handleProgressBarInteraction.bind(this));
     },
     async start() {
+        activityTracker.recordActivity();
         this.state.isMistakeMode = false;
         this.state.isFavoriteMode = false;
-        this.state.currentWordList = app.state.wordList;
+        const currentWordList = app.state.wordList;
         this.elements.startScreen.classList.add('hidden');
         this.elements.loader.classList.remove('hidden');
         if (!app.state.isWordListReady) {
@@ -1456,15 +1417,16 @@ const learningMode = {
             await api.loadWordList();
         }
         const startWord = this.elements.startWordInput.value.trim();
-        if (this.state.currentWordList.length === 0) { this.showError("학습할 단어가 없습니다."); return; }
+        if (currentWordList.length === 0) { this.showError("학습할 단어가 없습니다."); return; }
         if (!startWord) {
+            this.elements.loaderText.textContent = "마지막 학습 위치를 불러오는 중...";
             this.state.currentIndex = await api.getLastLearnedIndex() || 0;
             this.launchApp();
             return;
         }
     
         const lowerCaseStartWord = startWord.toLowerCase();
-        const exactMatchIndex = this.state.currentWordList.findIndex(item => item.word.toLowerCase() === lowerCaseStartWord);
+        const exactMatchIndex = currentWordList.findIndex(item => item.word.toLowerCase() === lowerCaseStartWord);
         if (exactMatchIndex !== -1) {
             this.state.currentIndex = exactMatchIndex;
             this.launchApp();
@@ -1472,10 +1434,10 @@ const learningMode = {
         }
         
         const searchRegex = new RegExp(`\\b${lowerCaseStartWord}\\b`, 'i');
-        const explanationMatches = this.state.currentWordList
+        const explanationMatches = currentWordList
             .map((item, index) => ({ ...item, index }))
             .filter(item => item.explanation && searchRegex.test(item.explanation.replace(/\[.*?\]/g, '')));
-        const levenshteinSuggestions = this.state.currentWordList.map((item, index) => ({
+        const levenshteinSuggestions = currentWordList.map((item, index) => ({
             word: item.word, index, distance: utils.levenshteinDistance(lowerCaseStartWord, item.word.toLowerCase())
         })).sort((a, b) => a.distance - b.distance).slice(0, 5).filter(s => s.distance < s.word.length / 2 + 1);
         
@@ -1536,6 +1498,7 @@ const learningMode = {
     },
     displayWord(index) {
         if (!this.state.isMistakeMode && !this.state.isFavoriteMode) api.setLastLearnedIndex(index);
+        activityTracker.recordActivity();
         this.updateProgressBar(index);
         this.elements.cardBack.classList.remove('is-slid-up');
         const wordData = this.state.currentWordList[index];
@@ -1550,7 +1513,25 @@ const learningMode = {
         const imgMap = { manual: '14-delivery-cat_icon-icons.com_76690', ai: '3-search-cat_icon-icons.com_76679' };
         const imgName = imgMap[wordData.sampleSource] || '19-add-cat_icon-icons.com_76695';
         this.elements.sampleBtnImg.src = `https://images.icon-icons.com/1055/PNG/128/${imgName}.png`;
-        this.updateFavoriteIcon(wordData.word);
+
+        const isFavorite = app.state.wordList.find(w => w.word === wordData.word)?.favorite || false;
+        this.updateFavoriteIcon(isFavorite);
+    },
+    updateFavoriteIcon(isFavorite) {
+        if (isFavorite) {
+            this.elements.favoriteIcon.classList.add('fill-current', 'text-yellow-400');
+            this.elements.favoriteIcon.classList.remove('text-gray-400');
+        } else {
+            this.elements.favoriteIcon.classList.remove('fill-current', 'text-yellow-400');
+            this.elements.favoriteIcon.classList.add('text-gray-400');
+        }
+    },
+    async toggleFavorite() {
+        activityTracker.recordActivity();
+        const wordData = this.state.currentWordList[this.state.currentIndex];
+        if (!wordData) return;
+        const isFavorite = await api.toggleFavorite(wordData.word);
+        this.updateFavoriteIcon(isFavorite);
     },
     adjustWordFontSize() {
         const wordDisplay = this.elements.wordDisplay;
@@ -1558,21 +1539,22 @@ const learningMode = {
         wordDisplay.style.fontSize = '';
         const defaultFontSize = parseFloat(window.getComputedStyle(wordDisplay).fontSize);
         let currentFontSize = defaultFontSize;
-        while (wordDisplay.scrollWidth > container.clientWidth - 80 && currentFontSize > 12) {
+        while (wordDisplay.scrollWidth > container.clientWidth - this.elements.favoriteBtn.offsetWidth - 16 && currentFontSize > 12) {
             currentFontSize -= 1;
             wordDisplay.style.fontSize = `${currentFontSize}px`;
         }
     },
     navigate(direction) {
+        activityTracker.recordActivity();
         const len = this.state.currentWordList.length;
         if (len === 0) return;
         this.state.currentIndex = (this.state.currentIndex + direction + len) % len;
         this.displayWord(this.state.currentIndex);
     },
     handleFlip() {
+        activityTracker.recordActivity();
         const isBackVisible = this.elements.cardBack.classList.contains('is-slid-up');
         const wordData = this.state.currentWordList[this.state.currentIndex];
-
         if (!isBackVisible) {
             if (wordData.sampleSource === 'none' || !wordData.sample) { app.showNoSampleMessage(); return; }
             this.elements.backTitle.textContent = wordData.word;
@@ -1584,35 +1566,31 @@ const learningMode = {
             this.displayWord(this.state.currentIndex);
         }
     },
-    async startMistakeReview(mistakeWords) {
-        this.state.isMistakeMode = true;
-        this.state.isFavoriteMode = false;
+    startSpecialReview(words, mode) {
+        this.state.isMistakeMode = mode === 'mistakeReview';
+        this.state.isFavoriteMode = mode === 'favoriteReview';
+        
         const wordMap = new Map(app.state.wordList.map(wordObj => [wordObj.word, wordObj]));
-        this.state.currentWordList = mistakeWords.map(word => wordMap.get(word)).filter(Boolean);
+        this.state.currentWordList = words.map(word => wordMap.get(word)).filter(Boolean);
+
+        if (this.state.isFavoriteMode) {
+             const favoriteInfo = {};
+             app.state.wordList.forEach(w => { if(w.favorite) favoriteInfo[w.word] = w.favoritedAt; });
+             this.state.currentWordList.sort((a,b) => (favoriteInfo[b.word] || 0) - (favoriteInfo[a.word] || 0));
+        }
+        
         this.state.currentIndex = 0;
         if (this.state.currentWordList.length === 0) {
-            app.showToast("오답 노트에 단어가 없습니다.", true);
-            app.navigateTo('selection');
+            const message = mode === 'mistakeReview' ? "오답 노트를 불러올 수 없습니다." : "즐겨찾기 목록을 불러올 수 없습니다.";
+            this.showError(message);
+            setTimeout(() => app.navigateTo('selection'), 2000);
             return;
         }
-        this.launchApp();
-    },
-    async startFavoriteMode() {
-        this.state.isMistakeMode = false;
-        this.state.isFavoriteMode = true;
-        app.state.favorites = await api.loadFavorites();
-        if(app.state.favorites.length === 0) {
-            app.showToast("즐겨찾기에 등록된 단어가 없습니다.", true);
-            app.navigateTo('selection');
-            return;
-        }
-        const wordMap = new Map(app.state.wordList.map(wordObj => [wordObj.word, wordObj]));
-        this.state.currentWordList = app.state.favorites.map(word => wordMap.get(word)).filter(Boolean).reverse();
-        this.state.currentIndex = 0;
         this.launchApp();
     },
     handleKeyDown(e) {
-        if (!learningMode.elements.appContainer.classList.contains('hidden')) {
+        if (!learningMode.elements.appContainer.classList.contains('hidden') && !e.target.closest('input, textarea')) {
+            activityTracker.recordActivity();
             if (e.key === 'ArrowLeft') this.navigate(-1);
             else if (e.key === 'ArrowRight') this.navigate(1);
             else if (e.key === 'Enter') this.handleFlip();
@@ -1631,11 +1609,8 @@ const learningMode = {
         const deltaY = touchEndY - this.state.touchStartY;
         const swipeThreshold = 50;
         if (Math.abs(deltaX) > Math.abs(deltaY)) {
-            if (deltaX > swipeThreshold) {
-                this.navigate(-1);
-            } else if (deltaX < -swipeThreshold) {
-                this.navigate(1);
-            }
+            if (deltaX > swipeThreshold) this.navigate(-1);
+            else if (deltaX < -swipeThreshold) this.navigate(1);
         }
         this.state.touchStartX = 0;
         this.state.touchStartY = 0;
@@ -1653,12 +1628,12 @@ const learningMode = {
     },
     handleProgressBarInteraction(e) {
         if (learningMode.elements.appContainer.classList.contains('hidden')) return;
-        
         const track = this.elements.progressBarTrack;
         const totalWords = this.state.currentWordList.length;
         if (totalWords <= 1) return;
 
         const handleInteraction = (clientX) => {
+            activityTracker.recordActivity();
             const rect = track.getBoundingClientRect();
             const x = clientX - rect.left;
             const percentage = Math.max(0, Math.min(1, x / rect.width));
@@ -1693,30 +1668,6 @@ const learningMode = {
                 break;
         }
     },
-    async toggleFavorite() {
-        const wordData = this.state.currentWordList[this.state.currentIndex];
-        if (!wordData) return;
-        const newStatus = await api.toggleFavorite(wordData.word);
-        this.updateFavoriteIcon(wordData.word, newStatus);
-        if (this.state.isFavoriteMode && !newStatus) {
-            this.state.currentWordList.splice(this.state.currentIndex, 1);
-            if (this.state.currentWordList.length === 0) {
-                app.showToast("즐겨찾기 목록이 비었습니다.", false);
-                app.navigateTo('selection');
-                return;
-            }
-            if(this.state.currentIndex >= this.state.currentWordList.length) {
-                this.state.currentIndex = this.state.currentWordList.length - 1;
-            }
-            this.displayWord(this.state.currentIndex);
-        }
-    },
-    updateFavoriteIcon(word, isFavorite = null) {
-        const isFav = isFavorite !== null ? isFavorite : app.state.favorites.includes(word);
-        this.elements.favoriteIcon.classList.toggle('text-yellow-400', isFav);
-        this.elements.favoriteIcon.classList.toggle('text-gray-400', !isFav);
-        this.elements.favoriteIcon.classList.toggle('fill-current', isFav);
-    }
 };
 
 document.addEventListener('firebaseSDKLoaded', () => {
