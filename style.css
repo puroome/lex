@@ -31,24 +31,30 @@ body {
     transform: rotateY(-180deg);
 }
 
-/* UX 개선 스타일 */
 .choice-item:hover { transform: scale(1.02); }
-.choice-item.submitting { background-color: #e2e8f0; } /* Tailwind gray-200 */
+.choice-item.submitting { background-color: #e2e8f0; }
 .correct { background-color: #28a745 !important; color: white !important; transform: scale(1.05); border-color: #28a745; }
 .incorrect { background-color: #dc3545 !important; color: white !important; border-color: #dc3545; }
 .disabled { pointer-events: none; opacity: 0.7; }
 
-/* 단어 위 텍스트 선택 방지 (터치 시 기본 메뉴 비활성화) */
-.interactive-word {
-    -webkit-user-select: none; /* Safari */
-    -moz-user-select: none;    /* Firefox */
-    -ms-user-select: none;     /* IE/Edge */
-    user-select: none;         /* Standard */
+#favorite-icon {
+    transition: color 0.2s ease-in-out, fill 0.2s ease-in-out;
 }
 
-/* 클릭 가능한 단어 스타일 */
+#favorite-btn:active #favorite-icon {
+    transform: scale(1.2);
+    transition: transform 0.1s ease-in-out;
+}
+
+.interactive-word {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
 .interactive-word:hover {
-    background-color: #dbeafe; /* Tailwind blue-100 */
+    background-color: #dbeafe;
     border-radius: 0.25rem;
     cursor: pointer;
 }
@@ -89,16 +95,14 @@ body {
 }
 
 #learning-card-front {
-    min-height: 45vh; /* 화면 높이의 45%를 최소 높이로 지정 */
+    min-height: 45vh;
 }
 
-/* 퀴즈 문장 줄바꿈 및 빈칸 스타일 */
 .quiz-blank {
     display: inline-block;
     white-space: nowrap;
 }
 
-/* 진행 상태 바 핸들 활성화 스타일 */
 #progress-bar-handle:active {
     cursor: grabbing;
     transform: scale(1.2) translateY(-10%);
@@ -115,8 +119,6 @@ body {
     border-color: transparent transparent #1f2937 transparent;
 }
 
-/* 기본적으로 앱 컨텐츠를 숨김 */
 #app-wrapper.hidden {
     display: none;
 }
-
