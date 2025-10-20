@@ -14,7 +14,7 @@ const app = {
         SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzyBM33LzFsAe-mES_0Qw5B8w0ZPyYTDm4K_nLif5y2bXMpiQbD1LX5TTIDA4qX_Rnp/exec",
         ALLOWED_USER_EMAIL: "puroome@gmail.com",
     },
-    state: {
+state: {
         isAppStarted: false,
         userId: null, // 로그인한 사용자의 고유 ID를 저장할 공간
         currentVoiceSet: 'UK',
@@ -24,7 +24,6 @@ const app = {
         isWordListReady: false,
         longPressTimer: null,
         translationTimer: null,
-        lastLearnedIndex: 0, // [수정됨] 미리 불러온 학습 위치를 저장할 변수
     },
     elements: {
         // Login elements
@@ -76,7 +75,7 @@ const app = {
         database = getDatabase(firebaseApp);
         auth = getAuth(firebaseApp);
 
-        onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, (user) => {
             if (user && user.email === this.config.ALLOWED_USER_EMAIL) {
                 // 허용된 사용자가 로그인한 경우
                 this.state.userId = user.uid; // 여기에 사용자 ID를 저장하는 코드를 추가합니다.
@@ -116,7 +115,7 @@ const app = {
             }
         }
     },
-    async startApp() {
+async startApp() {
         this.state.isAppStarted = true;
         
         try {
@@ -133,15 +132,6 @@ const app = {
         } catch (e) {
             // loadWordList가 이미 치명적 오류를 처리하므로, 여기서는 중단만 합니다.
             return;
-        }
-
-        // [수정됨] 마지막 학습 위치를 미리 불러옵니다.
-        // (오류가 나도 0으로 시작하면 되므로, 치명적 오류로 처리하지 않습니다.)
-        try {
-            app.state.lastLearnedIndex = await api.getLastLearnedIndex() || 0;
-        } catch (e) {
-            console.error("마지막 학습 위치 미리 로딩 실패:", e);
-            app.state.lastLearnedIndex = 0; // 실패 시 0으로 초기화
         }
 
         quizMode.init();
@@ -256,7 +246,7 @@ const app = {
             showCommonButtons();
             this.elements.quizModeContainer.classList.remove('hidden');
             quizMode.reset();
-        } else if (mode === 'learning') {
+} else if (mode === 'learning') {
             showCommonButtons();
             this.elements.learningModeContainer.classList.remove('hidden');
 
@@ -359,7 +349,7 @@ const app = {
             setTimeout(() => msgEl.classList.add('hidden'), 500);
         }, 1500);
     },
-    searchWordInLearningMode(word) {
+searchWordInLearningMode(word) {
         if (!word) return;
 
         // 1. 학습 모드의 첫 화면(단어 입력창)으로 이동합니다.
@@ -612,7 +602,7 @@ const api = {
             app.showToast('학습 상태 업데이트에 실패했습니다.', true);
         }
     },
-    async getLastLearnedIndex() {
+async getLastLearnedIndex() {
         if (!app.state.userId) return 0; // 사용자 ID가 없으면 첫 단어로 시작
         try {
             const path = `/userState/${app.state.userId}/lastLearnedIndex`;
@@ -623,7 +613,7 @@ const api = {
             return 0;
         }
     },
-    async setLastLearnedIndex(index) {
+async setLastLearnedIndex(index) {
         if (!app.state.userId) return; // 사용자 ID가 없으면 저장하지 않음
         try {
             const path = `/userState/${app.state.userId}/lastLearnedIndex`;
@@ -744,7 +734,7 @@ const ui = {
             }
         });
     },
-    displaySentences(sentences, containerElement) {
+displaySentences(sentences, containerElement) {
         containerElement.innerHTML = '';
         sentences.filter(s => s && s.trim()).forEach(sentence => {
             const p = document.createElement('p');
@@ -799,7 +789,7 @@ const ui = {
             containerElement.appendChild(p);
         });
     },
-    showTranslationTooltip(text, event) {
+showTranslationTooltip(text, event) {
         const tooltip = app.elements.translationTooltip;
         tooltip.textContent = text;
         tooltip.classList.remove('hidden');
@@ -965,7 +955,7 @@ const quizMode = {
             }
         });
     },
-    async start(quizType) {
+async start(quizType) {
         this.reset();
         this.state.quizType = quizType;
         this.elements.quizSelectionScreen.classList.add('hidden');
@@ -1011,7 +1001,7 @@ const quizMode = {
         }
         return null;
     },
-    async displayNextQuiz() {
+async displayNextQuiz() {
         this.showLoader(true, "다음 문제 생성 중...");
         let nextQuiz = null;
 
@@ -1197,7 +1187,7 @@ const quizMode = {
         const choices = utils.shuffleArray([correctWordData.meaning, ...Array.from(wrongAnswers)]);
         return { type: 'MULTIPLE_CHOICE_MEANING', question: { word: correctWordData.word }, choices, answer: correctWordData.meaning };
     },
-    createBlankQuiz(correctWordData, allWordsData) {
+createBlankQuiz(correctWordData, allWordsData) {
         if (!correctWordData.sample || correctWordData.sample.trim() === '') return null;
         
         // 예문에서 이모지와 함께 별표(*)도 모두 제거합니다.
@@ -1288,7 +1278,7 @@ const learningMode = {
         };
         this.bindEvents();
     },
-    bindEvents() {
+bindEvents() {
         this.elements.startBtn.addEventListener('click', () => this.start());
         // 아래 'startWordInput'의 keydown 이벤트를 수정합니다.
         this.elements.startWordInput.addEventListener('keydown', (e) => {
@@ -1340,10 +1330,9 @@ const learningMode = {
         }
         const startWord = this.elements.startWordInput.value.trim();
         if (this.state.currentWordList.length === 0) { this.showError("학습할 단어가 없습니다."); return; }
-        
-        // [수정됨] await을 제거하고 미리 불러온 app.state 값을 즉시 사용합니다.
         if (!startWord) {
-            this.state.currentIndex = app.state.lastLearnedIndex || 0;
+            this.elements.loaderText.textContent = "마지막 학습 위치를 불러오는 중...";
+            this.state.currentIndex = await api.getLastLearnedIndex() || 0;
             this.launchApp();
             return;
         }
