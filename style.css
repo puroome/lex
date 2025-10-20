@@ -2,6 +2,12 @@
 body {
     font-family: 'Noto Sans KR', sans-serif;
     -webkit-tap-highlight-color: transparent;
+
+    /* 텍스트/이미지 드래그 선택 방지 */
+    -webkit-user-select: none; /* Safari, Chrome */
+    -moz-user-select: none;    /* Firefox */
+    -ms-user-select: none;     /* IE/Edge */
+    user-select: none;         /* Standard */
 }
 .loader {
     border: 4px solid #f3f3f3;
@@ -121,4 +127,3 @@ body {
 #favorite-icon.fill-current {
     fill: currentColor;
 }
-
