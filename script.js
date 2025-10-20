@@ -781,21 +781,23 @@ const ui = {
                 if (englishPhrase) {
                     const span = document.createElement('span');
                     span.textContent = englishPhrase;
-                    span.className = 'interactive-word';
-                    span.onclick = () => {
-                        clearTimeout(app.state.longPressTimer);
-                        api.speak(englishPhrase, 'word');
-                        this.copyToClipboard(englishPhrase);
-                    };
-                    span.oncontextmenu = (e) => { e.preventDefault(); this.showWordContextMenu(e, englishPhrase); };
-                    let touchMove = false;
-                    span.addEventListener('touchstart', (e) => {
-                        touchMove = false;
-                        clearTimeout(app.state.longPressTimer);
-                        app.state.longPressTimer = setTimeout(() => { if (!touchMove) this.showWordContextMenu(e, englishPhrase); }, 700);
-                    }, { passive: true });
-                    span.addEventListener('touchmove', () => { touchMove = true; clearTimeout(app.state.longPressTimer); });
-                    span.addEventListener('touchend', () => { clearTimeout(app.state.longPressTimer); });
+                    if (learningMode.nonInteractiveWords && !learningMode.nonInteractiveWords.has(englishPhrase.toLowerCase())) {
+                        span.className = 'interactive-word';
+                        span.onclick = () => {
+                            clearTimeout(app.state.longPressTimer);
+                            api.speak(englishPhrase, 'word');
+                            this.copyToClipboard(englishPhrase);
+                        };
+                        span.oncontextmenu = (e) => { e.preventDefault(); this.showWordContextMenu(e, englishPhrase); };
+                        let touchMove = false;
+                        span.addEventListener('touchstart', (e) => {
+                            touchMove = false;
+                            clearTimeout(app.state.longPressTimer);
+                            app.state.longPressTimer = setTimeout(() => { if (!touchMove) this.showWordContextMenu(e, englishPhrase); }, 700);
+                        }, { passive: true });
+                        span.addEventListener('touchmove', () => { touchMove = true; clearTimeout(app.state.longPressTimer); });
+                        span.addEventListener('touchend', () => { clearTimeout(app.state.longPressTimer); });
+                    }
                     targetElement.appendChild(span);
                 } else if (nonClickable) {
                     targetElement.appendChild(document.createTextNode(nonClickable));
@@ -822,7 +824,7 @@ const ui = {
             };
 
             p.onclick = (e) => {
-                if (e.target.closest('.interactive-word')) return;
+                if (e.target.closest('.sentence-content-area')) return;
                 api.speak(p.textContent, 'sample');
                 showTranslation(e);
             };
@@ -841,6 +843,7 @@ const ui = {
 
             const sentenceContent = document.createElement('span');
             sentenceContent.className = 'sentence-content-area';
+            sentenceContent.style.cursor = 'text';
             
             sentenceContent.addEventListener('mouseenter', () => {
                 clearTimeout(app.state.translationTimer);
@@ -1541,7 +1544,7 @@ const learningMode = {
         const wordData = this.state.currentWordList[index];
         if (!wordData) return;
         
-        this.elements.wordDisplay.innerHTML = `${wordData.word} <span class="pronunciation-inline">${wordData.pronunciation || ''}</span>`;
+        this.elements.wordDisplay.textContent = wordData.word;
         this.adjustWordFontSize();
         this.elements.meaningDisplay.innerHTML = wordData.meaning.replace(/\n/g, '<br>');
         ui.renderExplanationText(this.elements.explanationDisplay, wordData.explanation);
