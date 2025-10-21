@@ -1054,12 +1054,17 @@ const dashboard = {
         });
 
         // Render Quiz Accuracy Doughnut Charts
-        const createDoughnutChart = (elementId, stats) => {
+        const createDoughnutChart = (elementId, labelId, labelText, stats) => {
             const ctx = document.getElementById(elementId).getContext('2d');
             const correct = stats.correct || 0;
             const total = stats.total || 0;
             const incorrect = total - correct;
             const accuracy = total > 0 ? ((correct / total) * 100).toFixed(0) : 0;
+
+            const labelEl = document.getElementById(labelId);
+            if (labelEl) {
+                labelEl.textContent = `${labelText} (${correct}/${total})`;
+            }
             
             return new Chart(ctx, {
                 type: 'doughnut',
@@ -1099,9 +1104,10 @@ const dashboard = {
                 }]
             });
         };
-        this.state.quiz1Chart = createDoughnutChart('quiz1-chart', totalQuizStats['MULTIPLE_CHOICE_MEANING']);
-        this.state.quiz2Chart = createDoughnutChart('quiz2-chart', totalQuizStats['FILL_IN_THE_BLANK']);
-        this.state.quiz3Chart = createDoughnutChart('quiz3-chart', totalQuizStats['MULTIPLE_CHOICE_DEFINITION']);
+        this.state.quiz1Chart = createDoughnutChart('quiz1-chart', 'quiz1-label', '영한 뜻', totalQuizStats['MULTIPLE_CHOICE_MEANING']);
+        this.state.quiz2Chart = createDoughnutChart('quiz2-chart', 'quiz2-label', '빈칸 추론', totalQuizStats['FILL_IN_THE_BLANK']);
+        this.state.quiz3Chart = createDoughnutChart('quiz3-chart', 'quiz3-label', '영영 풀이', totalQuizStats['MULTIPLE_CHOICE_DEFINITION']);
+
 
         // Render Text Summary for Monthly and Total stats
         const textSummaryContainer = document.getElementById('dashboard-text-summary');
@@ -1838,4 +1844,3 @@ document.addEventListener('firebaseSDKLoaded', () => {
     } = window.firebaseSDK);
     app.init();
 });
-
