@@ -1140,26 +1140,54 @@ const dashboard = {
             const totalStudySeconds = Object.values(studyHistory).reduce((a, b) => a + b, 0);
             const stats30 = getStatsForPeriod(30);
 
-            const formatQuizStats = (stats) => {
-                const q1 = stats['MULTIPLE_CHOICE_MEANING'];
-                const q2 = stats['FILL_IN_THE_BLANK'];
-                const q3 = stats['MULTIPLE_CHOICE_DEFINITION'];
-                const formatRate = (q) => `${q.correct}/${q.total}, ${q.total > 0 ? (q.correct / q.total * 100).toFixed(0) : 0}%`;
-                return `영한(${formatRate(q1)}) · 빈칸(${formatRate(q2)}) · 영영(${formatRate(q3)})`;
+            const createSummaryCardHTML = (title, totalSeconds, quizStats) => {
+                const quizTypes = {
+                    'MULTIPLE_CHOICE_MEANING': '영한 뜻',
+                    'FILL_IN_THE_BLANK': '빈칸 추론',
+                    'MULTIPLE_CHOICE_DEFINITION': '영영 풀이',
+                };
+        
+                let quizHTML = '<div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">';
+                for (const type in quizTypes) {
+                    const stats = quizStats[type] || { correct: 0, total: 0 };
+                    const accuracy = stats.total > 0 ? ((stats.correct / stats.total) * 100).toFixed(0) : 0;
+                    quizHTML += `
+                        <div class="bg-white p-2 rounded-lg shadow-sm">
+                            <p class="text-sm font-semibold text-gray-500">${quizTypes[type]}</p>
+                            <p class="font-bold text-gray-800 text-xl">${accuracy}%</p>
+                            <p class="text-xs text-gray-400">(${stats.correct}/${stats.total})</p>
+                        </div>
+                    `;
+                }
+                quizHTML += '</div>';
+        
+                return `
+                    <div class="bg-gray-50 p-4 rounded-xl shadow-inner">
+                        <h4 class="font-bold text-gray-700 mb-4 text-lg text-center">${title}</h4>
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between bg-white p-3 rounded-lg shadow-sm">
+                                <div class="flex items-center space-x-3">
+                                    <svg class="w-6 h-6 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <span class="font-semibold text-gray-600">학습 시간</span>
+                                </div>
+                                <span class="font-bold text-gray-800 text-lg">${utils.formatSeconds(totalSeconds)}</span>
+                            </div>
+                            ${quizHTML}
+                        </div>
+                    </div>
+                `;
             };
-
+        
+            const card30Days = createSummaryCardHTML('최근 30일 기록', stats30.totalSeconds, stats30.quizStats);
+            const cardTotal = createSummaryCardHTML('누적 총학습 기록', totalStudySeconds, totalQuizStats);
+        
             textSummaryContainer.innerHTML = `
-                 <div class="bg-gray-50 p-4 rounded-lg">
-                    <h4 class="font-bold text-gray-800 mb-2 text-base">최근 30일 기록</h4>
-                    <p><span class="font-semibold">시간:</span> ${utils.formatSeconds(stats30.totalSeconds)}</p>
-                    <p><span class="font-semibold">퀴즈:</span> ${formatQuizStats(stats30.quizStats)}</p>
+                <div class="space-y-6">
+                    ${card30Days}
+                    ${cardTotal}
                 </div>
-                <div class="bg-gray-50 p-4 rounded-lg">
-                    <h4 class="font-bold text-gray-800 mb-2 text-base">누적 총학습 기록</h4>
-                    <p><span class="font-semibold">시간:</span> ${utils.formatSeconds(totalStudySeconds)}</p>
-                    <p><span class="font-semibold">퀴즈:</span> ${formatQuizStats(totalQuizStats)}</p>
-                </div>
-
             `;
         }
     }
