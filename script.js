@@ -929,10 +929,10 @@ const utils = {
         const h = Math.floor((totalSeconds % 86400) / 3600);
         const m = Math.floor((totalSeconds % 3600) / 60);
         let result = '';
-        if (d > 0) result += `${d}일 `;
-        if (h > 0) result += `${h}시간 `;
-        if (m > 0) result += `${m}분`;
-        return result.trim() || '0초';
+        if (d > 0) result += `${d}d `;
+        if (h > 0) result += `${h}h `;
+        if (m > 0) result += `${m}m`;
+        return result.trim() || '0s';
     }
 };
 
