@@ -1145,7 +1145,7 @@ const dashboard = {
             textSummaryContainer.innerHTML = `
                  <div class="bg-gray-50 p-4 rounded-lg">
                     <h4 class="font-bold text-gray-800 mb-2 text-base">최근 30일 기록</h4>
-                    <p><span class="font-semibold">학습 시간:</span> ${utils.formatSeconds, stats30.totalSeconds}</p>
+                    <p><span class="font-semibold">학습 시간:</span> ${utils.formatSeconds(stats30.totalSeconds)}</p>
                     <p><span class="font-semibold">퀴즈 정답률:</span> ${formatQuizStats(stats30.quizStats)}</p>
                 </div>
                 <div class="bg-gray-50 p-4 rounded-lg">
