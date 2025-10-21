@@ -1147,7 +1147,7 @@ const dashboard = {
                     'MULTIPLE_CHOICE_DEFINITION': '영영 풀이',
                 };
         
-                let quizHTML = '<div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">';
+                let quizHTML = '<div class="grid grid-cols-3 gap-1 text-center">';
                 for (const type in quizTypes) {
                     const stats = quizStats[type] || { correct: 0, total: 0 };
                     const accuracy = stats.total > 0 ? ((stats.correct / stats.total) * 100).toFixed(0) : 0;
@@ -1163,17 +1163,11 @@ const dashboard = {
         
                 return `
                     <div class="bg-gray-50 p-4 rounded-xl shadow-inner">
-                        <h4 class="font-bold text-gray-700 mb-4 text-lg text-center">${title}</h4>
+                        <h4 class="font-bold text-gray-700 mb-4 text-lg text-center">
+                            ${title} 
+                            <span class="font-normal text-gray-500">(${utils.formatSeconds(totalSeconds)})</span>
+                        </h4>
                         <div class="space-y-3">
-                            <div class="flex items-center justify-between bg-white p-3 rounded-lg shadow-sm">
-                                <div class="flex items-center space-x-3">
-                                    <svg class="w-6 h-6 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                    <span class="font-semibold text-gray-600">학습 시간</span>
-                                </div>
-                                <span class="font-bold text-gray-800 text-lg">${utils.formatSeconds(totalSeconds)}</span>
-                            </div>
                             ${quizHTML}
                         </div>
                     </div>
@@ -1872,3 +1866,4 @@ document.addEventListener('firebaseSDKLoaded', () => {
     } = window.firebaseSDK);
     app.init();
 });
+
