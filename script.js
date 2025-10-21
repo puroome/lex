@@ -1138,7 +1138,7 @@ const dashboard = {
                 const q1 = stats['MULTIPLE_CHOICE_MEANING'];
                 const q2 = stats['FILL_IN_THE_BLANK'];
                 const q3 = stats['MULTIPLE_CHOICE_DEFINITION'];
-                const formatRate = (q) => `${q.correct}/${q.total} (${q.total > 0 ? (q.correct / q.total * 100).toFixed(0) : 0}%)`;
+                const formatRate = (q) => `${q.correct}/${q.total}, ${q.total > 0 ? (q.correct / q.total * 100).toFixed(0) : 0}%`;
                 return `영한(${formatRate(q1)}) · 빈칸(${formatRate(q2)}) · 영영(${formatRate(q3)})`;
             };
 
