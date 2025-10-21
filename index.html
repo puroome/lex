@@ -6,6 +6,7 @@
     <title>어휘앱 - JKS</title>
     <link rel="icon" href="favicon.png" type="image/png">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="bg-gray-100 flex justify-center min-h-screen p-4 pb-24">
@@ -106,7 +107,38 @@
             <div id="dashboard-container" class="hidden bg-white p-6 sm:p-8 rounded-2xl shadow-lg">
                 <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 mb-6 text-center">학습 통계</h1>
                 <div id="dashboard-content" class="space-y-6"></div>
-                <div id="dashboard-summary" class="mt-8 pt-6 border-t space-y-4 text-gray-700 text-left"></div>
+                <!-- Updated dashboard summary section -->
+                <div id="dashboard-summary" class="mt-8 pt-6 border-t space-y-8 text-gray-700">
+                    <div>
+                        <h3 class="text-xl font-bold text-center mb-4 text-gray-700">주간 학습 시간 (분)</h3>
+                        <div class="relative h-64">
+                            <canvas id="study-time-chart"></canvas>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-center mb-4 text-gray-700">퀴즈별 정답률</h3>
+                        <div id="quiz-accuracy-charts" class="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 items-center">
+                            <div class="flex flex-col items-center">
+                                <div class="relative w-full max-w-[150px] mx-auto">
+                                    <canvas id="quiz1-chart"></canvas>
+                                </div>
+                                <p class="text-center font-semibold mt-2 text-gray-600">영한 뜻</p>
+                            </div>
+                            <div class="flex flex-col items-center">
+                                <div class="relative w-full max-w-[150px] mx-auto">
+                                    <canvas id="quiz2-chart"></canvas>
+                                </div>
+                                <p class="text-center font-semibold mt-2 text-gray-600">빈칸 추론</p>
+                            </div>
+                            <div class="flex flex-col items-center">
+                                <div class="relative w-full max-w-[150px] mx-auto">
+                                    <canvas id="quiz3-chart"></canvas>
+                                </div>
+                                <p class="text-center font-semibold mt-2 text-gray-600">영영 풀이</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div id="quiz-mode-container" class="hidden bg-white w-full p-4 rounded-2xl shadow-lg">
@@ -263,4 +295,3 @@
     <script src="script.js"></script>
 </body>
 </html>
-
