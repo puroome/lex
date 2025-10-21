@@ -460,7 +460,7 @@ const api = {
                 const cachedData = localStorage.getItem('wordListCache');
                 if (cachedData) {
                     const { timestamp, words } = JSON.parse(cachedData);
-                    if (Date.now() - timestamp < 864000000) {
+                    if (Date.now() - timestamp < 86400000) { // 1 day cache
                         app.state.wordList = words.sort((a, b) => a.index - b.index);
                         app.state.isWordListReady = true;
                     }
@@ -924,7 +924,7 @@ const utils = {
         return array;
     },
     formatSeconds(totalSeconds) {
-        if (totalSeconds < 60) return `${totalSeconds}초`;
+        if (totalSeconds < 60) return `${Math.floor(totalSeconds)}초`;
         const d = Math.floor(totalSeconds / 86400);
         const h = Math.floor((totalSeconds % 86400) / 3600);
         const m = Math.floor((totalSeconds % 3600) / 60);
@@ -932,7 +932,7 @@ const utils = {
         if (d > 0) result += `${d}일 `;
         if (h > 0) result += `${h}시간 `;
         if (m > 0) result += `${m}분`;
-        return result.trim();
+        return result.trim() || '0초';
     }
 };
 
@@ -1003,9 +1003,9 @@ const dashboard = {
         this.destroyCharts();
         const studyHistory = await api.getStudyHistory();
         const quizHistory = await api.getQuizHistory();
+        const today = new Date();
 
         // Render Study Time Chart
-        const today = new Date();
         const labels = [];
         const data = [];
         for (let i = 6; i >= 0; i--) {
@@ -1032,13 +1032,13 @@ const dashboard = {
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
-                    y: { beginAtZero: true }
+                    y: { beginAtZero: true, suggestedMax: 60 }
                 },
                 plugins: { legend: { display: false } }
             }
         });
         
-        // Render Quiz Accuracy Charts
+        // Calculate Total Quiz Stats
         const totalQuizStats = {
             'MULTIPLE_CHOICE_MEANING': { correct: 0, total: 0 },
             'FILL_IN_THE_BLANK': { correct: 0, total: 0 },
@@ -1053,6 +1053,7 @@ const dashboard = {
             }
         });
 
+        // Render Quiz Accuracy Doughnut Charts
         const createDoughnutChart = (elementId, stats) => {
             const ctx = document.getElementById(elementId).getContext('2d');
             const correct = stats.correct || 0;
@@ -1065,7 +1066,7 @@ const dashboard = {
                 data: {
                     labels: ['정답', '오답'],
                     datasets: [{
-                        data: [correct, incorrect > 0 ? incorrect : 0.0001], // 0일때 차트가 안보이는것 방지
+                        data: [correct, incorrect > 0 ? incorrect : 0.0001],
                         backgroundColor: ['#34D399', '#F87171'],
                         hoverBackgroundColor: ['#10B981', '#EF4444'],
                         borderWidth: 0,
@@ -1078,15 +1079,6 @@ const dashboard = {
                     plugins: {
                         legend: { display: false },
                         tooltip: { enabled: false },
-                        title: {
-                            display: true,
-                            text: `${accuracy}%`,
-                            position: 'bottom',
-                            align: 'center',
-                            font: { size: 18, weight: 'bold' },
-                            color: '#374151',
-                            padding: { top: -45 }
-                        }
                     }
                 },
                 plugins: [{
@@ -1094,12 +1086,12 @@ const dashboard = {
                     beforeDraw: (chart) => {
                         const { ctx, width, height } = chart;
                         ctx.restore();
-                        const fontSize = (height / 114).toFixed(2);
+                        const fontSize = (height / 100).toFixed(2);
                         ctx.font = `bold ${fontSize}em sans-serif`;
                         ctx.textBaseline = 'middle';
                         const text = `${accuracy}%`;
                         const textX = Math.round((width - ctx.measureText(text).width) / 2);
-                        const textY = height / 2 - 5;
+                        const textY = height / 2;
                         ctx.fillStyle = '#374151';
                         ctx.fillText(text, textX, textY);
                         ctx.save();
@@ -1107,10 +1099,62 @@ const dashboard = {
                 }]
             });
         };
-
         this.state.quiz1Chart = createDoughnutChart('quiz1-chart', totalQuizStats['MULTIPLE_CHOICE_MEANING']);
         this.state.quiz2Chart = createDoughnutChart('quiz2-chart', totalQuizStats['FILL_IN_THE_BLANK']);
         this.state.quiz3Chart = createDoughnutChart('quiz3-chart', totalQuizStats['MULTIPLE_CHOICE_DEFINITION']);
+
+        // Render Text Summary for Monthly and Total stats
+        const textSummaryContainer = document.getElementById('dashboard-text-summary');
+        if (textSummaryContainer) {
+            const getStatsForPeriod = (days) => {
+                let totalSeconds = 0;
+                const quizStats = {
+                    'MULTIPLE_CHOICE_MEANING': { correct: 0, total: 0 },
+                    'FILL_IN_THE_BLANK': { correct: 0, total: 0 },
+                    'MULTIPLE_CHOICE_DEFINITION': { correct: 0, total: 0 },
+                };
+                
+                for (let i = 0; i < days; i++) {
+                    const d = new Date(today);
+                    d.setDate(d.getDate() - i);
+                    const dateString = d.toISOString().slice(0, 10);
+                    totalSeconds += studyHistory[dateString] || 0;
+                    if (quizHistory[dateString]) {
+                        for (const type in quizStats) {
+                            if(quizHistory[dateString][type]) {
+                                quizStats[type].correct += quizHistory[dateString][type].correct;
+                                quizStats[type].total += quizHistory[dateString][type].total;
+                            }
+                        }
+                    }
+                }
+                return { totalSeconds, quizStats };
+            }
+            
+            const totalStudySeconds = Object.values(studyHistory).reduce((a, b) => a + b, 0);
+            const stats30 = getStatsForPeriod(30);
+
+            const formatQuizStats = (stats) => {
+                const q1 = stats['MULTIPLE_CHOICE_MEANING'];
+                const q2 = stats['FILL_IN_THE_BLANK'];
+                const q3 = stats['MULTIPLE_CHOICE_DEFINITION'];
+                const formatRate = (q) => `${q.correct}/${q.total} (${q.total > 0 ? (q.correct / q.total * 100).toFixed(0) : 0}%)`;
+                return `영한(${formatRate(q1)}) · 빈칸(${formatRate(q2)}) · 영영(${formatRate(q3)})`;
+            };
+
+            textSummaryContainer.innerHTML = `
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h4 class="font-bold text-gray-800 mb-2 text-base">누적 학습 기록</h4>
+                    <p><span class="font-semibold">총 학습 시간:</span> ${utils.formatSeconds(totalStudySeconds)}</p>
+                    <p><span class="font-semibold">총 퀴즈 정답률:</span> ${formatQuizStats(totalQuizStats)}</p>
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h4 class="font-bold text-gray-800 mb-2 text-base">최근 30일 기록</h4>
+                    <p><span class="font-semibold">학습 시간:</span> ${utils.formatSeconds(stats30.totalSeconds)}</p>
+                    <p><span class="font-semibold">퀴즈 정답률:</span> ${formatQuizStats(stats30.quizStats)}</p>
+                </div>
+            `;
+        }
     }
 };
 
@@ -1793,3 +1837,4 @@ document.addEventListener('firebaseSDKLoaded', () => {
     } = window.firebaseSDK);
     app.init();
 });
+
