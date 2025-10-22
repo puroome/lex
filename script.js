@@ -1,6 +1,7 @@
-let firebaseApp, database, auth;
+let firebaseApp, database, auth, db;
 let initializeApp, getDatabase, ref, get, update, set;
 let getAuth, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup;
+let getFirestore, doc, getDoc, setDoc, updateDoc;
 
 const app = {
     config: {
@@ -16,6 +17,7 @@ const app = {
         isSpeaking: false,
         audioContext: null,
         wordList: [],
+        currentProgress: {},
         isWordListReady: false,
         longPressTimer: null,
         translationTimer: null,
@@ -68,10 +70,17 @@ const app = {
         firebaseApp = initializeApp(firebaseConfig);
         database = getDatabase(firebaseApp);
         auth = getAuth(firebaseApp);
+        db = getFirestore(firebaseApp);
 
-        onAuthStateChanged(auth, (user) => {
+        onAuthStateChanged(auth, async (user) => {
             if (user && user.email === this.config.ALLOWED_USER_EMAIL) {
                 this.state.userId = user.uid;
+                const userRef = doc(db, 'users', user.uid);
+                await setDoc(userRef, {
+                    displayName: user.displayName,
+                    email: user.email
+                }, { merge: true });
+
                 this.elements.loginScreen.classList.add('hidden');
                 this.elements.appWrapper.classList.remove('hidden');
                 if (!this.state.isAppStarted) {
@@ -112,18 +121,21 @@ const app = {
         try {
             await audioCache.init();
             await translationCache.init();
+            await imageDBCache.init();
         } catch (e) {
-            console.error("오디오 또는 번역 캐시를 초기화할 수 없습니다.", e);
+            console.error("Cache initialization failed.", e);
         }
         this.bindGlobalEvents();
         studyTracker.init();
 
         try {
             await api.loadWordList();
+            await api.loadUserProgress();
         } catch (e) {
             return;
         }
 
+        this.loadInitialImages();
         quizMode.init();
         learningMode.init();
         dashboard.init();
@@ -141,13 +153,9 @@ const app = {
         this.elements.selectFavoritesBtn.addEventListener('click', () => this.navigateTo('favorites'));
 
         this.elements.selectMistakesBtn.addEventListener('click', async () => {
-            const mistakeWords = app.state.wordList
-                .filter(word => word.incorrect === 1)
-                .sort((a, b) => {
-                    const dateA = a.lastIncorrect ? new Date(a.lastIncorrect) : new Date(0);
-                    const dateB = b.lastIncorrect ? new Date(b.lastIncorrect) : new Date(0);
-                    return dateB - dateA;
-                })
+            const allWords = app.state.wordList;
+            const mistakeWords = allWords
+                .filter(wordObj => utils.getWordStatus(wordObj.word) === 'review')
                 .map(wordObj => wordObj.word);
 
             if (mistakeWords.length === 0) {
@@ -190,6 +198,18 @@ const app = {
         window.addEventListener('beforeunload', () => {
             studyTracker.stopAndSave();
         });
+    },
+    async loadInitialImages() {
+        const imageSelectors = [
+            '#select-learning-btn img', '#select-quiz-btn img', 
+            '#start-meaning-quiz-btn img', '#start-blank-quiz-btn img', '#start-definition-quiz-btn img'
+        ];
+        for (const selector of imageSelectors) {
+            const img = document.querySelector(selector);
+            if (img && img.src) {
+                img.src = await imageDBCache.loadImage(img.src);
+            }
+        }
     },
     navigateTo(mode, options = {}) {
         if (history.state?.mode === mode && !['learning', 'mistakeReview', 'favorites'].includes(mode)) return;
@@ -272,6 +292,7 @@ const app = {
         
         try {
             await api.loadWordList(true);
+            await api.loadUserProgress();
             this.showToast('데이터를 성공적으로 새로고침했습니다!');
         } catch(e) {
             this.showToast('데이터 새로고침에 실패했습니다: ' + e.message, true);
@@ -344,15 +365,13 @@ const studyTracker = {
     INACTIVITY_LIMIT: 30000, 
 
     init() {
-        // No specific init needed now, will be started on mode entry
     },
     start() {
-        if (this.timerInterval) return; // Already running
+        if (this.timerInterval) return;
         this.lastActivityTimestamp = Date.now();
         this.sessionSeconds = 0;
         
         this.timerInterval = setInterval(() => {
-            // only count time if tab is active
             if (document.hidden) return;
 
             const now = Date.now();
@@ -361,38 +380,69 @@ const studyTracker = {
             }
         }, 1000);
 
-        // Add activity listeners
         ['click', 'keydown', 'touchstart'].forEach(event => 
             document.body.addEventListener(event, this.recordActivity, true));
     },
 
     stopAndSave() {
-        if (!this.timerInterval) return; // Already stopped
+        if (!this.timerInterval) return;
         
-        // Stop the timer
         clearInterval(this.timerInterval);
         this.timerInterval = null;
 
-        // Save accumulated seconds if any
         if (this.sessionSeconds > 0) {
             api.updateStudyTime(Math.floor(this.sessionSeconds));
         }
         
-        // Reset for next session
         this.sessionSeconds = 0;
 
-        // Remove listeners
         ['click', 'keydown', 'touchstart'].forEach(event => 
             document.body.removeEventListener(event, this.recordActivity, true));
     },
 
-    // This function is now the event handler itself
     recordActivity() {
-        // studyTracker context might be lost, so we reference it directly
         studyTracker.lastActivityTimestamp = Date.now();
     }
 };
 
+const imageDBCache = {
+    db: null, dbName: 'imageCacheDB', storeName: 'imageStore',
+    init() {
+        return new Promise((resolve, reject) => {
+            if (!('indexedDB' in window)) { console.warn('IndexedDB for images not supported.'); return resolve(); }
+            const request = indexedDB.open(this.dbName, 1);
+            request.onupgradeneeded = e => e.target.result.createObjectStore(this.storeName);
+            request.onsuccess = e => { this.db = e.target.result; resolve(); };
+            request.onerror = e => reject(e.target.error);
+        });
+    },
+    async loadImage(url) {
+        if (!this.db || !url) return url;
+        const cachedBlob = await this.getImage(url);
+        if (cachedBlob) return URL.createObjectURL(cachedBlob);
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) return url;
+            const blob = await response.blob();
+            this.saveImage(url, blob);
+            return URL.createObjectURL(blob);
+        } catch (e) {
+            return url;
+        }
+    },
+    getImage: key => new Promise((resolve) => {
+        if (!imageDBCache.db) return resolve(null);
+        const request = imageDBCache.db.transaction([imageDBCache.storeName]).objectStore(imageDBCache.storeName).get(key);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => resolve(null);
+    }),
+    saveImage: (key, blob) => {
+        if (!imageDBCache.db) return;
+        try { imageDBCache.db.transaction([imageDBCache.storeName], 'readwrite').objectStore(imageDBCache.storeName).put(blob, key); }
+        catch (e) { console.error("Failed to save image to IndexedDB", e); }
+    }
+};
 
 const audioCache = {
     db: null, dbName: 'ttsAudioCacheDB', storeName: 'audioStore',
@@ -462,13 +512,12 @@ const api = {
                 const cachedData = localStorage.getItem('wordListCache');
                 if (cachedData) {
                     const { timestamp, words } = JSON.parse(cachedData);
-                    if (Date.now() - timestamp < 86400000) { // 1 day cache
+                    if (Date.now() - timestamp < 86400000) {
                         app.state.wordList = words.sort((a, b) => a.index - b.index);
                         app.state.isWordListReady = true;
                     }
                 }
             } catch (e) {
-                console.error("캐시 로딩 실패:", e);
                 localStorage.removeItem('wordListCache');
             }
         }
@@ -489,7 +538,6 @@ const api = {
             const cachePayload = { timestamp: Date.now(), words: wordsArray };
             localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
         } catch (error) {
-            console.error("Firebase에서 단어 목록 로딩 실패:", error);
             if (!app.state.isWordListReady) app.showFatalError(error.message);
             throw error;
         }
@@ -555,7 +603,6 @@ const api = {
                 return cached;
             }
         } catch (e) {
-            console.error("번역 캐시 조회 실패:", e);
         }
 
         if (!app.config.SCRIPT_URL || app.config.SCRIPT_URL === "여기에_배포된_APPS_SCRIPT_URL을_붙여넣으세요") {
@@ -579,63 +626,53 @@ const api = {
                 throw new Error(data.message || '번역 실패');
             }
         } catch (error) {
-            console.error('Translation failed:', error);
             return "번역 오류";
         }
     },
-    async updateSRSData(word, isCorrect, quizType) {
+    async updateWordStatus(word, quizType, isCorrect) {
+        const progressRef = doc(db, 'users', app.state.userId, 'progress', 'main');
+        const result = isCorrect ? 'correct' : 'incorrect';
+        
         try {
-            const safeKey = word.replace(/[.#$\[\]\/]/g, '_');
-            const updates = {};
-            const dbRef = ref(database);
-
-            const srsKey = {
-                'MULTIPLE_CHOICE_MEANING': 'srsMeaning',
-                'FILL_IN_THE_BLANK': 'srsBlank',
-                'MULTIPLE_CHOICE_DEFINITION': 'srsDefinition'
-            }[quizType];
-
-            if (srsKey) {
-                updates[`/vocabulary/${safeKey}/${srsKey}`] = isCorrect ? 1 : 0;
-            }
-
-            if (!isCorrect) {
-                 updates[`/vocabulary/${safeKey}/incorrect`] = 1;
-                 updates[`/vocabulary/${safeKey}/lastIncorrect`] = new Date().toISOString();
-            }
+            await updateDoc(progressRef, {
+                [`${word}.${quizType}`]: result
+            });
+            if (!app.state.currentProgress[word]) app.state.currentProgress[word] = {};
+            app.state.currentProgress[word][quizType] = result;
             
-            const today = new Date().toISOString().slice(0, 10);
-            const quizHistoryPath = `/userState/${app.state.userId}/quizHistory/${today}/${quizType}`;
-            const snapshot = await get(ref(database, quizHistoryPath));
-            const currentHistory = snapshot.val() || { correct: 0, total: 0 };
-            currentHistory.total += 1;
-            if(isCorrect) currentHistory.correct += 1;
-            updates[quizHistoryPath] = currentHistory;
-
-            await update(dbRef, updates);
+            await api.saveQuizHistory(quizType, isCorrect);
             
-            const wordIndex = app.state.wordList.findIndex(w => w.word === word);
-            if(wordIndex !== -1) {
-                if (srsKey) app.state.wordList[wordIndex][srsKey] = isCorrect ? 1 : 0;
+            const wordIndexInGlobalList = app.state.wordList.findIndex(w => w.word === word);
+            if (wordIndexInGlobalList !== -1) {
                 if (!isCorrect) {
-                     app.state.wordList[wordIndex].incorrect = 1;
-                     app.state.wordList[wordIndex].lastIncorrect = new Date().toISOString();
+                    app.state.wordList[wordIndexInGlobalList].incorrect = 1;
+                    app.state.wordList[wordIndexInGlobalList].lastIncorrect = new Date().toISOString();
+                } else {
+                    const currentWordProgress = app.state.currentProgress[word];
+                    const allCorrect = ['MULTIPLE_CHOICE_MEANING', 'FILL_IN_THE_BLANK', 'MULTIPLE_CHOICE_DEFINITION'].every(type => currentWordProgress[type] === 'correct');
+                    if (allCorrect) {
+                        app.state.wordList[wordIndexInGlobalList].incorrect = 0;
+                    }
                 }
-                localStorage.setItem('wordListCache', JSON.stringify({ timestamp: Date.now(), words: app.state.wordList }));
-                document.dispatchEvent(new CustomEvent('wordListUpdated'));
             }
         } catch (error) {
-            console.error('Firebase SRS 데이터 업데이트 실패:', error);
-            app.showToast('학습 상태 업데이트에 실패했습니다.', true);
+            if (error.code === 'not-found') {
+                await setDoc(progressRef, { [word]: { [quizType]: result } }, { merge: true });
+                if (!app.state.currentProgress[word]) app.state.currentProgress[word] = {};
+                app.state.currentProgress[word][quizType] = result;
+                await api.saveQuizHistory(quizType, isCorrect);
+            }
         }
     },
-    async getLastLearnedIndex() {
-        // This function is now disabled and always returns 0.
-        return 0;
-    },
-    async setLastLearnedIndex(index) {
-        // This function is now disabled and does nothing.
-        return;
+    async loadUserProgress() {
+        if (!app.state.userId) return;
+        const progressRef = doc(db, 'users', app.state.userId, 'progress', 'main');
+        try {
+            const docSnap = await getDoc(progressRef);
+            app.state.currentProgress = docSnap.exists() ? docSnap.data() : {};
+        } catch (error) {
+            app.state.currentProgress = {};
+        }
     },
     async fetchDefinition(word) {
         const apiKey = app.config.DEFINITION_API_KEY;
@@ -652,62 +689,96 @@ const api = {
             }
             return null;
         } catch (e) {
-            console.error(`Merriam-Webster API 호출 실패 for "${word}": ${e.message}`);
             return null;
         }
     },
     async loadFavorites() {
         if (!app.state.userId) return [];
+        const progressRef = doc(db, 'users', app.state.userId, 'progress', 'main');
         try {
-            const path = `/userState/${app.state.userId}/favorites`;
-            const snapshot = await get(ref(database, path));
-            return snapshot.val() ? Object.keys(snapshot.val()) : [];
+            const docSnap = await getDoc(progressRef);
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                return Object.keys(data).filter(word => data[word].favorite);
+            }
+            return [];
         } catch (error) {
-            console.error("즐겨찾기 로딩 실패:", error);
             return [];
         }
     },
     async toggleFavorite(word) {
         if (!app.state.userId) return;
-        const path = `/userState/${app.state.userId}/favorites/${word.replace(/[.#$\[\]\/]/g, '_')}`;
-        const isFavorite = app.state.favorites.includes(word);
+        const progressRef = doc(db, 'users', app.state.userId, 'progress', 'main');
+        const isCurrentlyFavorite = app.state.currentProgress[word]?.favorite || false;
+        const newFavoriteStatus = !isCurrentlyFavorite;
+
         try {
-            if (isFavorite) {
-                await set(ref(database, path), null);
-                app.state.favorites = app.state.favorites.filter(w => w !== word);
-            } else {
-                await set(ref(database, path), true);
+            await updateDoc(progressRef, {
+                [`${word}.favorite`]: newFavoriteStatus
+            });
+            if (!app.state.currentProgress[word]) app.state.currentProgress[word] = {};
+            app.state.currentProgress[word].favorite = newFavoriteStatus;
+            
+            app.state.favorites = app.state.favorites.filter(w => w !== word);
+            if (newFavoriteStatus) {
                 app.state.favorites.push(word);
             }
-            return !isFavorite;
+            return newFavoriteStatus;
         } catch (error) {
-            console.error("즐겨찾기 업데이트 실패:", error);
-            return isFavorite;
+            if (error.code === 'not-found') {
+                await setDoc(progressRef, { [word]: { favorite: newFavoriteStatus } }, { merge: true });
+                if (!app.state.currentProgress[word]) app.state.currentProgress[word] = {};
+                app.state.currentProgress[word].favorite = newFavoriteStatus;
+                if (newFavoriteStatus) app.state.favorites.push(word);
+                return newFavoriteStatus;
+            }
+            return isCurrentlyFavorite;
         }
     },
     async updateStudyTime(seconds) {
         if (!app.state.userId || seconds < 1) return;
         const today = new Date().toISOString().slice(0, 10);
-        const path = `/userState/${app.state.userId}/studyHistory/${today}`;
+        const historyRef = doc(db, 'users', app.state.userId, 'history', 'study');
+        
         try {
-            const snapshot = await get(ref(database, path));
-            const currentSeconds = snapshot.val() || 0;
-            await set(ref(database, path), currentSeconds + seconds);
+            const docSnap = await getDoc(historyRef);
+            const currentSeconds = (docSnap.exists() && docSnap.data()[today]) ? docSnap.data()[today] : 0;
+            await setDoc(historyRef, { [today]: currentSeconds + seconds }, { merge: true });
         } catch (error) {
-            console.error("학습 시간 업데이트 실패:", error);
         }
     },
     async getStudyHistory(days) {
         if (!app.state.userId) return {};
-        const path = `/userState/${app.state.userId}/studyHistory`;
-        const snapshot = await get(ref(database, path));
-        return snapshot.val() || {};
+        const historyRef = doc(db, 'users', app.state.userId, 'history', 'study');
+        const docSnap = await getDoc(historyRef);
+        return docSnap.exists() ? docSnap.data() : {};
     },
     async getQuizHistory() {
         if (!app.state.userId) return {};
-        const path = `/userState/${app.state.userId}/quizHistory`;
-        const snapshot = await get(ref(database, path));
-        return snapshot.val() || {};
+        const historyRef = doc(db, 'users', app.state.userId, 'history', 'quiz');
+        const docSnap = await getDoc(historyRef);
+        return docSnap.exists() ? docSnap.data() : {};
+    },
+    async saveQuizHistory(quizType, isCorrect) {
+        if (!app.state.userId || !quizType) return;
+        const today = new Date().toISOString().slice(0, 10);
+        const historyRef = doc(db, 'users', app.state.userId, 'history', 'quiz');
+        
+        try {
+            const docSnap = await getDoc(historyRef);
+            const data = docSnap.exists() ? docSnap.data() : {};
+            
+            const todayData = data[today] || {};
+            const typeStats = todayData[quizType] || { correct: 0, total: 0 };
+
+            typeStats.total += 1;
+            if (isCorrect) {
+                typeStats.correct += 1;
+            }
+
+            await setDoc(historyRef, { [today]: { [quizType]: typeStats } }, { merge: true });
+        } catch(e) {
+        }
     }
 };
 
@@ -715,7 +786,7 @@ const ui = {
     async copyToClipboard(text) {
         if (navigator.clipboard) {
             try { await navigator.clipboard.writeText(text); } 
-            catch (err) { console.error('클립보드 복사 실패:', err); }
+            catch (err) { }
         }
     },
     createInteractiveFragment(text, isForSampleSentence = false) {
@@ -923,7 +994,16 @@ const utils = {
         if (h > 0) result += `${h}h `;
         if (m > 0) result += `${m}m`;
         return result.trim() || '0s';
-    }
+    },
+    getWordStatus(word) {
+        const progress = app.state.currentProgress[word];
+        if (!progress) return 'unseen';
+        const statuses = ['MULTIPLE_CHOICE_MEANING', 'FILL_IN_THE_BLANK', 'MULTIPLE_CHOICE_DEFINITION'].map(type => progress[type] || 'unseen');
+        if (statuses.includes('incorrect')) return 'review';
+        if (statuses.every(s => s === 'correct')) return 'learned';
+        if (statuses.some(s => s === 'correct')) return 'learning';
+        return 'unseen';
+    },
 };
 
 const dashboard = {
@@ -963,25 +1043,22 @@ const dashboard = {
 
         const wordList = app.state.wordList;
         const totalWords = wordList.length;
-        const stages = [
-            { name: '새 단어', count: 0, color: 'bg-gray-400' },
-            { name: '학습 중', count: 0, color: 'bg-blue-500' },
-            { name: '익숙함', count: 0, color: 'bg-yellow-500' },
-            { name: '학습 완료', count: 0, color: 'bg-green-500' }
-        ];
-        wordList.forEach(word => {
-            const { srsMeaning, srsBlank, srsDefinition } = word;
-            if ((srsMeaning === null || srsMeaning === undefined) && (srsBlank === null || srsBlank === undefined) && (srsDefinition === null || srsDefinition === undefined)) {
-                stages[0].count++; return;
+        const stages = {
+            unseen: { name: '새 단어', count: 0, color: 'bg-gray-400' },
+            learning: { name: '학습 중', count: 0, color: 'bg-blue-500' },
+            review: { name: '복습 필요', count: 0, color: 'bg-orange-500' },
+            learned: { name: '학습 완료', count: 0, color: 'bg-green-500' }
+        };
+
+        wordList.forEach(wordObj => {
+            const status = utils.getWordStatus(wordObj.word);
+            if (stages[status]) {
+                stages[status].count++;
             }
-            const score = (srsMeaning === 1 ? 1 : 0) + (srsBlank === 1 ? 1 : 0) + (srsDefinition === 1 ? 1 : 0);
-            if (score === 3) stages[3].count++;
-            else if (score === 2) stages[2].count++;
-            else stages[1].count++;
         });
 
         let contentHTML = `<div class="bg-gray-50 p-4 rounded-lg shadow-inner text-center"><p class="text-lg text-gray-600">총 단어 수</p><p class="text-4xl font-bold text-gray-800">${totalWords}</p></div><div><h2 class="text-xl font-bold text-gray-700 mb-3 text-center">학습 단계별 분포</h2><div class="space-y-4">`;
-        stages.forEach(stage => {
+        Object.values(stages).forEach(stage => {
             const percentage = totalWords > 0 ? ((stage.count / totalWords) * 100).toFixed(1) : 0;
             contentHTML += `<div class="w-full"><div class="flex justify-between items-center mb-1"><span class="text-base font-semibold text-gray-700">${stage.name}</span><span class="text-sm font-medium text-gray-500">${stage.count}개 (${percentage}%)</span></div><div class="w-full bg-gray-200 rounded-full h-4"><div class="${stage.color} h-4 rounded-full" style="width: ${percentage}%"></div></div></div>`;
         });
@@ -995,7 +1072,6 @@ const dashboard = {
         const quizHistory = await api.getQuizHistory();
         const today = new Date();
 
-        // Render Study Time Chart
         const labels = [];
         const data = [];
         for (let i = 6; i >= 0; i--) {
@@ -1028,15 +1104,13 @@ const dashboard = {
             }
         });
         
-        // Calculate Total Quiz Stats
-const totalQuizStats = {
+        const totalQuizStats = {
             'MULTIPLE_CHOICE_MEANING': { correct: 0, total: 0 },
             'FILL_IN_THE_BLANK': { correct: 0, total: 0 },
             'MULTIPLE_CHOICE_DEFINITION': { correct: 0, total: 0 },
         };
 
-        // 'today' 변수는 이 함수 앞부분(studyTimeChart 계산 시)에 이미 정의되어 있습니다.
-        for (let i = 0; i < 7; i++) { // 오늘(i=0)부터 6일 전(i=6)까지, 총 7일간
+        for (let i = 0; i < 7; i++) {
             const d = new Date(today);
             d.setDate(d.getDate() - i);
             const dateString = d.toISOString().slice(0, 10);
@@ -1050,7 +1124,7 @@ const totalQuizStats = {
                 }
             }
         }
-        // Render Quiz Accuracy Doughnut Charts
+        
         const createDoughnutChart = (elementId, labelId, labelText, stats) => {
             const ctx = document.getElementById(elementId).getContext('2d');
             const correct = stats.correct || 0;
@@ -1106,7 +1180,6 @@ const totalQuizStats = {
         this.state.quiz3Chart = createDoughnutChart('quiz3-chart', 'quiz3-label', '영영 풀이', totalQuizStats['MULTIPLE_CHOICE_DEFINITION']);
 
 
-        // Render Text Summary for Monthly and Total stats
         const textSummaryContainer = document.getElementById('dashboard-text-summary');
         if (textSummaryContainer) {
             const getStatsForPeriod = (days) => {
@@ -1135,6 +1208,18 @@ const totalQuizStats = {
             }
             
             const totalStudySeconds = Object.values(studyHistory).reduce((a, b) => a + b, 0);
+            
+            const quizHistoryTotal = {};
+            if(quizHistory) {
+                Object.values(quizHistory).forEach(daily => {
+                    Object.entries(daily).forEach(([type, stats]) => {
+                        if (!quizHistoryTotal[type]) quizHistoryTotal[type] = { correct: 0, total: 0 };
+                        quizHistoryTotal[type].correct += stats.correct;
+                        quizHistoryTotal[type].total += stats.total;
+                    });
+                });
+            }
+
             const stats30 = getStatsForPeriod(30);
 
             const createSummaryCardHTML = (title, totalSeconds, quizStats) => {
@@ -1172,7 +1257,7 @@ const totalQuizStats = {
             };
         
             const card30Days = createSummaryCardHTML('최근 30일 기록', stats30.totalSeconds, stats30.quizStats);
-            const cardTotal = createSummaryCardHTML('누적 총학습 기록', totalStudySeconds, totalQuizStats);
+            const cardTotal = createSummaryCardHTML('누적 총학습 기록', totalStudySeconds, quizHistoryTotal);
         
             textSummaryContainer.innerHTML = `
                 <div class="space-y-6">
@@ -1267,18 +1352,25 @@ const quizMode = {
     async generateSingleQuiz(quizType) {
         const allWords = app.state.wordList;
         if (allWords.length < 5) return null;
-
-        const getCandidates = (wordList) => {
-            if (quizType === 'MULTIPLE_CHOICE_MEANING') return wordList.filter(w => w.srsMeaning !== 1 && !this.state.answeredWords.has(w.word));
-            if (quizType === 'FILL_IN_THE_BLANK') return wordList.filter(w => w.srsBlank !== 1 && w.sample && w.sample.trim() !== '' && !this.state.answeredWords.has(w.word));
-            if (quizType === 'MULTIPLE_CHOICE_DEFINITION') return wordList.filter(w => w.srsDefinition !== 1 && !this.state.answeredWords.has(w.word));
-            return [];
+    
+        const getUnansweredWords = (type) => {
+            return allWords.filter(wordObj => {
+                const progress = app.state.currentProgress[wordObj.word];
+                return (!progress || progress[type] !== 'correct') && !this.state.answeredWords.has(wordObj.word);
+            });
         };
-
-        const reviewCandidates = utils.shuffleArray(getCandidates(allWords));
-        if (reviewCandidates.length === 0) return null;
-
-        for (const wordData of reviewCandidates) {
+    
+        let candidates = getUnansweredWords(quizType);
+    
+        if (quizType === 'FILL_IN_THE_BLANK') {
+            candidates = candidates.filter(word => word.sample && word.sample.trim() !== '');
+        }
+    
+        if (candidates.length === 0) return null;
+    
+        utils.shuffleArray(candidates);
+    
+        for (const wordData of candidates) {
             let quiz = null;
             if (quizType === 'MULTIPLE_CHOICE_MEANING') quiz = this.createMeaningQuiz(wordData, allWords);
             else if (quizType === 'FILL_IN_THE_BLANK') quiz = this.createBlankQuiz(wordData, allWords);
@@ -1303,7 +1395,7 @@ const quizMode = {
             this.state.answeredWords.add(nextQuiz.question.word);
             this.showLoader(false);
             this.renderQuiz(nextQuiz);
-            this.preloadNextQuiz(this.state.quizType); // Preload next quiz of the same type
+            this.preloadNextQuiz(this.state.quizType);
         } else {
             app.showToast('풀 수 있는 모든 퀴즈를 완료했습니다!', false);
             if (this.state.sessionAnsweredInSet > 0) {
@@ -1381,7 +1473,7 @@ const quizMode = {
         this.state.sessionAnsweredInSet++;
         if (isCorrect) this.state.sessionCorrectInSet++;
 
-        await api.updateSRSData(this.state.currentQuiz.question.word, isCorrect, this.state.quizType);
+        await api.updateWordStatus(this.state.currentQuiz.question.word, this.state.quizType, isCorrect);
         
         setTimeout(() => {
             if (this.state.sessionAnsweredInSet >= 10) {
@@ -1431,7 +1523,6 @@ const quizMode = {
                 this.state.preloadedQuizzes[quizType] = quiz;
             }
         } catch (error) {
-            console.error(`Error preloading quiz type ${quizType}:`, error);
         } finally {
             this.state.isPreloading[quizType] = false;
         }
@@ -1593,11 +1684,12 @@ const learningMode = {
         if (!app.state.isWordListReady) {
             this.elements.loaderText.textContent = "단어 목록 동기화 중...";
             await api.loadWordList();
+            await api.loadUserProgress();
         }
         const startWord = this.elements.startWordInput.value.trim();
         if (this.state.currentWordList.length === 0) { this.showError("학습할 단어가 없습니다."); return; }
         if (!startWord) {
-            this.state.currentIndex = 0; // Always start from the beginning
+            this.state.currentIndex = 0;
             this.launchApp();
             return;
         }
@@ -1673,7 +1765,7 @@ const learningMode = {
         populateList(this.elements.suggestionsExplanationList, explanationSuggestions);
         this.elements.suggestionsContainer.classList.remove('hidden');
     },
-    displayWord(index) {
+    async displayWord(index) {
         this.updateProgressBar(index);
         this.elements.cardBack.classList.remove('is-slid-up');
         const wordData = this.state.currentWordList[index];
@@ -1685,9 +1777,10 @@ const learningMode = {
         ui.renderExplanationText(this.elements.explanationDisplay, wordData.explanation);
         this.elements.explanationContainer.classList.toggle('hidden', !wordData.explanation?.trim());
         
-        const imgMap = { manual: '14-delivery-cat_icon-icons.com_76690', ai: '3-search-cat_icon-icons.com_76679' };
-        const imgName = imgMap[wordData.sampleSource] || '19-add-cat_icon-icons.com_76695';
-        this.elements.sampleBtnImg.src = `https://images.icon-icons.com/1055/PNG/128/${imgName}.png`;
+        const hasSample = wordData.sample && wordData.sample.trim() !== '';
+        const sampleImgSrc = hasSample ? 'https://i.imgur.com/xO9VadL.png' : 'https://i.imgur.com/3i4u3z0.png';
+        this.elements.sampleBtnImg.src = await imageDBCache.loadImage(sampleImgSrc);
+        
         this.updateFavoriteIcon(wordData.word);
     },
     adjustWordFontSize() {
@@ -1707,16 +1800,16 @@ const learningMode = {
         this.state.currentIndex = (this.state.currentIndex + direction + len) % len;
         this.displayWord(this.state.currentIndex);
     },
-    handleFlip() {
+    async handleFlip() {
         const isBackVisible = this.elements.cardBack.classList.contains('is-slid-up');
         const wordData = this.state.currentWordList[this.state.currentIndex];
 
         if (!isBackVisible) {
-            if (wordData.sampleSource === 'none' || !wordData.sample) { app.showNoSampleMessage(); return; }
+            if (!wordData.sample || !wordData.sample.trim()) { app.showNoSampleMessage(); return; }
             this.elements.backTitle.textContent = wordData.word;
             ui.displaySentences(wordData.sample.split('\n'), this.elements.backContent);
             this.elements.cardBack.classList.add('is-slid-up');
-            this.elements.sampleBtnImg.src = 'https://images.icon-icons.com/1055/PNG/128/5-remove-cat_icon-icons.com_76681.png';
+            this.elements.sampleBtnImg.src = await imageDBCache.loadImage('https://i.imgur.com/kQ3bYp2.png');
         } else {
             this.elements.cardBack.classList.remove('is-slid-up');
             this.displayWord(this.state.currentIndex);
@@ -1860,7 +1953,8 @@ const learningMode = {
 document.addEventListener('firebaseSDKLoaded', () => {
     ({ 
         initializeApp, getDatabase, ref, get, update, set, 
-        getAuth, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup
+        getAuth, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup,
+        getFirestore, doc, getDoc, setDoc, updateDoc
     } = window.firebaseSDK);
     app.init();
 });
