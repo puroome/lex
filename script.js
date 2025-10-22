@@ -128,7 +128,7 @@ const app = {
         learningMode.init();
         dashboard.init();
         
-        quizMode.preloadNextDefinitionQuiz();
+        quizMode.preloadAllQuizTypes();
 
         const initialMode = window.location.hash.replace('#', '') || 'selection';
         history.replaceState({ mode: initialMode, options: {} }, '', window.location.href);
@@ -186,6 +186,10 @@ const app = {
                 e.preventDefault();
             }
         });
+
+        window.addEventListener('beforeunload', () => {
+            studyTracker.stopAndSave();
+        });
     },
     navigateTo(mode, options = {}) {
         if (history.state?.mode === mode && !['learning', 'mistakeReview', 'favorites'].includes(mode)) return;
@@ -198,7 +202,7 @@ const app = {
         this._renderMode(mode, options);
     },
     _renderMode(mode, options = {}) {
-        studyTracker.stop();
+        studyTracker.stopAndSave();
         this.elements.selectionScreen.classList.add('hidden');
         this.elements.quizModeContainer.classList.add('hidden');
         this.elements.learningModeContainer.classList.add('hidden');
@@ -334,63 +338,61 @@ const app = {
 };
 
 const studyTracker = {
-    inactivityTimer: null,
     sessionSeconds: 0,
-    saveInterval: null,
+    lastActivityTimestamp: 0,
+    timerInterval: null,
+    INACTIVITY_LIMIT: 30000, 
 
     init() {
-        document.addEventListener('visibilitychange', this.handleVisibilityChange.bind(this));
+        // No specific init needed now, will be started on mode entry
     },
     start() {
-        this.stop();
+        if (this.timerInterval) return; // Already running
+        this.lastActivityTimestamp = Date.now();
         this.sessionSeconds = 0;
-        this.resetInactivityTimer();
-        this.saveInterval = setInterval(() => this.saveData(), 10000); 
-        const activityEvents = ['click', 'keydown', 'touchstart'];
-        activityEvents.forEach(event => document.body.addEventListener(event, this.recordActivity.bind(this), true));
-    },
-    stop() {
-        clearTimeout(this.inactivityTimer);
-        clearInterval(this.saveInterval);
-        this.saveData(); 
-        this.sessionSeconds = 0;
-        const activityEvents = ['click', 'keydown', 'touchstart'];
-        activityEvents.forEach(event => document.body.removeEventListener(event, this.recordActivity.bind(this), true));
-    },
-    recordActivity() {
-        this.resetInactivityTimer();
-    },
-    resetInactivityTimer() {
-        clearTimeout(this.inactivityTimer);
-        this.inactivityTimer = setTimeout(() => {
-            this.saveData();
-        }, 30000);
-    },
-    handleVisibilityChange() {
-        if (document.visibilityState === 'hidden') {
-            this.saveData();
-            clearTimeout(this.inactivityTimer);
-        } else {
-            this.resetInactivityTimer();
-        }
-    },
-    async saveData() {
-        const now = Date.now();
-        if (this.lastActivityTime) {
-            const duration = now - this.lastActivityTime;
-            this.sessionSeconds += Math.min(duration / 1000, 31); 
-        }
-        this.lastActivityTime = now;
+        
+        this.timerInterval = setInterval(() => {
+            // only count time if tab is active
+            if (document.hidden) return;
 
-        const secondsToSave = Math.floor(this.sessionSeconds);
-        if (secondsToSave > 0) {
-            this.sessionSeconds -= secondsToSave;
-            if (app.state.userId) {
-                await api.updateStudyTime(secondsToSave);
+            const now = Date.now();
+            if (now - this.lastActivityTimestamp < this.INACTIVITY_LIMIT) {
+                this.sessionSeconds++;
             }
+        }, 1000);
+
+        // Add activity listeners
+        ['click', 'keydown', 'touchstart'].forEach(event => 
+            document.body.addEventListener(event, this.recordActivity, true));
+    },
+
+    stopAndSave() {
+        if (!this.timerInterval) return; // Already stopped
+        
+        // Stop the timer
+        clearInterval(this.timerInterval);
+        this.timerInterval = null;
+
+        // Save accumulated seconds if any
+        if (this.sessionSeconds > 0) {
+            api.updateStudyTime(Math.floor(this.sessionSeconds));
         }
+        
+        // Reset for next session
+        this.sessionSeconds = 0;
+
+        // Remove listeners
+        ['click', 'keydown', 'touchstart'].forEach(event => 
+            document.body.removeEventListener(event, this.recordActivity, true));
+    },
+
+    // This function is now the event handler itself
+    recordActivity() {
+        // studyTracker context might be lost, so we reference it directly
+        studyTracker.lastActivityTimestamp = Date.now();
     }
 };
+
 
 const audioCache = {
     db: null, dbName: 'ttsAudioCacheDB', storeName: 'audioStore',
@@ -628,24 +630,12 @@ const api = {
         }
     },
     async getLastLearnedIndex() {
-        if (!app.state.userId) return 0;
-        try {
-            const path = `/userState/${app.state.userId}/lastLearnedIndex`;
-            const snapshot = await get(ref(database, path));
-            return snapshot.val() || 0;
-        } catch (error) {
-            console.error("Firebase에서 마지막 학습 위치 로딩 실패:", error);
-            return 0;
-        }
+        // This function is now disabled and always returns 0.
+        return 0;
     },
     async setLastLearnedIndex(index) {
-        if (!app.state.userId) return;
-        try {
-            const path = `/userState/${app.state.userId}/lastLearnedIndex`;
-            await set(ref(database, path), index);
-        } catch (error) {
-            console.error("Firebase에 마지막 학습 위치 저장 실패:", error);
-        }
+        // This function is now disabled and does nothing.
+        return;
     },
     async fetchDefinition(word) {
         const apiKey = app.config.DEFINITION_API_KEY;
@@ -696,7 +686,7 @@ const api = {
         }
     },
     async updateStudyTime(seconds) {
-        if (!app.state.userId) return;
+        if (!app.state.userId || seconds < 1) return;
         const today = new Date().toISOString().slice(0, 10);
         const path = `/userState/${app.state.userId}/studyHistory/${today}`;
         try {
@@ -1202,8 +1192,16 @@ const quizMode = {
         sessionCorrectInSet: 0,
         sessionMistakes: [],
         answeredWords: new Set(),
-        preloadedDefinitionQuiz: null,
-        preloadingDefinitionWord: null,
+        preloadedQuizzes: {
+            'MULTIPLE_CHOICE_MEANING': null,
+            'FILL_IN_THE_BLANK': null,
+            'MULTIPLE_CHOICE_DEFINITION': null
+        },
+        isPreloading: {
+            'MULTIPLE_CHOICE_MEANING': false,
+            'FILL_IN_THE_BLANK': false,
+            'MULTIPLE_CHOICE_DEFINITION': false
+        },
     },
     elements: {},
     init() {
@@ -1266,14 +1264,14 @@ const quizMode = {
         this.elements.contentContainer.classList.add('hidden');
         this.elements.modal.classList.add('hidden');
     },
-    async generateSingleQuiz() {
+    async generateSingleQuiz(quizType) {
         const allWords = app.state.wordList;
         if (allWords.length < 5) return null;
 
         const getCandidates = (wordList) => {
-            if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING') return wordList.filter(w => w.srsMeaning !== 1 && !this.state.answeredWords.has(w.word));
-            if (this.state.quizType === 'FILL_IN_THE_BLANK') return wordList.filter(w => w.srsBlank !== 1 && w.sample && w.sample.trim() !== '' && !this.state.answeredWords.has(w.word));
-            if (this.state.quizType === 'MULTIPLE_CHOICE_DEFINITION') return wordList.filter(w => w.srsDefinition !== 1 && !this.state.answeredWords.has(w.word));
+            if (quizType === 'MULTIPLE_CHOICE_MEANING') return wordList.filter(w => w.srsMeaning !== 1 && !this.state.answeredWords.has(w.word));
+            if (quizType === 'FILL_IN_THE_BLANK') return wordList.filter(w => w.srsBlank !== 1 && w.sample && w.sample.trim() !== '' && !this.state.answeredWords.has(w.word));
+            if (quizType === 'MULTIPLE_CHOICE_DEFINITION') return wordList.filter(w => w.srsDefinition !== 1 && !this.state.answeredWords.has(w.word));
             return [];
         };
 
@@ -1282,9 +1280,9 @@ const quizMode = {
 
         for (const wordData of reviewCandidates) {
             let quiz = null;
-            if (this.state.quizType === 'MULTIPLE_CHOICE_MEANING') quiz = this.createMeaningQuiz(wordData, allWords);
-            else if (this.state.quizType === 'FILL_IN_THE_BLANK') quiz = this.createBlankQuiz(wordData, allWords);
-            else if (this.state.quizType === 'MULTIPLE_CHOICE_DEFINITION') quiz = await this.createDefinitionQuiz(wordData, allWords);
+            if (quizType === 'MULTIPLE_CHOICE_MEANING') quiz = this.createMeaningQuiz(wordData, allWords);
+            else if (quizType === 'FILL_IN_THE_BLANK') quiz = this.createBlankQuiz(wordData, allWords);
+            else if (quizType === 'MULTIPLE_CHOICE_DEFINITION') quiz = await this.createDefinitionQuiz(wordData, allWords);
             if (quiz) return quiz;
         }
         return null;
@@ -1293,11 +1291,11 @@ const quizMode = {
         this.showLoader(true, "다음 문제 생성 중...");
         let nextQuiz = null;
 
-        if (this.state.quizType === 'MULTIPLE_CHOICE_DEFINITION' && this.state.preloadedDefinitionQuiz) {
-            nextQuiz = this.state.preloadedDefinitionQuiz;
-            this.state.preloadedDefinitionQuiz = null;
+        if (this.state.preloadedQuizzes[this.state.quizType]) {
+            nextQuiz = this.state.preloadedQuizzes[this.state.quizType];
+            this.state.preloadedQuizzes[this.state.quizType] = null;
         } else {
-            nextQuiz = await this.generateSingleQuiz();
+            nextQuiz = await this.generateSingleQuiz(this.state.quizType);
         }
         
         if (nextQuiz) {
@@ -1305,10 +1303,7 @@ const quizMode = {
             this.state.answeredWords.add(nextQuiz.question.word);
             this.showLoader(false);
             this.renderQuiz(nextQuiz);
-
-            if (this.state.quizType === 'MULTIPLE_CHOICE_DEFINITION') {
-                this.preloadNextDefinitionQuiz();
-            }
+            this.preloadNextQuiz(this.state.quizType); // Preload next quiz of the same type
         } else {
             app.showToast('풀 수 있는 모든 퀴즈를 완료했습니다!', false);
             if (this.state.sessionAnsweredInSet > 0) {
@@ -1418,31 +1413,28 @@ const quizMode = {
         this.state.sessionMistakes = [];
         this.displayNextQuiz();
     },
-    async preloadNextDefinitionQuiz() {
-        if (this.state.preloadedDefinitionQuiz || this.state.preloadingDefinitionWord) {
+    async preloadAllQuizTypes() {
+        const quizTypes = ['MULTIPLE_CHOICE_MEANING', 'FILL_IN_THE_BLANK', 'MULTIPLE_CHOICE_DEFINITION'];
+        for (const type of quizTypes) {
+            this.preloadNextQuiz(type);
+        }
+    },
+    async preloadNextQuiz(quizType) {
+        if (this.state.preloadedQuizzes[quizType] || this.state.isPreloading[quizType]) {
             return;
         }
 
-        const allWords = app.state.wordList;
-        if (allWords.length < 5) return;
-
-        const candidates = utils.shuffleArray(allWords.filter(w => 
-            w.srsDefinition !== 1 && 
-            !this.state.answeredWords.has(w.word)
-        ));
-
-        for (const wordData of candidates) {
-            try {
-                this.state.preloadingDefinitionWord = wordData.word;
-                const quiz = await this.createDefinitionQuiz(wordData, allWords);
-                if (quiz) {
-                    this.state.preloadedDefinitionQuiz = quiz;
-                    this.state.preloadingDefinitionWord = null;
-                    return;
-                }
-            } catch (error) {}
+        this.state.isPreloading[quizType] = true;
+        try {
+            const quiz = await this.generateSingleQuiz(quizType);
+            if (quiz) {
+                this.state.preloadedQuizzes[quizType] = quiz;
+            }
+        } catch (error) {
+            console.error(`Error preloading quiz type ${quizType}:`, error);
+        } finally {
+            this.state.isPreloading[quizType] = false;
         }
-        this.state.preloadingDefinitionWord = null;
     },
     reviewSessionMistakes() {
         this.elements.modal.classList.add('hidden');
@@ -1605,7 +1597,7 @@ const learningMode = {
         const startWord = this.elements.startWordInput.value.trim();
         if (this.state.currentWordList.length === 0) { this.showError("학습할 단어가 없습니다."); return; }
         if (!startWord) {
-            this.state.currentIndex = await api.getLastLearnedIndex() || 0;
+            this.state.currentIndex = 0; // Always start from the beginning
             this.launchApp();
             return;
         }
@@ -1682,7 +1674,6 @@ const learningMode = {
         this.elements.suggestionsContainer.classList.remove('hidden');
     },
     displayWord(index) {
-        if (!this.state.isMistakeMode && !this.state.isFavoriteMode) api.setLastLearnedIndex(index);
         this.updateProgressBar(index);
         this.elements.cardBack.classList.remove('is-slid-up');
         const wordData = this.state.currentWordList[index];
@@ -1873,4 +1864,3 @@ document.addEventListener('firebaseSDKLoaded', () => {
     } = window.firebaseSDK);
     app.init();
 });
-
