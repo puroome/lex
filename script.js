@@ -1778,8 +1778,9 @@ const learningMode = {
         this.elements.explanationContainer.classList.toggle('hidden', !wordData.explanation?.trim());
         
         const hasSample = wordData.sample && wordData.sample.trim() !== '';
-        const sampleImgSrc = hasSample ? 'https://i.imgur.com/xO9VadL.png' : 'https://i.imgur.com/3i4u3z0.png';
-        this.elements.sampleBtnImg.src = await imageDBCache.loadImage(sampleImgSrc);
+        const sampleImgUrl = 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png';
+        const noSampleImgUrl = 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
+        this.elements.sampleBtnImg.src = await imageDBCache.loadImage(hasSample ? sampleImgUrl : noSampleImgUrl);
         
         this.updateFavoriteIcon(wordData.word);
     },
@@ -1809,7 +1810,8 @@ const learningMode = {
             this.elements.backTitle.textContent = wordData.word;
             ui.displaySentences(wordData.sample.split('\n'), this.elements.backContent);
             this.elements.cardBack.classList.add('is-slid-up');
-            this.elements.sampleBtnImg.src = await imageDBCache.loadImage('https://i.imgur.com/kQ3bYp2.png');
+            const backImgUrl = 'https://images.icon-icons.com/1055/PNG/128/5-remove-cat_icon-icons.com_76681.png';
+            this.elements.sampleBtnImg.src = await imageDBCache.loadImage(backImgUrl);
         } else {
             this.elements.cardBack.classList.remove('is-slid-up');
             this.displayWord(this.state.currentIndex);
