@@ -1039,20 +1039,27 @@ const dashboard = {
         });
         
         // Calculate Total Quiz Stats
-        const totalQuizStats = {
+const totalQuizStats = {
             'MULTIPLE_CHOICE_MEANING': { correct: 0, total: 0 },
             'FILL_IN_THE_BLANK': { correct: 0, total: 0 },
             'MULTIPLE_CHOICE_DEFINITION': { correct: 0, total: 0 },
         };
-        Object.values(quizHistory).forEach(dailyStats => {
-            for(const type in totalQuizStats) {
-                if(dailyStats[type]) {
-                    totalQuizStats[type].correct += dailyStats[type].correct;
-                    totalQuizStats[type].total += dailyStats[type].total;
+
+        // 'today' 변수는 이 함수 앞부분(studyTimeChart 계산 시)에 이미 정의되어 있습니다.
+        for (let i = 0; i < 7; i++) { // 오늘(i=0)부터 6일 전(i=6)까지, 총 7일간
+            const d = new Date(today);
+            d.setDate(d.getDate() - i);
+            const dateString = d.toISOString().slice(0, 10);
+
+            if (quizHistory[dateString]) {
+                for (const type in totalQuizStats) {
+                    if (quizHistory[dateString][type]) {
+                        totalQuizStats[type].correct += quizHistory[dateString][type].correct;
+                        totalQuizStats[type].total += quizHistory[dateString][type].total;
+                    }
                 }
             }
-        });
-
+        }
         // Render Quiz Accuracy Doughnut Charts
         const createDoughnutChart = (elementId, labelId, labelText, stats) => {
             const ctx = document.getElementById(elementId).getContext('2d');
