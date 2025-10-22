@@ -501,7 +501,7 @@ const translationCache = {
 };
 
 const api = {
-    async loadWordList(force = false) {
+async loadWordList(force = false) {
         if (force) {
             localStorage.removeItem('wordListCache');
             app.state.isWordListReady = false;
@@ -512,7 +512,16 @@ const api = {
                 const cachedData = localStorage.getItem('wordListCache');
                 if (cachedData) {
                     const { timestamp, words } = JSON.parse(cachedData);
-                    if (Date.now() - timestamp < 86400000) {
+
+                    const now = new Date();
+                    const lastMonday = new Date(now);
+                    
+                    const todayDay = now.getDay(); // 0(일) - 6(토)
+                    const diff = todayDay === 0 ? 6 : todayDay - 1; // 0(일) -> 6, 1(월) -> 0, 2(화) -> 1
+                    lastMonday.setDate(now.getDate() - diff);
+                    lastMonday.setHours(0, 0, 0, 0); // 지난 월요일 00:00:00
+
+                    if (timestamp >= lastMonday.getTime()) { 
                         app.state.wordList = words.sort((a, b) => a.index - b.index);
                         app.state.isWordListReady = true;
                     }
