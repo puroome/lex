@@ -21,13 +21,14 @@ const app = {
         isWordListReady: false,
         longPressTimer: null,
         translationTimer: null,
-        favorites: [],
+        favorites: [], // 즐겨찾기 목록은 utils.getFavoriteWords로 관리 예정
         LOCAL_STORAGE_KEYS: {
             TTS_VOICE: 'student_ttsVoice',
             LAST_INDEX: 'student_lastIndex_main',
             UNSYNCED_TIME: 'student_unsyncedTime_main',
             UNSYNCED_QUIZ: 'student_unsyncedQuizStats_main',
-            UNSYNCED_INCORRECT: 'student_unsyncedIncorrect_main' // New key for incorrect words
+            // [수정] 통합 progress 업데이트 키
+            UNSYNCED_PROGRESS_UPDATES: 'student_unsyncedProgress_main'
         }
     },
     elements: {
@@ -152,6 +153,7 @@ const app = {
         this.bindGlobalEvents();
         studyTracker.init();
 
+        // [수정] 동기화 로직은 그대로 둡니다.
         await this.syncOfflineData();
 
         try {
@@ -176,22 +178,28 @@ const app = {
         if (!app.state.userId) return;
 
         try {
-            const timeToSync = parseInt(localStorage.getItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_TIME) || '0');
+            const timeKey = this.state.LOCAL_STORAGE_KEYS.UNSYNCED_TIME;
+            const quizKey = this.state.LOCAL_STORAGE_KEYS.UNSYNCED_QUIZ;
+            // [수정] 통합 progress 키 사용
+            const progressKey = this.state.LOCAL_STORAGE_KEYS.UNSYNCED_PROGRESS_UPDATES;
+
+            const timeToSync = parseInt(localStorage.getItem(timeKey) || '0');
             if (timeToSync > 0) {
                 await api.updateStudyTime(timeToSync);
-                localStorage.removeItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_TIME);
+                localStorage.removeItem(timeKey);
             }
 
-            const statsToSync = JSON.parse(localStorage.getItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_QUIZ) || 'null');
+            const statsToSync = JSON.parse(localStorage.getItem(quizKey) || 'null');
             if (statsToSync) {
                 await api.syncQuizHistory(statsToSync);
-                localStorage.removeItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_QUIZ);
+                localStorage.removeItem(quizKey);
             }
 
-            const incorrectToSync = JSON.parse(localStorage.getItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_INCORRECT) || 'null');
-             if (incorrectToSync && Object.keys(incorrectToSync).length > 0) {
-                 await api.syncIncorrectStatus(incorrectToSync);
-                 localStorage.removeItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_INCORRECT);
+            // [수정] 통합 progress 데이터 동기화
+            const progressToSync = JSON.parse(localStorage.getItem(progressKey) || 'null');
+             if (progressToSync && Object.keys(progressToSync).length > 0) {
+                 await api.syncProgressUpdates(progressToSync);
+                 localStorage.removeItem(progressKey);
              }
 
         } catch (error) {
@@ -206,6 +214,7 @@ const app = {
 
         this.elements.selectMistakesBtn.addEventListener('click', async () => {
             const allWords = app.state.wordList;
+            // [수정] utils.getWordStatus가 LocalStorage를 반영하므로 변경 불필요
             const mistakeWords = allWords
                 .filter(wordObj => utils.getWordStatus(wordObj.word) === 'review')
                 .map(wordObj => wordObj.word);
@@ -258,11 +267,16 @@ const app = {
          if (!app.state.userId) return;
          // Note: Complex async operations like Firestore writes are unreliable in beforeunload.
          // This is a best-effort attempt. The main sync happens on app start.
-         const timeToSync = parseInt(localStorage.getItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_TIME) || '0');
-         const statsToSync = localStorage.getItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_QUIZ);
-         const incorrectToSync = localStorage.getItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_INCORRECT);
+         const timeKey = this.state.LOCAL_STORAGE_KEYS.UNSYNCED_TIME;
+         const quizKey = this.state.LOCAL_STORAGE_KEYS.UNSYNCED_QUIZ;
+         // [수정] 새 progress 키 사용
+         const progressKey = this.state.LOCAL_STORAGE_KEYS.UNSYNCED_PROGRESS_UPDATES;
 
-         if (timeToSync > 0 || statsToSync || incorrectToSync) {
+         const timeToSync = localStorage.getItem(timeKey);
+         const statsToSync = localStorage.getItem(quizKey);
+         const progressToSync = localStorage.getItem(progressKey);
+
+         if (timeToSync || statsToSync || progressToSync) {
             // We can't reliably wait for Firebase here. The sync on next load is the main mechanism.
             // We could try a synchronous Beacon API call if backend supports it, but Firestore SDK is async.
          }
@@ -737,39 +751,21 @@ async loadWordList(force = false) {
             return "번역 오류";
         }
     },
-     async updateWordStatus(word, quizType, isCorrect) {
+     async updateWordStatus(word, quizType, result) {
          if (!app.state.userId || !word || !quizType) return;
 
+         // 1. UI 즉각 반영을 위해 로컬 state(RAM) 업데이트
          if (!app.state.currentProgress[word]) app.state.currentProgress[word] = {};
-         app.state.currentProgress[word][quizType] = isCorrect ? 'correct' : 'incorrect';
+         app.state.currentProgress[word][quizType] = result;
 
-         const progressRef = doc(db, 'users', app.state.userId, 'progress', 'main');
+         // 2. [수정] LocalStorage(브라우저)에 변경 사항 저장 (나중에 동기화됨)
+         utils.addProgressUpdateToLocalSync(word, quizType, result);
 
-         if (isCorrect) {
-             try {
-                 await updateDoc(progressRef, {
-                     [`${word}.${quizType}`]: 'correct'
-                 });
-                 utils.removeIncorrectWordFromLocalSync(word, quizType);
-             } catch (error) {
-                 if (error.code === 'not-found') {
-                     await setDoc(progressRef, { [word]: { [quizType]: 'correct' } }, { merge: true });
-                     utils.removeIncorrectWordFromLocalSync(word, quizType);
-                 } else {
-                    console.error("Firebase update error (correct):", error);
-                 }
-             }
-         } else {
-             utils.addIncorrectWordToLocalSync(word, quizType);
-         }
-
-         api.saveQuizHistoryToLocal(quizType, isCorrect);
+         // 3. 퀴즈 통계 저장은 별도로 처리 (기존 로직 유지)
+         api.saveQuizHistoryToLocal(quizType, result === 'correct');
 
          // Update wordList state (for mistake review feature, reflecting local state)
-         const wordIndexInGlobalList = app.state.wordList.findIndex(w => w.word === word);
-         if (wordIndexInGlobalList !== -1) {
-             // Let getWordStatus handle the combined state logic
-         }
+         // Let getWordStatus handle the combined state logic
      },
     async loadUserProgress() {
         if (!app.state.userId) return;
@@ -801,46 +797,25 @@ async loadWordList(force = false) {
     },
     async loadFavorites() {
         if (!app.state.userId) return [];
-        const progressRef = doc(db, 'users', app.state.userId, 'progress', 'main');
-        try {
-            const docSnap = await getDoc(progressRef);
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                return Object.keys(data).filter(word => data[word].favorite);
-            }
-            return [];
-        } catch (error) {
-            return [];
-        }
+        // [수정] 즐겨찾기 목록은 utils.getFavoriteWords로 관리
+        return utils.getFavoriteWords();
     },
     async toggleFavorite(word) {
-        if (!app.state.userId) return;
-        const progressRef = doc(db, 'users', app.state.userId, 'progress', 'main');
-        const isCurrentlyFavorite = app.state.currentProgress[word]?.favorite || false;
+        if (!app.state.userId) return false;
+
+        // [수정] 즐겨찾기 상태를 로컬(RAM)과 로컬스토리지에서 확인
+        const isCurrentlyFavorite = utils.isFavorite(word);
         const newFavoriteStatus = !isCurrentlyFavorite;
 
-        try {
-            await updateDoc(progressRef, {
-                [`${word}.favorite`]: newFavoriteStatus
-            });
-            if (!app.state.currentProgress[word]) app.state.currentProgress[word] = {};
-            app.state.currentProgress[word].favorite = newFavoriteStatus;
+        // 1. UI 즉각 반영 위해 로컬 state(RAM) 업데이트
+        if (!app.state.currentProgress[word]) app.state.currentProgress[word] = {};
+        app.state.currentProgress[word].favorite = newFavoriteStatus;
 
-            app.state.favorites = app.state.favorites.filter(w => w !== word);
-            if (newFavoriteStatus) {
-                app.state.favorites.push(word);
-            }
-            return newFavoriteStatus;
-        } catch (error) {
-            if (error.code === 'not-found') {
-                await setDoc(progressRef, { [word]: { favorite: newFavoriteStatus } }, { merge: true });
-                if (!app.state.currentProgress[word]) app.state.currentProgress[word] = {};
-                app.state.currentProgress[word].favorite = newFavoriteStatus;
-                if (newFavoriteStatus) app.state.favorites.push(word);
-                return newFavoriteStatus;
-            }
-            return isCurrentlyFavorite;
-        }
+        // 2. [수정] LocalStorage(브라우저)에 변경 사항 저장 (나중에 동기화됨)
+        utils.addProgressUpdateToLocalSync(word, 'favorite', newFavoriteStatus);
+
+        // 3. 즉시 상태 반환
+        return newFavoriteStatus;
     },
     async updateStudyTime(seconds) {
         if (!app.state.userId || seconds < 1) return;
@@ -850,6 +825,7 @@ async loadWordList(force = false) {
         try {
             const docSnap = await getDoc(historyRef);
             const currentSeconds = (docSnap.exists() && docSnap.data()[today]) ? docSnap.data()[today] : 0;
+            // [수정] word 앱은 학년 구분이 없으므로 바로 저장
             await setDoc(historyRef, { [today]: currentSeconds + seconds }, { merge: true });
         } catch (error) {
             console.error("Failed to update study time:", error);
@@ -892,6 +868,7 @@ async loadWordList(force = false) {
             const docSnap = await getDoc(historyRef);
             const data = docSnap.exists() ? docSnap.data() : {};
 
+            // [수정] word 앱은 학년 구분이 없으므로 바로 todayData 사용
             const todayData = data[today] || {};
 
             for (const type in statsToSync) {
@@ -909,42 +886,18 @@ async loadWordList(force = false) {
             throw e;
         }
     },
-    async syncIncorrectStatus(incorrectToSync) {
-         if (!app.state.userId || !incorrectToSync || Object.keys(incorrectToSync).length === 0) return;
+    // [수정] syncIncorrectStatus 대신 통합 progress 업데이트 함수 사용
+    async syncProgressUpdates(progressToSync) {
+         if (!app.state.userId || !progressToSync || Object.keys(progressToSync).length === 0) return;
+         // [수정] word 앱은 'main' progress 사용
          const progressRef = doc(db, 'users', app.state.userId, 'progress', 'main');
 
          try {
-             const batch = writeBatch(db);
-             let updatesExist = false;
-             for (const word in incorrectToSync) {
-                 if (incorrectToSync.hasOwnProperty(word)) {
-                     incorrectToSync[word].forEach(quizType => {
-                         batch.update(progressRef, { [`${word}.${quizType}`]: 'incorrect' });
-                         updatesExist = true;
-                     });
-                 }
-             }
-             if (updatesExist) {
-                await batch.commit();
-             }
+             // setDoc with merge: true handles nested object updates correctly
+             await setDoc(progressRef, progressToSync, { merge: true });
          } catch (error) {
-            if (error.code === 'not-found') {
-                 const initialData = {};
-                 for (const word in incorrectToSync) {
-                     if (incorrectToSync.hasOwnProperty(word)) {
-                         initialData[word] = {};
-                         incorrectToSync[word].forEach(quizType => {
-                             initialData[word][quizType] = 'incorrect';
-                         });
-                     }
-                 }
-                 if (Object.keys(initialData).length > 0) {
-                    await setDoc(progressRef, initialData, { merge: true });
-                 }
-            } else {
-                 console.error("Firebase incorrect status sync failed:", error);
-                 throw error; // Re-throw to prevent localStorage clear if sync fails
-            }
+             console.error("Firebase progress sync failed:", error);
+             throw error; // Re-throw to prevent localStorage clear if sync fails
          }
      }
 };
@@ -1134,40 +1087,21 @@ const ui = {
 const utils = {
     _getProgressRef() {
         if (!app.state.userId) return null;
+        // [수정] word 앱은 'main' 사용
         return doc(db, 'users', app.state.userId, 'progress', 'main');
     },
-    addIncorrectWordToLocalSync(word, quizType) {
+    // [추가] 통합 progress 업데이트 저장 함수
+    addProgressUpdateToLocalSync(word, key, value) {
         try {
-            const key = app.state.LOCAL_STORAGE_KEYS.UNSYNCED_INCORRECT;
-            const unsynced = JSON.parse(localStorage.getItem(key) || '{}');
+            const localKey = app.state.LOCAL_STORAGE_KEYS.UNSYNCED_PROGRESS_UPDATES;
+            const unsynced = JSON.parse(localStorage.getItem(localKey) || '{}');
             if (!unsynced[word]) {
-                unsynced[word] = [];
+                unsynced[word] = {};
             }
-            if (!unsynced[word].includes(quizType)) {
-                unsynced[word].push(quizType);
-            }
-            localStorage.setItem(key, JSON.stringify(unsynced));
+            unsynced[word][key] = value;
+            localStorage.setItem(localKey, JSON.stringify(unsynced));
         } catch (e) {
-            console.error("Error adding incorrect word to localStorage sync", e);
-        }
-    },
-    removeIncorrectWordFromLocalSync(word, quizType) {
-         try {
-            const key = app.state.LOCAL_STORAGE_KEYS.UNSYNCED_INCORRECT;
-            const unsynced = JSON.parse(localStorage.getItem(key) || '{}');
-            if (unsynced[word]) {
-                unsynced[word] = unsynced[word].filter(qt => qt !== quizType);
-                if (unsynced[word].length === 0) {
-                    delete unsynced[word];
-                }
-                if (Object.keys(unsynced).length === 0) {
-                     localStorage.removeItem(key);
-                } else {
-                    localStorage.setItem(key, JSON.stringify(unsynced));
-                }
-            }
-        } catch (e) {
-            console.error("Error removing incorrect word from localStorage sync", e);
+            console.error("Error adding progress update to localStorage sync", e);
         }
     },
     levenshteinDistance(a = '', b = '') {
@@ -1201,18 +1135,20 @@ const utils = {
         return result.trim() || '0s';
     },
     getWordStatus(word) {
-        const progress = app.state.currentProgress[word];
-        if (!progress) return 'unseen';
-
-        let isIncorrectLocally = false;
+        // [수정] LocalStorage의 최신 변경 사항 가져오기
+        let localStatus = {};
         try {
-            const unsynced = JSON.parse(localStorage.getItem(app.state.LOCAL_STORAGE_KEYS.UNSYNCED_INCORRECT) || '{}');
-            if (unsynced[word] && unsynced[word].length > 0) {
-                isIncorrectLocally = true;
+            const key = app.state.LOCAL_STORAGE_KEYS.UNSYNCED_PROGRESS_UPDATES;
+            const unsynced = JSON.parse(localStorage.getItem(key) || '{}');
+            if (unsynced[word]) {
+                localStatus = unsynced[word];
             }
         } catch(e) {}
 
-        if (isIncorrectLocally) return 'review';
+        // [수정] 서버 상태에 로컬 변경 사항을 덮어씌워 최신 상태 반영
+        const progress = { ...app.state.currentProgress[word], ...localStatus };
+
+        if (Object.keys(progress).length === 0) return 'unseen';
 
         const statuses = ['MULTIPLE_CHOICE_MEANING', 'FILL_IN_THE_BLANK', 'MULTIPLE_CHOICE_DEFINITION'].map(type => progress[type] || 'unseen');
         if (statuses.includes('incorrect')) return 'review';
@@ -1220,6 +1156,42 @@ const utils = {
         if (statuses.some(s => s === 'correct')) return 'learning';
         return 'unseen';
     },
+    // [추가] 즐겨찾기 상태 확인 함수 (LocalStorage 포함)
+    isFavorite(word) {
+        let isFav = app.state.currentProgress[word]?.favorite || false;
+        try {
+            const key = app.state.LOCAL_STORAGE_KEYS.UNSYNCED_PROGRESS_UPDATES;
+            const unsynced = JSON.parse(localStorage.getItem(key) || '{}');
+            if (unsynced[word] && unsynced[word].favorite !== undefined) {
+                isFav = unsynced[word].favorite;
+            }
+        } catch (e) {}
+        return isFav;
+    },
+    // [추가] 즐겨찾기 목록 가져오기 함수 (LocalStorage 포함)
+    getFavoriteWords() {
+        let localUpdates = {};
+        try {
+            const key = app.state.LOCAL_STORAGE_KEYS.UNSYNCED_PROGRESS_UPDATES;
+            localUpdates = JSON.parse(localStorage.getItem(key) || '{}');
+        } catch (e) {}
+
+        const allProgress = app.state.currentProgress;
+        const combinedKeys = new Set([...Object.keys(allProgress), ...Object.keys(localUpdates)]);
+
+        const favoriteWords = [];
+        combinedKeys.forEach(word => {
+            const serverState = allProgress[word] || {};
+            const localState = localUpdates[word] || {};
+            const combinedState = { ...serverState, ...localState };
+
+            if (combinedState.favorite) {
+                favoriteWords.push({ word: word, time: combinedState.favoritedAt || 0 });
+            }
+        });
+
+        return favoriteWords.sort((a, b) => b.time - a.time).map(item => item.word);
+    }
 };
 
 const dashboard = {
@@ -1267,6 +1239,7 @@ const dashboard = {
         };
 
         wordList.forEach(wordObj => {
+            // [수정] utils.getWordStatus가 LocalStorage를 반영하므로 변경 불필요
             const status = utils.getWordStatus(wordObj.word);
             if (stages[status]) {
                 stages[status].count++;
@@ -1295,6 +1268,7 @@ const dashboard = {
             d.setDate(d.getDate() - i);
             const dateString = d.toISOString().slice(0, 10);
             labels.push(`${d.getMonth() + 1}/${d.getDate()}`);
+            // [수정] word 앱은 학년 구분 없이 바로 사용
             data.push(Math.round((studyHistory[dateString] || 0) / 60));
         }
         const studyTimeCtx = document.getElementById('study-time-chart').getContext('2d');
@@ -1331,6 +1305,7 @@ const dashboard = {
             d.setDate(d.getDate() - i);
             const dateString = d.toISOString().slice(0, 10);
 
+            // [수정] word 앱은 학년 구분 없이 바로 사용
             if (quizHistory[dateString]) {
                 for (const type in totalQuizStats) {
                     if (quizHistory[dateString][type]) {
@@ -1410,6 +1385,7 @@ const dashboard = {
                     const d = new Date(today);
                     d.setDate(d.getDate() - i);
                     const dateString = d.toISOString().slice(0, 10);
+                    // [수정] word 앱은 학년 구분 없이 바로 사용
                     totalSeconds += studyHistory[dateString] || 0;
                     if (quizHistory[dateString]) {
                         for (const type in quizStats) {
@@ -1427,6 +1403,7 @@ const dashboard = {
 
             const quizHistoryTotal = {};
             if(quizHistory) {
+                // [수정] word 앱은 학년 구분 없이 바로 처리
                 Object.values(quizHistory).forEach(daily => {
                     Object.entries(daily).forEach(([type, stats]) => {
                         if (!quizHistoryTotal[type]) quizHistoryTotal[type] = { correct: 0, total: 0 };
@@ -1571,8 +1548,9 @@ const quizMode = {
 
         const getUnansweredWords = (type) => {
             return allWords.filter(wordObj => {
-                const status = utils.getWordStatus(wordObj.word); // Use combined status check
-                return status !== 'learned' && (!app.state.currentProgress[wordObj.word] || app.state.currentProgress[wordObj.word][type] !== 'correct') && !this.state.answeredWords.has(wordObj.word);
+                // [수정] utils.getWordStatus가 LocalStorage를 반영하므로 변경 불필요
+                const status = utils.getWordStatus(wordObj.word);
+                return status !== 'learned' && !this.state.answeredWords.has(wordObj.word);
             });
         };
 
@@ -1604,7 +1582,7 @@ const quizMode = {
             nextQuiz = this.state.preloadedQuizzes[this.state.quizType];
             this.state.preloadedQuizzes[this.state.quizType] = null;
         } else {
-            nextQuiz = await this.generateSingleQuiz(this.state.quizType);
+            nextQuiz = await this.generateSingleQuiz(this.state.quizType); // Pass quizType
         }
 
         if (nextQuiz) {
@@ -1680,17 +1658,23 @@ const quizMode = {
     async checkAnswer(selectedLi, selectedChoice) {
         this.elements.choices.classList.add('disabled');
         const isCorrect = selectedChoice === this.state.currentQuiz.answer;
+        const isPass = selectedChoice === 'USER_PASSED'; // Check if PASS was selected
 
         selectedLi.classList.add(isCorrect ? 'correct' : 'incorrect');
-        if (!isCorrect) {
+        if (!isCorrect && !isPass) { // Only add to mistakes if incorrect and not passed
             Array.from(this.elements.choices.children).find(li => li.textContent.includes(this.state.currentQuiz.answer))?.classList.add('correct');
             this.state.sessionMistakes.push(this.state.currentQuiz.question.word);
+        } else if (isPass) { // If passed, show the correct answer
+             Array.from(this.elements.choices.children).find(li => li.textContent.includes(this.state.currentQuiz.answer))?.classList.add('correct');
         }
+
 
         this.state.sessionAnsweredInSet++;
         if (isCorrect) this.state.sessionCorrectInSet++;
 
-        await api.updateWordStatus(this.state.currentQuiz.question.word, this.state.quizType, isCorrect);
+        // [수정] updateWordStatus가 LocalStorage에 저장합니다.
+        // Pass는 incorrect로 처리
+        await api.updateWordStatus(this.state.currentQuiz.question.word, this.state.quizType, (isCorrect && !isPass) ? 'correct' : 'incorrect');
 
         setTimeout(() => {
             if (this.state.sessionAnsweredInSet >= 10) {
@@ -1736,7 +1720,7 @@ const quizMode = {
 
         this.state.isPreloading[quizType] = true;
         try {
-            const quiz = await this.generateSingleQuiz(quizType);
+            const quiz = await this.generateSingleQuiz(quizType); // Pass quizType
             if (quiz) {
                 this.state.preloadedQuizzes[quizType] = quiz;
             }
@@ -2019,7 +2003,8 @@ const learningMode = {
         const noSampleImgUrl = 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
         this.elements.sampleBtnImg.src = await imageDBCache.loadImage(hasSample ? sampleImgUrl : noSampleImgUrl);
 
-        this.updateFavoriteIcon(wordData.word);
+        // [수정] utils.isFavorite 함수 사용
+        this.updateFavoriteIcon(utils.isFavorite(wordData.word));
     },
     adjustWordFontSize() {
         const wordDisplay = this.elements.wordDisplay;
@@ -2070,14 +2055,15 @@ const learningMode = {
     async startFavoriteMode() {
         this.state.isMistakeMode = false;
         this.state.isFavoriteMode = true;
-        app.state.favorites = await api.loadFavorites();
-        if(app.state.favorites.length === 0) {
+        // [수정] utils.getFavoriteWords 사용
+        const favoriteWords = utils.getFavoriteWords();
+        if(favoriteWords.length === 0) {
             app.showToast("즐겨찾기에 등록된 단어가 없습니다.", true);
             app.navigateTo('selection');
             return;
         }
         const wordMap = new Map(app.state.wordList.map(wordObj => [wordObj.word, wordObj]));
-        this.state.currentWordList = app.state.favorites.map(word => wordMap.get(word)).filter(Boolean).reverse();
+        this.state.currentWordList = favoriteWords.map(word => wordMap.get(word)).filter(Boolean);
         this.state.currentIndex = 0;
         this.launchApp();
     },
@@ -2166,8 +2152,10 @@ const learningMode = {
     async toggleFavorite() {
         const wordData = this.state.currentWordList[this.state.currentIndex];
         if (!wordData) return;
+        // [수정] api.toggleFavorite가 로컬에만 저장하고 즉시 상태 반환
         const newStatus = await api.toggleFavorite(wordData.word);
-        this.updateFavoriteIcon(wordData.word, newStatus);
+        this.updateFavoriteIcon(newStatus); // 반환된 상태로 아이콘 업데이트
+
         if (this.state.isFavoriteMode && !newStatus) {
             this.state.currentWordList.splice(this.state.currentIndex, 1);
             if (this.state.currentWordList.length === 0) {
@@ -2181,11 +2169,11 @@ const learningMode = {
             this.displayWord(this.state.currentIndex);
         }
     },
-    updateFavoriteIcon(word, isFavorite = null) {
-        const isFav = isFavorite !== null ? isFavorite : app.state.favorites.includes(word);
-        this.elements.favoriteIcon.classList.toggle('text-yellow-400', isFav);
-        this.elements.favoriteIcon.classList.toggle('text-gray-400', !isFav);
-        this.elements.favoriteIcon.classList.toggle('fill-current', isFav);
+    updateFavoriteIcon(isFavorite) {
+        // [수정] isFavorite 인자를 직접 사용 (api.loadFavorites 제거)
+        this.elements.favoriteIcon.classList.toggle('text-yellow-400', isFavorite);
+        this.elements.favoriteIcon.classList.toggle('text-gray-400', !isFavorite);
+        this.elements.favoriteIcon.classList.toggle('fill-current', isFavorite);
     }
 };
 
