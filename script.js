@@ -1,7 +1,7 @@
 let firebaseApp, database, auth, db;
 let initializeApp, getDatabase, ref, get, update, set;
 let getAuth, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup;
-let getFirestore, doc, getDoc, setDoc, updateDoc;
+let getFirestore, doc, getDoc, setDoc, updateDoc, writeBatch; // Added writeBatch
 
 const app = {
     config: {
@@ -26,7 +26,8 @@ const app = {
             TTS_VOICE: 'student_ttsVoice',
             LAST_INDEX: 'student_lastIndex_main',
             UNSYNCED_TIME: 'student_unsyncedTime_main',
-            UNSYNCED_QUIZ: 'student_unsyncedQuizStats_main'
+            UNSYNCED_QUIZ: 'student_unsyncedQuizStats_main',
+            UNSYNCED_INCORRECT: 'student_unsyncedIncorrect_main' // New key for incorrect words
         }
     },
     elements: {
@@ -77,6 +78,9 @@ const app = {
         database = getDatabase(firebaseApp);
         auth = getAuth(firebaseApp);
         db = getFirestore(firebaseApp);
+        // Assign imported functions needed later
+        writeBatch = window.firebaseSDK.writeBatch;
+
 
         onAuthStateChanged(auth, async (user) => {
             if (user && user.email === this.config.ALLOWED_USER_EMAIL) {
@@ -183,6 +187,13 @@ const app = {
                 await api.syncQuizHistory(statsToSync);
                 localStorage.removeItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_QUIZ);
             }
+
+            const incorrectToSync = JSON.parse(localStorage.getItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_INCORRECT) || 'null');
+             if (incorrectToSync && Object.keys(incorrectToSync).length > 0) {
+                 await api.syncIncorrectStatus(incorrectToSync);
+                 localStorage.removeItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_INCORRECT);
+             }
+
         } catch (error) {
             console.error("Offline data sync failed:", error);
         }
@@ -222,6 +233,7 @@ const app = {
         });
 
         window.addEventListener('popstate', (e) => {
+            this.syncOfflineData(); // Sync when navigating back/forward
             const mode = e.state?.mode || 'selection';
             const options = e.state?.options || {};
             this._renderMode(mode, options);
@@ -236,10 +248,24 @@ const app = {
             }
         });
 
-        window.addEventListener('beforeunload', () => {
-            studyTracker.stopAndSave();
-            this.syncOfflineData();
+        window.addEventListener('beforeunload', (e) => {
+             studyTracker.stopAndSave();
+             // Attempt synchronous sync (might not always work)
+             this.syncOfflineDataSync();
         });
+    },
+    syncOfflineDataSync() {
+         if (!app.state.userId) return;
+         // Note: Complex async operations like Firestore writes are unreliable in beforeunload.
+         // This is a best-effort attempt. The main sync happens on app start.
+         const timeToSync = parseInt(localStorage.getItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_TIME) || '0');
+         const statsToSync = localStorage.getItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_QUIZ);
+         const incorrectToSync = localStorage.getItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_INCORRECT);
+
+         if (timeToSync > 0 || statsToSync || incorrectToSync) {
+            // We can't reliably wait for Firebase here. The sync on next load is the main mechanism.
+            // We could try a synchronous Beacon API call if backend supports it, but Firestore SDK is async.
+         }
     },
     async loadInitialImages() {
         const imageSelectors = [
@@ -254,7 +280,12 @@ const app = {
         }
     },
     navigateTo(mode, options = {}) {
+        if (history.state?.mode !== mode) { // Sync if changing modes
+            this.syncOfflineData();
+        }
+
         if (history.state?.mode === mode && !['learning', 'mistakeReview', 'favorites'].includes(mode)) return;
+
 
         const newPath = mode === 'selection'
             ? window.location.pathname + window.location.search
@@ -706,41 +737,40 @@ async loadWordList(force = false) {
             return "번역 오류";
         }
     },
-    async updateWordStatus(word, quizType, isCorrect) {
-        const progressRef = doc(db, 'users', app.state.userId, 'progress', 'main');
-        const result = isCorrect ? 'correct' : 'incorrect';
+     async updateWordStatus(word, quizType, isCorrect) {
+         if (!app.state.userId || !word || !quizType) return;
 
-        try {
-            await updateDoc(progressRef, {
-                [`${word}.${quizType}`]: result
-            });
-            if (!app.state.currentProgress[word]) app.state.currentProgress[word] = {};
-            app.state.currentProgress[word][quizType] = result;
+         if (!app.state.currentProgress[word]) app.state.currentProgress[word] = {};
+         app.state.currentProgress[word][quizType] = isCorrect ? 'correct' : 'incorrect';
 
-            api.saveQuizHistoryToLocal(quizType, isCorrect);
+         const progressRef = doc(db, 'users', app.state.userId, 'progress', 'main');
 
-            const wordIndexInGlobalList = app.state.wordList.findIndex(w => w.word === word);
-            if (wordIndexInGlobalList !== -1) {
-                if (!isCorrect) {
-                    app.state.wordList[wordIndexInGlobalList].incorrect = 1;
-                    app.state.wordList[wordIndexInGlobalList].lastIncorrect = new Date().toISOString();
-                } else {
-                    const currentWordProgress = app.state.currentProgress[word];
-                    const allCorrect = ['MULTIPLE_CHOICE_MEANING', 'FILL_IN_THE_BLANK', 'MULTIPLE_CHOICE_DEFINITION'].every(type => currentWordProgress[type] === 'correct');
-                    if (allCorrect) {
-                        app.state.wordList[wordIndexInGlobalList].incorrect = 0;
-                    }
-                }
-            }
-        } catch (error) {
-            if (error.code === 'not-found') {
-                await setDoc(progressRef, { [word]: { [quizType]: result } }, { merge: true });
-                if (!app.state.currentProgress[word]) app.state.currentProgress[word] = {};
-                app.state.currentProgress[word][quizType] = result;
-                api.saveQuizHistoryToLocal(quizType, isCorrect);
-            }
-        }
-    },
+         if (isCorrect) {
+             try {
+                 await updateDoc(progressRef, {
+                     [`${word}.${quizType}`]: 'correct'
+                 });
+                 utils.removeIncorrectWordFromLocalSync(word, quizType);
+             } catch (error) {
+                 if (error.code === 'not-found') {
+                     await setDoc(progressRef, { [word]: { [quizType]: 'correct' } }, { merge: true });
+                     utils.removeIncorrectWordFromLocalSync(word, quizType);
+                 } else {
+                    console.error("Firebase update error (correct):", error);
+                 }
+             }
+         } else {
+             utils.addIncorrectWordToLocalSync(word, quizType);
+         }
+
+         api.saveQuizHistoryToLocal(quizType, isCorrect);
+
+         // Update wordList state (for mistake review feature, reflecting local state)
+         const wordIndexInGlobalList = app.state.wordList.findIndex(w => w.word === word);
+         if (wordIndexInGlobalList !== -1) {
+             // Let getWordStatus handle the combined state logic
+         }
+     },
     async loadUserProgress() {
         if (!app.state.userId) return;
         const progressRef = doc(db, 'users', app.state.userId, 'progress', 'main');
@@ -878,7 +908,45 @@ async loadWordList(force = false) {
             console.error("Failed to sync quiz history:", e);
             throw e;
         }
-    }
+    },
+    async syncIncorrectStatus(incorrectToSync) {
+         if (!app.state.userId || !incorrectToSync || Object.keys(incorrectToSync).length === 0) return;
+         const progressRef = doc(db, 'users', app.state.userId, 'progress', 'main');
+
+         try {
+             const batch = writeBatch(db);
+             let updatesExist = false;
+             for (const word in incorrectToSync) {
+                 if (incorrectToSync.hasOwnProperty(word)) {
+                     incorrectToSync[word].forEach(quizType => {
+                         batch.update(progressRef, { [`${word}.${quizType}`]: 'incorrect' });
+                         updatesExist = true;
+                     });
+                 }
+             }
+             if (updatesExist) {
+                await batch.commit();
+             }
+         } catch (error) {
+            if (error.code === 'not-found') {
+                 const initialData = {};
+                 for (const word in incorrectToSync) {
+                     if (incorrectToSync.hasOwnProperty(word)) {
+                         initialData[word] = {};
+                         incorrectToSync[word].forEach(quizType => {
+                             initialData[word][quizType] = 'incorrect';
+                         });
+                     }
+                 }
+                 if (Object.keys(initialData).length > 0) {
+                    await setDoc(progressRef, initialData, { merge: true });
+                 }
+            } else {
+                 console.error("Firebase incorrect status sync failed:", error);
+                 throw error; // Re-throw to prevent localStorage clear if sync fails
+            }
+         }
+     }
 };
 
 const ui = {
@@ -1064,6 +1132,44 @@ const ui = {
 };
 
 const utils = {
+    _getProgressRef() {
+        if (!app.state.userId) return null;
+        return doc(db, 'users', app.state.userId, 'progress', 'main');
+    },
+    addIncorrectWordToLocalSync(word, quizType) {
+        try {
+            const key = app.state.LOCAL_STORAGE_KEYS.UNSYNCED_INCORRECT;
+            const unsynced = JSON.parse(localStorage.getItem(key) || '{}');
+            if (!unsynced[word]) {
+                unsynced[word] = [];
+            }
+            if (!unsynced[word].includes(quizType)) {
+                unsynced[word].push(quizType);
+            }
+            localStorage.setItem(key, JSON.stringify(unsynced));
+        } catch (e) {
+            console.error("Error adding incorrect word to localStorage sync", e);
+        }
+    },
+    removeIncorrectWordFromLocalSync(word, quizType) {
+         try {
+            const key = app.state.LOCAL_STORAGE_KEYS.UNSYNCED_INCORRECT;
+            const unsynced = JSON.parse(localStorage.getItem(key) || '{}');
+            if (unsynced[word]) {
+                unsynced[word] = unsynced[word].filter(qt => qt !== quizType);
+                if (unsynced[word].length === 0) {
+                    delete unsynced[word];
+                }
+                if (Object.keys(unsynced).length === 0) {
+                     localStorage.removeItem(key);
+                } else {
+                    localStorage.setItem(key, JSON.stringify(unsynced));
+                }
+            }
+        } catch (e) {
+            console.error("Error removing incorrect word from localStorage sync", e);
+        }
+    },
     levenshteinDistance(a = '', b = '') {
         const track = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
         for (let i = 0; i <= a.length; i += 1) track[0][i] = i;
@@ -1097,6 +1203,17 @@ const utils = {
     getWordStatus(word) {
         const progress = app.state.currentProgress[word];
         if (!progress) return 'unseen';
+
+        let isIncorrectLocally = false;
+        try {
+            const unsynced = JSON.parse(localStorage.getItem(app.state.LOCAL_STORAGE_KEYS.UNSYNCED_INCORRECT) || '{}');
+            if (unsynced[word] && unsynced[word].length > 0) {
+                isIncorrectLocally = true;
+            }
+        } catch(e) {}
+
+        if (isIncorrectLocally) return 'review';
+
         const statuses = ['MULTIPLE_CHOICE_MEANING', 'FILL_IN_THE_BLANK', 'MULTIPLE_CHOICE_DEFINITION'].map(type => progress[type] || 'unseen');
         if (statuses.includes('incorrect')) return 'review';
         if (statuses.every(s => s === 'correct')) return 'learned';
@@ -1454,10 +1571,11 @@ const quizMode = {
 
         const getUnansweredWords = (type) => {
             return allWords.filter(wordObj => {
-                const progress = app.state.currentProgress[wordObj.word];
-                return (!progress || progress[type] !== 'correct') && !this.state.answeredWords.has(wordObj.word);
+                const status = utils.getWordStatus(wordObj.word); // Use combined status check
+                return status !== 'learned' && (!app.state.currentProgress[wordObj.word] || app.state.currentProgress[wordObj.word][type] !== 'correct') && !this.state.answeredWords.has(wordObj.word);
             });
         };
+
 
         let candidates = getUnansweredWords(quizType);
 
@@ -1596,6 +1714,7 @@ const quizMode = {
     continueAfterResult() {
         this.elements.modal.classList.add('hidden');
         if (this.elements.modalContinueBtn.textContent === "메인으로 돌아가기") {
+             app.syncOfflineData(); // Sync before leaving quiz mode
             app.navigateTo('selection');
             return;
         }
@@ -1632,6 +1751,7 @@ const quizMode = {
         this.state.sessionAnsweredInSet = 0;
         this.state.sessionCorrectInSet = 0;
         this.state.sessionMistakes = [];
+         app.syncOfflineData(); // Sync before leaving quiz mode
         app.navigateTo('mistakeReview', { mistakeWords: mistakes });
     },
     createMeaningQuiz(correctWordData, allWordsData) {
@@ -1699,6 +1819,9 @@ const learningMode = {
     },
     nonInteractiveWords: new Set(['a', 'an', 'the', 'I', 'me', 'my', 'mine', 'you', 'your', 'yours', 'he', 'him', 'his', 'she', 'her', 'hers', 'it', 'its', 'we', 'us', 'our', 'ours', 'they', 'them', 'their', 'theirs', 'this', 'that', 'these', 'those', 'myself', 'yourself', 'himself', 'herself', 'itself', 'ourselves', 'yourselves', 'something', 'anybody', 'anyone', 'anything', 'nobody', 'no one', 'nothing', 'everybody', 'everyone', 'everything', 'all', 'any', 'both', 'each', 'either', 'every', 'few', 'little', 'many', 'much', 'neither', 'none', 'one', 'other', 'several', 'some', 'about', 'above', 'across', 'after', 'against', 'along', 'among', 'around', 'at', 'before', 'behind', 'below', 'beneath', 'beside', 'between', 'beyond', 'by', 'down', 'during', 'for', 'from', 'in', 'inside', 'into', 'like', 'near', 'of', 'off', 'on', 'onto', 'out', 'outside', 'over', 'past', 'since', 'through', 'throughout', 'to', 'toward', 'under', 'underneath', 'until', 'unto', 'up', 'upon', 'with', 'within', 'without', 'and', 'but', 'or', 'nor', 'for', 'yet', 'so', 'after', 'although', 'as', 'because', 'before', 'if', 'once', 'since', 'than', 'that', 'though', 'till', 'unless', 'until', 'when', 'whenever', 'where', 'whereas', 'wherever', 'whether', 'while', 'that', 'which', 'who', 'whom', 'whose', 'when', 'where', 'why', 'what', 'whatever', 'whichever', 'whoever', 'whomever', 'who', 'whom', 'whose', 'what', 'which', 'when', 'where', 'why', 'how', 'be', 'am', 'is', 'are', 'was', 'were', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'done', 'can', 'could', 'may', 'might', 'must', 'shall', 'should', 'will', 'would', 'ought', 'not', 'very', 'too', 'so', 'just', 'well', 'often', 'always', 'never', 'sometimes', 'here', 'there', 'now', 'then', 'again', 'also', 'ever', 'even', 'how', 'quite', 'rather', 'soon', 'still', 'more', 'most', 'less', 'least', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'then', 'there', 'here', "don't", "didn't", "can't", "couldn't", "she's", "he's", "i'm", "you're", "they're", "we're", "it's", "that's"]),
     elements: {},
+     getWordListForGrade(grade) { // Helper to get the correct word list
+        return app.state.wordList || []; // word app only has one list
+    },
     init() {
         this.elements = {
             startScreen: document.getElementById('learning-start-screen'),
@@ -1876,11 +1999,14 @@ const learningMode = {
         const wordData = this.state.currentWordList[index];
         if (!wordData) return;
 
-        try {
-            localStorage.setItem(app.state.LOCAL_STORAGE_KEYS.LAST_INDEX, index);
-        } catch (e) {
-            console.error("Error saving last index to localStorage", e);
+         if (!this.state.isMistakeMode && !this.state.isFavoriteMode) {
+            try {
+                localStorage.setItem(app.state.LOCAL_STORAGE_KEYS.LAST_INDEX, index);
+            } catch (e) {
+                console.error("Error saving last index to localStorage", e);
+            }
         }
+
 
         this.elements.wordDisplay.textContent = wordData.word;
         this.adjustWordFontSize();
@@ -2067,8 +2193,8 @@ document.addEventListener('firebaseSDKLoaded', () => {
     ({
         initializeApp, getDatabase, ref, get, update, set,
         getAuth, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup,
-        getFirestore, doc, getDoc, setDoc, updateDoc
+        getFirestore, doc, getDoc, setDoc, updateDoc, writeBatch // Ensure writeBatch is imported
     } = window.firebaseSDK);
+    window.firebaseSDK.writeBatch = writeBatch; // Make it available globally if needed by other parts
     app.init();
 });
-
