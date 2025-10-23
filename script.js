@@ -22,6 +22,12 @@ const app = {
         longPressTimer: null,
         translationTimer: null,
         favorites: [],
+        LOCAL_STORAGE_KEYS: {
+            TTS_VOICE: 'student_ttsVoice',
+            LAST_INDEX: 'student_lastIndex_main',
+            UNSYNCED_TIME: 'student_unsyncedTime_main',
+            UNSYNCED_QUIZ: 'student_unsyncedQuizStats_main'
+        }
     },
     elements: {
         loginScreen: document.getElementById('login-screen'),
@@ -84,7 +90,7 @@ const app = {
                 this.elements.loginScreen.classList.add('hidden');
                 this.elements.appWrapper.classList.remove('hidden');
                 if (!this.state.isAppStarted) {
-                    this.startApp();
+                    await this.startApp();
                 }
             } else {
                 this.elements.loginScreen.classList.remove('hidden');
@@ -94,7 +100,7 @@ const app = {
                 }
             }
         });
-        
+
         this.bindAuthEvents();
     },
     bindAuthEvents() {
@@ -117,7 +123,21 @@ const app = {
     },
     async startApp() {
         this.state.isAppStarted = true;
-        
+
+        try {
+            const savedVoice = localStorage.getItem(this.state.LOCAL_STORAGE_KEYS.TTS_VOICE);
+            if (savedVoice) {
+                this.state.currentVoiceSet = savedVoice;
+                this.elements.ttsToggleText.textContent = savedVoice;
+                this.elements.ttsToggleBtn.classList.toggle('bg-indigo-700', savedVoice === 'UK');
+                this.elements.ttsToggleBtn.classList.toggle('hover:bg-indigo-800', savedVoice === 'UK');
+                this.elements.ttsToggleBtn.classList.toggle('bg-red-500', savedVoice === 'US');
+                this.elements.ttsToggleBtn.classList.toggle('hover:bg-red-600', savedVoice === 'US');
+            }
+        } catch (e) {
+            console.error("Error reading TTS settings from localStorage", e);
+        }
+
         try {
             await audioCache.init();
             await translationCache.init();
@@ -127,6 +147,8 @@ const app = {
         }
         this.bindGlobalEvents();
         studyTracker.init();
+
+        await this.syncOfflineData();
 
         try {
             await api.loadWordList();
@@ -139,12 +161,31 @@ const app = {
         quizMode.init();
         learningMode.init();
         dashboard.init();
-        
+
         quizMode.preloadAllQuizTypes();
 
         const initialMode = window.location.hash.replace('#', '') || 'selection';
         history.replaceState({ mode: initialMode, options: {} }, '', window.location.href);
         this._renderMode(initialMode);
+    },
+    async syncOfflineData() {
+        if (!app.state.userId) return;
+
+        try {
+            const timeToSync = parseInt(localStorage.getItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_TIME) || '0');
+            if (timeToSync > 0) {
+                await api.updateStudyTime(timeToSync);
+                localStorage.removeItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_TIME);
+            }
+
+            const statsToSync = JSON.parse(localStorage.getItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_QUIZ) || 'null');
+            if (statsToSync) {
+                await api.syncQuizHistory(statsToSync);
+                localStorage.removeItem(this.state.LOCAL_STORAGE_KEYS.UNSYNCED_QUIZ);
+            }
+        } catch (error) {
+            console.error("Offline data sync failed:", error);
+        }
     },
     bindGlobalEvents() {
         this.elements.selectQuizBtn.addEventListener('click', () => this.navigateTo('quiz'));
@@ -173,7 +214,7 @@ const app = {
                 this.state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
         }, { once: true });
-        
+
         document.addEventListener('click', (e) => {
             if (!this.elements.wordContextMenu.contains(e.target)) {
                 ui.hideWordContextMenu();
@@ -197,11 +238,12 @@ const app = {
 
         window.addEventListener('beforeunload', () => {
             studyTracker.stopAndSave();
+            this.syncOfflineData();
         });
     },
     async loadInitialImages() {
         const imageSelectors = [
-            '#select-learning-btn img', '#select-quiz-btn img', 
+            '#select-learning-btn img', '#select-quiz-btn img',
             '#start-meaning-quiz-btn img', '#start-blank-quiz-btn img', '#start-definition-quiz-btn img'
         ];
         for (const selector of imageSelectors) {
@@ -214,7 +256,7 @@ const app = {
     navigateTo(mode, options = {}) {
         if (history.state?.mode === mode && !['learning', 'mistakeReview', 'favorites'].includes(mode)) return;
 
-        const newPath = mode === 'selection' 
+        const newPath = mode === 'selection'
             ? window.location.pathname + window.location.search
             : `#${mode}`;
 
@@ -282,14 +324,14 @@ const app = {
     },
     async forceReload() {
         this.elements.globalLoader.classList.remove('hidden');
-        
+
         const elementsToDisable = [
             this.elements.refreshBtn, this.elements.selectDashboardBtn, this.elements.selectMistakesBtn,
             this.elements.selectLearningBtn, this.elements.selectQuizBtn
         ];
 
         elementsToDisable.forEach(el => el.classList.add('pointer-events-none', 'opacity-50'));
-        
+
         try {
             await api.loadWordList(true);
             await api.loadUserProgress();
@@ -322,6 +364,12 @@ const app = {
             btn.classList.toggle('hover:bg-indigo-800', this.state.currentVoiceSet === 'UK');
             btn.classList.toggle('bg-red-500', this.state.currentVoiceSet === 'US');
             btn.classList.toggle('hover:bg-red-600', this.state.currentVoiceSet === 'US');
+
+            try {
+                localStorage.setItem(this.state.LOCAL_STORAGE_KEYS.TTS_VOICE, this.state.currentVoiceSet);
+            } catch (e) {
+                console.error("Error saving TTS settings to localStorage", e);
+            }
         }, 250);
     },
     showFatalError(message) {
@@ -362,7 +410,8 @@ const studyTracker = {
     sessionSeconds: 0,
     lastActivityTimestamp: 0,
     timerInterval: null,
-    INACTIVITY_LIMIT: 30000, 
+    saveInterval: null,
+    INACTIVITY_LIMIT: 30000,
 
     init() {
     },
@@ -370,7 +419,7 @@ const studyTracker = {
         if (this.timerInterval) return;
         this.lastActivityTimestamp = Date.now();
         this.sessionSeconds = 0;
-        
+
         this.timerInterval = setInterval(() => {
             if (document.hidden) return;
 
@@ -380,23 +429,42 @@ const studyTracker = {
             }
         }, 1000);
 
-        ['click', 'keydown', 'touchstart'].forEach(event => 
+        this.saveInterval = setInterval(() => {
+            if (this.sessionSeconds > 0) {
+                try {
+                    const currentLocalTime = parseInt(localStorage.getItem(app.state.LOCAL_STORAGE_KEYS.UNSYNCED_TIME) || '0');
+                    localStorage.setItem(app.state.LOCAL_STORAGE_KEYS.UNSYNCED_TIME, currentLocalTime + this.sessionSeconds);
+                    this.sessionSeconds = 0;
+                } catch (e) {
+                    console.error("Error saving study time to localStorage", e);
+                }
+            }
+        }, 10000);
+
+        ['click', 'keydown', 'touchstart'].forEach(event =>
             document.body.addEventListener(event, this.recordActivity, true));
     },
 
     stopAndSave() {
         if (!this.timerInterval) return;
-        
-        clearInterval(this.timerInterval);
-        this.timerInterval = null;
 
-        if (this.sessionSeconds > 0) {
-            api.updateStudyTime(Math.floor(this.sessionSeconds));
+        clearInterval(this.timerInterval);
+        clearInterval(this.saveInterval);
+        this.timerInterval = null;
+        this.saveInterval = null;
+
+        try {
+            if (this.sessionSeconds > 0) {
+                const currentLocalTime = parseInt(localStorage.getItem(app.state.LOCAL_STORAGE_KEYS.UNSYNCED_TIME) || '0');
+                localStorage.setItem(app.state.LOCAL_STORAGE_KEYS.UNSYNCED_TIME, currentLocalTime + this.sessionSeconds);
+            }
+        } catch (e) {
+            console.error("Error saving remaining study time to localStorage", e);
         }
-        
+
         this.sessionSeconds = 0;
 
-        ['click', 'keydown', 'touchstart'].forEach(event => 
+        ['click', 'keydown', 'touchstart'].forEach(event =>
             document.body.removeEventListener(event, this.recordActivity, true));
     },
 
@@ -467,7 +535,7 @@ const audioCache = {
     },
     saveAudio(key, audioData) {
         if (!this.db) return;
-        try { const transaction = this.db.transaction([this.storeName], 'readwrite'); transaction.objectStore(this.storeName).put(audioData, key); } 
+        try { const transaction = this.db.transaction([this.storeName], 'readwrite'); transaction.objectStore(this.storeName).put(audioData, key); }
         catch (e) { console.error("IndexedDB save error:", e); }
     }
 };
@@ -495,7 +563,7 @@ const translationCache = {
     },
     save(key, data) {
         if (!this.db) return;
-        try { const transaction = this.db.transaction([this.storeName], 'readwrite'); transaction.objectStore(this.storeName).put(data, key); } 
+        try { const transaction = this.db.transaction([this.storeName], 'readwrite'); transaction.objectStore(this.storeName).put(data, key); }
         catch (e) { console.error("IndexedDB save error:", e); }
     }
 };
@@ -515,13 +583,13 @@ async loadWordList(force = false) {
 
                     const now = new Date();
                     const lastMonday = new Date(now);
-                    
-                    const todayDay = now.getDay(); // 0(일) - 6(토)
-                    const diff = todayDay === 0 ? 6 : todayDay - 1; // 0(일) -> 6, 1(월) -> 0, 2(화) -> 1
-                    lastMonday.setDate(now.getDate() - diff);
-                    lastMonday.setHours(0, 0, 0, 0); // 지난 월요일 00:00:00
 
-                    if (timestamp >= lastMonday.getTime()) { 
+                    const todayDay = now.getDay();
+                    const diff = todayDay === 0 ? 6 : todayDay - 1;
+                    lastMonday.setDate(now.getDate() - diff);
+                    lastMonday.setHours(0, 0, 0, 0);
+
+                    if (timestamp >= lastMonday.getTime()) {
                         app.state.wordList = words.sort((a, b) => a.index - b.index);
                         app.state.isWordListReady = true;
                     }
@@ -530,7 +598,7 @@ async loadWordList(force = false) {
                 localStorage.removeItem('wordListCache');
             }
         }
-        
+
         if (app.state.isWordListReady && !force) return;
 
         try {
@@ -540,7 +608,7 @@ async loadWordList(force = false) {
             if (!data) throw new Error("Firebase에 단어 데이터가 없습니다.");
 
             const wordsArray = Object.values(data).sort((a, b) => a.index - b.index);
-            
+
             app.state.wordList = wordsArray;
             app.state.isWordListReady = true;
 
@@ -559,12 +627,12 @@ async loadWordList(force = false) {
 
         if (!text || !text.trim() || app.state.isSpeaking) return;
         if (app.state.audioContext.state === 'suspended') app.state.audioContext.resume();
-        
+
         app.state.isSpeaking = true;
         const textWithoutEmoji = text.replace(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u, '');
         const processedText = textWithoutEmoji.replace(/\bsb\b/g, 'somebody').replace(/\bsth\b/g, 'something');
         const voiceConfig = voiceSets[app.state.currentVoiceSet][contentType];
-        
+
         const cacheKey = `${processedText}|${voiceConfig.languageCode}|${voiceConfig.name}`;
 
         const playAudio = async (audioArrayBuffer) => {
@@ -579,7 +647,7 @@ async loadWordList(force = false) {
         try {
             const cachedAudio = await audioCache.getAudio(cacheKey);
             if (cachedAudio) {
-                await playAudio(cachedAudio.slice(0)); 
+                await playAudio(cachedAudio.slice(0));
                 return;
             }
 
@@ -590,14 +658,14 @@ async loadWordList(force = false) {
                 body: JSON.stringify({ input: { text: processedText }, voice: voiceConfig, audioConfig: { audioEncoding: 'MP3' } })
             });
             if (!response.ok) throw new Error(`TTS API Error: ${(await response.json()).error.message}`);
-            
+
             const data = await response.json();
             const byteCharacters = atob(data.audioContent);
             const byteArray = new Uint8Array(byteCharacters.length).map((_, i) => byteCharacters.charCodeAt(i));
             const audioArrayBuffer = byteArray.buffer;
-            
-            audioCache.saveAudio(cacheKey, audioArrayBuffer.slice(0)); 
-            
+
+            audioCache.saveAudio(cacheKey, audioArrayBuffer.slice(0));
+
             await playAudio(audioArrayBuffer);
 
         } catch (error) {
@@ -641,16 +709,16 @@ async loadWordList(force = false) {
     async updateWordStatus(word, quizType, isCorrect) {
         const progressRef = doc(db, 'users', app.state.userId, 'progress', 'main');
         const result = isCorrect ? 'correct' : 'incorrect';
-        
+
         try {
             await updateDoc(progressRef, {
                 [`${word}.${quizType}`]: result
             });
             if (!app.state.currentProgress[word]) app.state.currentProgress[word] = {};
             app.state.currentProgress[word][quizType] = result;
-            
-            await api.saveQuizHistory(quizType, isCorrect);
-            
+
+            api.saveQuizHistoryToLocal(quizType, isCorrect);
+
             const wordIndexInGlobalList = app.state.wordList.findIndex(w => w.word === word);
             if (wordIndexInGlobalList !== -1) {
                 if (!isCorrect) {
@@ -669,7 +737,7 @@ async loadWordList(force = false) {
                 await setDoc(progressRef, { [word]: { [quizType]: result } }, { merge: true });
                 if (!app.state.currentProgress[word]) app.state.currentProgress[word] = {};
                 app.state.currentProgress[word][quizType] = result;
-                await api.saveQuizHistory(quizType, isCorrect);
+                api.saveQuizHistoryToLocal(quizType, isCorrect);
             }
         }
     },
@@ -727,7 +795,7 @@ async loadWordList(force = false) {
             });
             if (!app.state.currentProgress[word]) app.state.currentProgress[word] = {};
             app.state.currentProgress[word].favorite = newFavoriteStatus;
-            
+
             app.state.favorites = app.state.favorites.filter(w => w !== word);
             if (newFavoriteStatus) {
                 app.state.favorites.push(word);
@@ -748,12 +816,14 @@ async loadWordList(force = false) {
         if (!app.state.userId || seconds < 1) return;
         const today = new Date().toISOString().slice(0, 10);
         const historyRef = doc(db, 'users', app.state.userId, 'history', 'study');
-        
+
         try {
             const docSnap = await getDoc(historyRef);
             const currentSeconds = (docSnap.exists() && docSnap.data()[today]) ? docSnap.data()[today] : 0;
             await setDoc(historyRef, { [today]: currentSeconds + seconds }, { merge: true });
         } catch (error) {
+            console.error("Failed to update study time:", error);
+            throw error;
         }
     },
     async getStudyHistory(days) {
@@ -768,25 +838,45 @@ async loadWordList(force = false) {
         const docSnap = await getDoc(historyRef);
         return docSnap.exists() ? docSnap.data() : {};
     },
-    async saveQuizHistory(quizType, isCorrect) {
-        if (!app.state.userId || !quizType) return;
+    saveQuizHistoryToLocal(quizType, isCorrect) {
+        try {
+            const stats = JSON.parse(localStorage.getItem(app.state.LOCAL_STORAGE_KEYS.UNSYNCED_QUIZ) || '{}');
+            if (!stats[quizType]) {
+                stats[quizType] = { total: 0, correct: 0 };
+            }
+            stats[quizType].total += 1;
+            if (isCorrect) {
+                stats[quizType].correct += 1;
+            }
+            localStorage.setItem(app.state.LOCAL_STORAGE_KEYS.UNSYNCED_QUIZ, JSON.stringify(stats));
+        } catch (e) {
+            console.error("Error saving quiz stats to localStorage", e);
+        }
+    },
+    async syncQuizHistory(statsToSync) {
+        if (!app.state.userId || !statsToSync) return;
         const today = new Date().toISOString().slice(0, 10);
         const historyRef = doc(db, 'users', app.state.userId, 'history', 'quiz');
-        
+
         try {
             const docSnap = await getDoc(historyRef);
             const data = docSnap.exists() ? docSnap.data() : {};
-            
-            const todayData = data[today] || {};
-            const typeStats = todayData[quizType] || { correct: 0, total: 0 };
 
-            typeStats.total += 1;
-            if (isCorrect) {
-                typeStats.correct += 1;
+            const todayData = data[today] || {};
+
+            for (const type in statsToSync) {
+                if (statsToSync.hasOwnProperty(type)) {
+                    const typeStats = todayData[type] || { correct: 0, total: 0 };
+                    typeStats.total += statsToSync[type].total;
+                    typeStats.correct += statsToSync[type].correct;
+                    todayData[type] = typeStats;
+                }
             }
 
-            await setDoc(historyRef, { [today]: { [quizType]: typeStats } }, { merge: true });
+            await setDoc(historyRef, { [today]: todayData }, { merge: true });
         } catch(e) {
+            console.error("Failed to sync quiz history:", e);
+            throw e;
         }
     }
 };
@@ -794,16 +884,16 @@ async loadWordList(force = false) {
 const ui = {
     async copyToClipboard(text) {
         if (navigator.clipboard) {
-            try { await navigator.clipboard.writeText(text); } 
+            try { await navigator.clipboard.writeText(text); }
             catch (err) { }
         }
     },
     createInteractiveFragment(text, isForSampleSentence = false) {
         const fragment = document.createDocumentFragment();
         if (!text || !text.trim()) return fragment;
-    
+
         const parts = text.split(/([a-zA-Z0-9'-]+)/g);
-        
+
         parts.forEach(part => {
             if (/([a-zA-Z0-9'-]+)/.test(part) && learningMode.nonInteractiveWords && !learningMode.nonInteractiveWords.has(part.toLowerCase())) {
                  const span = document.createElement('span');
@@ -898,7 +988,7 @@ const ui = {
                 api.speak(p.textContent, 'sample');
                 showTranslation(e);
             };
-            
+
             p.addEventListener('mouseenter', (e) => {
                 clearTimeout(app.state.translationTimer);
                 app.state.translationTimer = setTimeout(() => {
@@ -914,7 +1004,7 @@ const ui = {
             const sentenceContent = document.createElement('span');
             sentenceContent.className = 'sentence-content-area';
             sentenceContent.style.cursor = 'text';
-            
+
             sentenceContent.addEventListener('mouseenter', () => {
                 clearTimeout(app.state.translationTimer);
                 this.hideTranslationTooltip();
@@ -951,7 +1041,7 @@ const ui = {
         const menu = app.elements.wordContextMenu;
 
         app.elements.searchAppContextBtn.style.display = options.hideAppSearch ? 'none' : 'block';
-        
+
         const touch = event.touches ? event.touches[0] : null;
         const x = touch ? touch.clientX : event.clientX;
         const y = touch ? touch.clientY : event.clientY;
@@ -1112,7 +1202,7 @@ const dashboard = {
                 plugins: { legend: { display: false } }
             }
         });
-        
+
         const totalQuizStats = {
             'MULTIPLE_CHOICE_MEANING': { correct: 0, total: 0 },
             'FILL_IN_THE_BLANK': { correct: 0, total: 0 },
@@ -1133,7 +1223,7 @@ const dashboard = {
                 }
             }
         }
-        
+
         const createDoughnutChart = (elementId, labelId, labelText, stats) => {
             const ctx = document.getElementById(elementId).getContext('2d');
             const correct = stats.correct || 0;
@@ -1145,7 +1235,7 @@ const dashboard = {
             if (labelEl) {
                 labelEl.textContent = `${labelText} (${correct}/${total})`;
             }
-            
+
             return new Chart(ctx, {
                 type: 'doughnut',
                 data: {
@@ -1198,7 +1288,7 @@ const dashboard = {
                     'FILL_IN_THE_BLANK': { correct: 0, total: 0 },
                     'MULTIPLE_CHOICE_DEFINITION': { correct: 0, total: 0 },
                 };
-                
+
                 for (let i = 0; i < days; i++) {
                     const d = new Date(today);
                     d.setDate(d.getDate() - i);
@@ -1215,9 +1305,9 @@ const dashboard = {
                 }
                 return { totalSeconds, quizStats };
             }
-            
+
             const totalStudySeconds = Object.values(studyHistory).reduce((a, b) => a + b, 0);
-            
+
             const quizHistoryTotal = {};
             if(quizHistory) {
                 Object.values(quizHistory).forEach(daily => {
@@ -1237,7 +1327,7 @@ const dashboard = {
                     'FILL_IN_THE_BLANK': '빈칸 추론',
                     'MULTIPLE_CHOICE_DEFINITION': '영영 풀이',
                 };
-        
+
                 let quizHTML = '<div class="grid grid-cols-3 gap-1 text-center">';
                 for (const type in quizTypes) {
                     const stats = quizStats[type] || { correct: 0, total: 0 };
@@ -1251,11 +1341,11 @@ const dashboard = {
                     `;
                 }
                 quizHTML += '</div>';
-        
+
                 return `
                     <div class="bg-gray-50 p-4 rounded-xl shadow-inner">
                         <h4 class="font-bold text-gray-700 mb-4 text-lg text-center">
-                            ${title} 
+                            ${title}
                             <span class="font-normal text-gray-500">(${utils.formatSeconds(totalSeconds)})</span>
                         </h4>
                         <div class="space-y-3">
@@ -1264,10 +1354,10 @@ const dashboard = {
                     </div>
                 `;
             };
-        
+
             const card30Days = createSummaryCardHTML('최근 30일 기록', stats30.totalSeconds, stats30.quizStats);
             const cardTotal = createSummaryCardHTML('누적 총학습 기록', totalStudySeconds, quizHistoryTotal);
-        
+
             textSummaryContainer.innerHTML = `
                 <div class="space-y-6">
                     ${card30Days}
@@ -1361,24 +1451,24 @@ const quizMode = {
     async generateSingleQuiz(quizType) {
         const allWords = app.state.wordList;
         if (allWords.length < 5) return null;
-    
+
         const getUnansweredWords = (type) => {
             return allWords.filter(wordObj => {
                 const progress = app.state.currentProgress[wordObj.word];
                 return (!progress || progress[type] !== 'correct') && !this.state.answeredWords.has(wordObj.word);
             });
         };
-    
+
         let candidates = getUnansweredWords(quizType);
-    
+
         if (quizType === 'FILL_IN_THE_BLANK') {
             candidates = candidates.filter(word => word.sample && word.sample.trim() !== '');
         }
-    
+
         if (candidates.length === 0) return null;
-    
+
         utils.shuffleArray(candidates);
-    
+
         for (const wordData of candidates) {
             let quiz = null;
             if (quizType === 'MULTIPLE_CHOICE_MEANING') quiz = this.createMeaningQuiz(wordData, allWords);
@@ -1398,7 +1488,7 @@ const quizMode = {
         } else {
             nextQuiz = await this.generateSingleQuiz(this.state.quizType);
         }
-        
+
         if (nextQuiz) {
             this.state.currentQuiz = nextQuiz;
             this.state.answeredWords.add(nextQuiz.question.word);
@@ -1460,7 +1550,7 @@ const quizMode = {
             li.onclick = () => this.checkAnswer(li, choice);
             this.elements.choices.appendChild(li);
         });
-        
+
         const passLi = document.createElement('li');
         passLi.className = 'choice-item border-2 border-red-500 bg-red-500 hover:bg-red-600 text-white p-4 rounded-lg cursor-pointer flex items-center justify-center transition-all font-bold text-lg';
         passLi.innerHTML = `<span>PASS</span>`;
@@ -1472,18 +1562,18 @@ const quizMode = {
     async checkAnswer(selectedLi, selectedChoice) {
         this.elements.choices.classList.add('disabled');
         const isCorrect = selectedChoice === this.state.currentQuiz.answer;
-        
+
         selectedLi.classList.add(isCorrect ? 'correct' : 'incorrect');
         if (!isCorrect) {
             Array.from(this.elements.choices.children).find(li => li.textContent.includes(this.state.currentQuiz.answer))?.classList.add('correct');
             this.state.sessionMistakes.push(this.state.currentQuiz.question.word);
         }
-        
+
         this.state.sessionAnsweredInSet++;
         if (isCorrect) this.state.sessionCorrectInSet++;
 
         await api.updateWordStatus(this.state.currentQuiz.question.word, this.state.quizType, isCorrect);
-        
+
         setTimeout(() => {
             if (this.state.sessionAnsweredInSet >= 10) {
                 this.showSessionResultModal();
@@ -1558,14 +1648,14 @@ const quizMode = {
     },
     createBlankQuiz(correctWordData, allWordsData) {
         if (!correctWordData.sample || correctWordData.sample.trim() === '') return null;
-        
+
         const firstLine = correctWordData.sample.split('\n')[0]
             .replace(/\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu, "")
             .replace(/\*/g, '')
             .trim();
 
         const placeholderRegex = new RegExp(`\\b${correctWordData.word}\\b`, 'i');
-        
+
         if (!firstLine.match(placeholderRegex)) return null;
 
         const sentenceWithBlank = firstLine.replace(placeholderRegex, "___BLANK___").trim();
@@ -1697,12 +1787,18 @@ const learningMode = {
         }
         const startWord = this.elements.startWordInput.value.trim();
         if (this.state.currentWordList.length === 0) { this.showError("학습할 단어가 없습니다."); return; }
+
         if (!startWord) {
-            this.state.currentIndex = 0;
+            try {
+                const savedIndex = parseInt(localStorage.getItem(app.state.LOCAL_STORAGE_KEYS.LAST_INDEX) || '0');
+                this.state.currentIndex = savedIndex < this.state.currentWordList.length ? savedIndex : 0;
+            } catch (e) {
+                this.state.currentIndex = 0;
+            }
             this.launchApp();
             return;
         }
-    
+
         const lowerCaseStartWord = startWord.toLowerCase();
         const exactMatchIndex = this.state.currentWordList.findIndex(item => item.word.toLowerCase() === lowerCaseStartWord);
         if (exactMatchIndex !== -1) {
@@ -1710,7 +1806,7 @@ const learningMode = {
             this.launchApp();
             return;
         }
-        
+
         const searchRegex = new RegExp(`\\b${lowerCaseStartWord}\\b`, 'i');
         const explanationMatches = this.state.currentWordList
             .map((item, index) => ({ ...item, index }))
@@ -1718,7 +1814,7 @@ const learningMode = {
         const levenshteinSuggestions = this.state.currentWordList.map((item, index) => ({
             word: item.word, index, distance: utils.levenshteinDistance(lowerCaseStartWord, item.word.toLowerCase())
         })).sort((a, b) => a.distance - b.distance).slice(0, 5).filter(s => s.distance < s.word.length / 2 + 1);
-        
+
         const title = (levenshteinSuggestions.length > 0 || explanationMatches.length > 0)
             ? `<strong>${startWord}</strong> 없으니, 아래에서 확인하세요.`
             : `<strong>${startWord}</strong>에 대한 검색 결과가 없습니다.`;
@@ -1755,7 +1851,7 @@ const learningMode = {
         this.elements.startScreen.classList.remove('hidden');
         this.elements.startInputContainer.classList.add('hidden');
         this.elements.suggestionsTitle.innerHTML = title;
-        
+
         const populateList = (listElement, suggestions) => {
             listElement.innerHTML = '';
             if (suggestions.length === 0) {
@@ -1779,18 +1875,24 @@ const learningMode = {
         this.elements.cardBack.classList.remove('is-slid-up');
         const wordData = this.state.currentWordList[index];
         if (!wordData) return;
-        
+
+        try {
+            localStorage.setItem(app.state.LOCAL_STORAGE_KEYS.LAST_INDEX, index);
+        } catch (e) {
+            console.error("Error saving last index to localStorage", e);
+        }
+
         this.elements.wordDisplay.textContent = wordData.word;
         this.adjustWordFontSize();
         this.elements.meaningDisplay.innerHTML = wordData.meaning.replace(/\n/g, '<br>');
         ui.renderExplanationText(this.elements.explanationDisplay, wordData.explanation);
         this.elements.explanationContainer.classList.toggle('hidden', !wordData.explanation?.trim());
-        
+
         const hasSample = wordData.sample && wordData.sample.trim() !== '';
         const sampleImgUrl = 'https://images.icon-icons.com/1055/PNG/128/14-delivery-cat_icon-icons.com_76690.png';
         const noSampleImgUrl = 'https://images.icon-icons.com/1055/PNG/128/19-add-cat_icon-icons.com_76695.png';
         this.elements.sampleBtnImg.src = await imageDBCache.loadImage(hasSample ? sampleImgUrl : noSampleImgUrl);
-        
+
         this.updateFavoriteIcon(wordData.word);
     },
     adjustWordFontSize() {
@@ -1881,7 +1983,7 @@ const learningMode = {
         }
         this.state.touchStartX = 0;
         this.state.touchStartY = 0;
-    },    
+    },
     updateProgressBar(index) {
         const total = this.state.currentWordList.length;
         if (total <= 1) {
@@ -1895,7 +1997,7 @@ const learningMode = {
     },
     handleProgressBarInteraction(e) {
         if (learningMode.elements.appContainer.classList.contains('hidden')) return;
-        
+
         const track = this.elements.progressBarTrack;
         const totalWords = this.state.currentWordList.length;
         if (totalWords <= 1) return;
@@ -1962,10 +2064,11 @@ const learningMode = {
 };
 
 document.addEventListener('firebaseSDKLoaded', () => {
-    ({ 
-        initializeApp, getDatabase, ref, get, update, set, 
+    ({
+        initializeApp, getDatabase, ref, get, update, set,
         getAuth, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup,
         getFirestore, doc, getDoc, setDoc, updateDoc
     } = window.firebaseSDK);
     app.init();
 });
+
