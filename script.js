@@ -19,6 +19,7 @@ const app = {
         wordList: [],
         currentProgress: {},
         isWordListReady: false,
+        lastCacheTimestamp: null, // [추가]
         longPressTimer: null,
         translationTimer: null,
         favorites: [], // 즐겨찾기 목록은 utils.getFavoriteWords로 관리 예정
@@ -61,6 +62,7 @@ const app = {
         selectFavoritesBtn: document.getElementById('select-favorites-btn'),
         progressBarContainer: document.getElementById('progress-bar-container'),
         translationTooltip: document.getElementById('translation-tooltip'),
+        lastUpdatedText: document.getElementById('last-updated-text'), // [추가]
     },
     init() {
         this.initializeFirebaseAndAuth();
@@ -159,6 +161,7 @@ const app = {
         try {
             await api.loadWordList();
             await api.loadUserProgress();
+            this.updateLastUpdatedText(); // [추가]
         } catch (e) {
             return;
         }
@@ -380,6 +383,7 @@ const app = {
         try {
             await api.loadWordList(true);
             await api.loadUserProgress();
+            this.updateLastUpdatedText(); // [추가]
             this.showToast('데이터를 성공적으로 새로고침했습니다!');
         } catch(e) {
             this.showToast('데이터 새로고침에 실패했습니다: ' + e.message, true);
@@ -398,6 +402,19 @@ const app = {
             toast.style.opacity = '0';
             setTimeout(() => toast.remove(), 500);
         }, 2500);
+    },
+    // [추가] 최종 업데이트 시간 표시 함수
+    updateLastUpdatedText() {
+        if (this.elements.lastUpdatedText && this.state.lastCacheTimestamp) {
+            const d = new Date(this.state.lastCacheTimestamp);
+            const dateString = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+            this.elements.lastUpdatedText.textContent = `최종 업데이트 : ${dateString}`;
+            this.elements.lastUpdatedText.classList.remove('hidden');
+        } else if (this.elements.lastUpdatedText) {
+            // 캐시 타임스탬프가 없는 경우 (최초 로드 실패 등)
+            this.elements.lastUpdatedText.textContent = '업데이트 정보 없음';
+            this.elements.lastUpdatedText.classList.remove('hidden');
+        }
     },
     toggleVoiceSet() {
         const btn = this.elements.ttsToggleBtn;
@@ -626,18 +643,12 @@ async loadWordList(force = false) {
                 if (cachedData) {
                     const { timestamp, words } = JSON.parse(cachedData);
 
-                    const now = new Date();
-                    const lastMonday = new Date(now);
+                    // [수정] 월요일 자동 갱신 로직 제거. 캐시가 있으면 그냥 사용합니다.
+                    app.state.wordList = words.sort((a, b) => a.index - b.index);
+                    app.state.isWordListReady = true;
 
-                    const todayDay = now.getDay();
-                    const diff = todayDay === 0 ? 6 : todayDay - 1;
-                    lastMonday.setDate(now.getDate() - diff);
-                    lastMonday.setHours(0, 0, 0, 0);
-
-                    if (timestamp >= lastMonday.getTime()) {
-                        app.state.wordList = words.sort((a, b) => a.index - b.index);
-                        app.state.isWordListReady = true;
-                    }
+                    // [추가] 로드된 캐시의 타임스탬프를 UI에 표시하기 위해 상태에 저장
+                    app.state.lastCacheTimestamp = timestamp;
                 }
             } catch (e) {
                 localStorage.removeItem('wordListCache');
@@ -657,8 +668,11 @@ async loadWordList(force = false) {
             app.state.wordList = wordsArray;
             app.state.isWordListReady = true;
 
-            const cachePayload = { timestamp: Date.now(), words: wordsArray };
+            // [수정] 새로고침 시 타임스탬프 저장 및 상태 업데이트
+            const newTimestamp = Date.now();
+            const cachePayload = { timestamp: newTimestamp, words: wordsArray };
             localStorage.setItem('wordListCache', JSON.stringify(cachePayload));
+            app.state.lastCacheTimestamp = newTimestamp; // [추가]
         } catch (error) {
             if (!app.state.isWordListReady) app.showFatalError(error.message);
             throw error;
