@@ -1805,7 +1805,7 @@ const quizMode = {
 
         const passLi = document.createElement('li');
         passLi.className = 'choice-item border-2 border-red-500 bg-red-500 hover:bg-red-600 text-white p-4 rounded-lg cursor-pointer flex items-center justify-center transition-all font-bold text-lg';
-        passLi.innerHTML = `<span>PASS (0 또는 P)</span>`; // 단축키 안내 추가
+        passLi.innerHTML = `<span>PASS</span>`; // 단축키 안내 추가
         passLi.onclick = () => this.checkAnswer(passLi, 'USER_PASSED');
         this.elements.choices.appendChild(passLi);
 
