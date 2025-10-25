@@ -1924,8 +1924,7 @@ const quizMode = {
                  this.showSessionResultModal(true);
             } else {
                  this.showFinishedScreen("모든 단어 학습을 완료했거나, 더 이상 만들 퀴즈가 없습니다!");
-                 app.showToast('풀 수 있는 모든 퀴즈를 완료했습니다!', false);
-                 setTimeout(() => app.navigateTo('quiz'), 2000);
+                 setTimeout(() => app.navigateTo('quiz'), 1000);
             }
         }
     },
