@@ -1943,17 +1943,37 @@ const quizMode = {
 
         if (wordsInRange.length === 0) return null;
 
+        const currentQuizType = this.state.currentQuizType;
+        const localKey = app.state.LOCAL_STORAGE_KEYS.UNSYNCED_PROGRESS_UPDATES;
+        let unsynced = {};
+        try {
+            unsynced = JSON.parse(localStorage.getItem(localKey) || '{}');
+        } catch(e) { console.warn("Error reading local progress for quiz generation:", e); }
+
         let candidates = wordsInRange.filter(wordObj => {
-            if (this.state.answeredWords.has(wordObj.word)) {
-                return false;
+            const word = wordObj.word;
+            if (this.state.answeredWords.has(word)) {
+                return false; // 1. 현재 세션에서 이미 푼 단어 제외
             }
             if (this.state.isPracticeMode) {
-                return true;
+                return true; // 2. 복습 모드에서는 모든 단어 포함
             }
-            const status = utils.getWordStatus(wordObj.word);
-            return status !== 'learned';
-        });
 
+            // 3. 일반 모드: 현재 퀴즈 유형에 'correct' 기록이 있는지 확인
+            
+            // 로컬(오프라인) 기록 먼저 확인
+            if (unsynced[word] && unsynced[word][currentQuizType] === 'correct') {
+                return false; // 이 퀴즈 유형을 맞힌 기록이 로컬에 있으면 제외
+            }
+            
+            // 로컬에 없으면 서버(동기화된) 기록 확인
+            const serverProgress = app.state.currentProgress[word];
+            if (!unsynced[word] && serverProgress && serverProgress[currentQuizType] === 'correct') {
+                 return false; // 이 퀴즈 유형을 맞힌 기록이 서버에 있으면 제외
+            }
+            
+            return true; // 이 퀴즈 유형을 맞힌 기록이 없으면 포함
+        });
         if (this.state.currentQuizType === 'FILL_IN_THE_BLANK') {
             candidates = candidates.filter(word => word.sample && word.sample.trim() !== '');
         }
@@ -2155,15 +2175,35 @@ const quizMode = {
 
         if (wordsInRange.length === 0) return null;
 
+        const localKey = app.state.LOCAL_STORAGE_KEYS.UNSYNCED_PROGRESS_UPDATES;
+        let unsynced = {};
+        try {
+            unsynced = JSON.parse(localStorage.getItem(localKey) || '{}');
+        } catch(e) { console.warn("Error reading local progress for quiz preload:", e); }
+
         let candidates = wordsInRange.filter(wordObj => {
-            if (this.state.answeredWords.has(wordObj.word)) {
-                return false;
+            const word = wordObj.word;
+            if (this.state.answeredWords.has(word)) {
+                return false; // 1. 현재 세션에서 이미 푼 단어 제외
             }
             if (this.state.isPracticeMode) {
-                return true;
+                return true; // 2. 복습 모드에서는 모든 단어 포함
             }
-            const status = utils.getWordStatus(wordObj.word);
-            return status !== 'learned';
+
+            // 3. 일반 모드: 인자로 받은 quizType에 'correct' 기록이 있는지 확인
+            
+            // 로컬(오프라인) 기록 먼저 확인
+            if (unsynced[word] && unsynced[word][quizType] === 'correct') {
+                return false;
+            }
+            
+            // 로컬에 없으면 서버(동기화된) 기록 확인
+            const serverProgress = app.state.currentProgress[word];
+            if (!unsynced[word] && serverProgress && serverProgress[quizType] === 'correct') {
+                 return false;
+            }
+
+            return true; // 이 퀴즈 유형을 맞힌 기록이 없으면 포함
         });
 
         if (quizType === 'FILL_IN_THE_BLANK') {
