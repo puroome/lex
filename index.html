@@ -23,7 +23,7 @@
 
     <div id="app-wrapper" class="hidden w-full">
         <div id="ime-warning" class="hidden fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 bg-red-600/50 text-white py-2 px-5 rounded-lg shadow-xl z-[200] text-lg font-semibold">영어키로 전환하세요.</div>
-        
+
         <div id="global-loader" class="hidden fixed inset-0 bg-white/70 z-[300] flex flex-col items-center justify-center">
             <div class="loader"></div>
             <p id="global-loader-text" class="mt-4 text-gray-700 font-semibold text-lg">최신 데이터를 불러오는 중...</p>
@@ -36,11 +36,15 @@
                 <button id="tts-toggle-btn" class="hidden bg-indigo-700 hover:bg-indigo-800 text-white font-bold p-3 rounded-full shadow-lg w-12 h-12 flex items-center justify-center text-sm pointer-events-auto flex-shrink-0">
                     <span id="tts-toggle-text">UK</span>
                 </button>
-                
-                <div id="progress-bar-container" class="hidden w-full mx-4 pointer-events-auto">
+
+                <div id="progress-bar-container" class="hidden w-full mx-4 pointer-events-auto mt-12">
                     <div id="progress-bar-track" class="relative w-full h-2 bg-gray-300 rounded-full cursor-pointer">
                         <div id="progress-bar-fill" class="absolute h-full bg-blue-500 rounded-full"></div>
                         <div id="progress-bar-handle" class="absolute top-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-blue-500 rounded-full shadow cursor-grab"></div>
+                         <div id="progress-bar-number"
+                              class="absolute top-full mt-1 text-base font-bold text-red-600 -translate-x-1/2"
+                              style="left: 0%;">
+                         </div>
                     </div>
                 </div>
 
@@ -57,7 +61,7 @@
 
         <div class="w-full max-w-2xl mx-auto pt-20">
             <p id="last-updated-text" class="hidden text-sm text-gray-500 mb-2">최종 업데이트 : </p>
-            
+
             <div id="selection-screen" class="bg-white p-8 rounded-2xl shadow-lg text-center relative">
                 <a id="sheet-link" href="https://docs.google.com/spreadsheets/d/1aX-o13iqQBFEJcOQktor9KokstXfvHETA-YNOEs8ugs/edit?usp=sharing" target="_blank" class="absolute top-6 right-6 z-[110] group" aria-label="Google Sheets에서 단어 목록 열기">
                     <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="28" height="28" class="transition-transform duration-300 ease-in-out group-hover:scale-110 group-hover:-rotate-6">
@@ -79,7 +83,7 @@
                 </button>
                 <h1 class="text-3xl font-bold text-gray-800 mb-2">어휘 학습</h1>
                 <p class="text-gray-600 mb-8">원하는 학습 방식을 선택하세요.</p>
-                
+
                 <div class="inline-block">
                     <div class="flex flex-col sm:flex-row justify-center items-center sm:gap-x-6 gap-y-4">
                         <div id="select-learning-btn" class="relative cursor-pointer overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:scale-105 hover:-rotate-2 w-44 h-44">
@@ -146,9 +150,20 @@
 
             <div id="quiz-mode-container" class="hidden bg-white w-full p-4 rounded-2xl shadow-lg">
                 <div id="quiz-selection-screen" class="text-center p-10">
-                    <h1 class="text-2xl font-bold text-gray-800 mb-6">퀴즈 유형</h1>                
-                    <p class="text-gray-600 mb-8">원하는 퀴즈 유형을 선택하세요.</p>
-                    
+                    <h1 class="text-2xl font-bold text-gray-800 mb-6">퀴즈 유형</h1>
+
+                     <div class="text-gray-600 mb-8">
+                         <p>원하는 퀴즈 유형과 범위를 선택하세요.</p>
+                         <div class="flex justify-center items-center mt-3 text-base font-semibold">
+                             <span id="quiz-range-label" class="mr-1 cursor-pointer">🔒출제범위 :</span>
+                             <button id="quiz-range-start" data-min="1" data-max="1"
+                                     class="min-w-[1.5rem] text-center font-bold text-white bg-red-500 bg-opacity-30 hover:bg-opacity-60 rounded-md px-0.5 py-0.5 transition-colors">1</button>
+                             <span class="mx-1">-</span>
+                             <button id="quiz-range-end" data-min="1" data-max="1"
+                                     class="min-w-[1.5rem] text-center font-bold text-white bg-red-500 bg-opacity-30 hover:bg-opacity-60 rounded-md px-0.5 py-0.5 transition-colors">1</button>
+                         </div>
+                     </div>
+
                     <div class="flex flex-col sm:flex-row justify-center items-center gap-4">
                         <div id="start-meaning-quiz-btn" class="relative cursor-pointer overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:scale-105 hover:-rotate-2 w-40 h-40">
                             <img src="https://i.imgur.com/dc1lQkB.jpeg" alt="뜻 맞히기" class="w-full h-full object-cover">
@@ -236,7 +251,7 @@
                 </div>
             </div>
         </div>
-        
+
         <div id="learning-fixed-buttons" class="hidden fixed bottom-0 left-0 right-0 p-4 z-40">
             <div class="max-w-2xl mx-auto flex justify-between items-center px-4">
                 <button id="prev-btn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-full w-14 h-14 flex items-center justify-center transition-colors">
@@ -261,15 +276,37 @@
         <button id="search-etym-context-btn" class="text-left w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 whitespace-nowrap">어원</button>
         <button id="search-longman-context-btn" class="text-left w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 whitespace-nowrap">Longman</button>
     </div>
-    
+
+    <div id="range-input-modal" class="hidden fixed inset-0 bg-black bg-opacity-60 z-[250] flex items-start justify-center pt-24">
+        <div class="bg-white rounded-lg shadow-xl p-4 w-11/12 max-w-xs" onclick="event.stopPropagation()">
+            <label id="range-input-label" for="range-input-field" class="block text-sm font-medium text-gray-700 mb-2">시작번호 (1-100) :</label>
+            <input type="number" id="range-input-field" class="w-full border-2 border-gray-300 p-2 rounded-lg text-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" pattern="[0-9]*" inputmode="numeric">
+            <div class="flex justify-end gap-2 mt-3">
+                <button id="range-input-cancel-btn" class="bg-gray-300 hover:bg-gray-400 text-black font-bold py-2 px-4 rounded-lg">취소</button>
+                <button id="range-input-confirm-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">확인</button>
+            </div>
+        </div>
+    </div>
+
     <div id="quiz-result-modal" class="hidden fixed inset-0 bg-black/50 z-[250] flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl shadow-xl p-8 text-center w-full max-w-sm">
             <h2 class="text-2xl font-bold text-gray-800 mb-4">퀴즈 결과</h2>
             <p id="quiz-result-score" class="text-xl text-gray-700 mb-6"></p>
             <div class="space-y-3">
-                <button id="quiz-result-mistakes-btn" class="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 px-4 rounded-lg text-lg transition-colors">미니 오답노트</button>
+                 <button id="quiz-result-mistakes-btn" class="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 px-4 rounded-lg text-lg transition-colors">미니 오답노트</button>
                 <button id="quiz-result-continue-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg text-lg transition-colors">다음 퀴즈 계속</button>
             </div>
+        </div>
+    </div>
+
+    <div id="practice-mode-control" class="hidden fixed bottom-4 left-4 z-50 group">
+        <label for="practice-mode-checkbox" class="flex items-center bg-gray-800 bg-opacity-80 text-white p-3 rounded-lg shadow-lg cursor-pointer">
+            <input type="checkbox" id="practice-mode-checkbox" class="h-5 w-5 rounded text-blue-500 focus:ring-blue-500 border-gray-300">
+            <span class="ml-3 font-semibold">복습</span>
+        </label>
+        <div class="absolute bottom-full mb-2 w-max bg-gray-900 text-white text-sm rounded-md py-1 px-3 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+            내 학습기록과 상관없이 모든 단어 대상으로 퀴즈
+            <div class="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-gray-900"></div>
         </div>
     </div>
 
@@ -278,7 +315,7 @@
         import { getDatabase, ref, get, update, set } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
         import { getAuth, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
-        
+
         window.firebaseSDK = {
             initializeApp,
             getDatabase,
