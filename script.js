@@ -244,8 +244,10 @@ const app = {
             } catch (err) {
                 console.error("Error saving practice mode state:", err);
             }
-            if (quizMode.state.currentQuizType) {
-                 quizMode.start(quizMode.state.currentQuizType);
+            // If currently in quiz-play mode, restart the quiz logic with the new mode
+            if (history.state?.mode === 'quiz-play') {
+                 quizMode.reset(false); // Reset session stats but not the type/answeredWords
+                 quizMode.displayNextQuiz(); // Start displaying quizzes with the new mode
             }
         });
 
@@ -316,15 +318,21 @@ const app = {
         }
     },
     navigateTo(mode, options = {}) {
-        if (history.state?.mode !== mode) {
+        const currentState = history.state || {};
+        const currentMode = currentState.mode;
+        const currentOptions = currentState.options || {};
+
+        if (currentMode !== mode) {
             this.syncOfflineData();
         }
 
-        if (history.state?.mode === mode && !['learning', 'mistakeReview', 'favorites'].includes(mode)) return;
+        // Prevent redundant navigation for simple modes or if options haven't changed for complex modes
+        if (currentMode === mode && JSON.stringify(currentOptions) === JSON.stringify(options) && !['learning', 'mistakeReview', 'favorites', 'quiz-play'].includes(mode)) return;
+
 
         const newPath = mode === 'selection'
             ? window.location.pathname + window.location.search
-            : `#${mode}`;
+            : `#${mode}`; // Simple hash for word app
 
         history.pushState({ mode, options }, '', newPath);
         this._renderMode(mode, options);
@@ -357,17 +365,17 @@ const app = {
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.quizModeContainer.classList.remove('hidden');
             this.elements.practiceModeControl.classList.remove('hidden');
-            quizMode.reset();
+            quizMode.reset(); // Reset includes clearing answeredWords when returning here
             await quizMode.updateRangeInputs();
         } else if (mode === 'quiz-play') {
             showCommonButtons();
             this.elements.quizModeContainer.classList.remove('hidden');
             this.elements.practiceModeControl.classList.remove('hidden');
-            quizMode.reset(false);
+            quizMode.reset(false); // Reset session stats BUT keep answeredWords
             if (!app.state.isWordListReady) {
-                await api.loadWordList();
+                await api.loadWordList(); // Ensure word list is loaded
             }
-            quizMode.displayNextQuiz();
+            quizMode.displayNextQuiz(); // Start displaying quizzes
         } else if (mode === 'learning') {
             showCommonButtons();
             this.elements.learningModeContainer.classList.remove('hidden');
@@ -393,11 +401,11 @@ const app = {
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.dashboardContainer.classList.remove('hidden');
             dashboard.render();
-        } else {
+        } else { // selection or default
             this.elements.selectionScreen.classList.remove('hidden');
             this.elements.logoutBtn.classList.remove('hidden');
-            quizMode.reset();
-            learningMode.reset();
+            quizMode.reset(); // Full reset including answeredWords
+            learningMode.reset(); // Full reset for learning mode
         }
     },
     async forceReload() {
@@ -1625,7 +1633,7 @@ const quizMode = {
         sessionAnsweredInSet: 0,
         sessionCorrectInSet: 0,
         sessionMistakes: [],
-        answeredWords: new Set(),
+        answeredWords: new Set(), // Tracks words answered *within the current quiz session*
         preloadedQuizzes: {
             'MULTIPLE_CHOICE_MEANING': null,
             'FILL_IN_THE_BLANK': null,
@@ -1676,7 +1684,7 @@ const quizMode = {
         this.elements.quizRangeEnd.addEventListener('click', (e) => this.promptForRangeValue(e.target));
         this.elements.rangeInputConfirmBtn.addEventListener('click', () => this.confirmRangeInput());
         this.elements.rangeInputCancelBtn.addEventListener('click', () => this.hideRangeInput());
-        this.elements.rangeInputModal.addEventListener('click', (e) => { if (e.target === this.elements.rangeInputModal) this.hideRangeInput(); });
+        this.elements.rangeInputModal.addEventListener('click', () => this.hideRangeInput());
         this.elements.rangeInputField.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') this.confirmRangeInput();
             if (e.key === 'Escape') this.hideRangeInput();
@@ -1710,17 +1718,17 @@ const quizMode = {
     },
     async start(quizType) {
         this.state.currentQuizType = quizType;
-        app.navigateTo('quiz-play');
+        app.navigateTo('quiz-play'); // Navigate to quiz-play mode
     },
     reset(showSelection = true) {
         this.state.currentQuiz = {};
         this.state.sessionAnsweredInSet = 0;
         this.state.sessionCorrectInSet = 0;
         this.state.sessionMistakes = [];
-        this.state.answeredWords.clear();
-
+        // Only clear answeredWords when explicitly returning to the selection screen
         if (showSelection) {
-            this.state.currentQuizType = null;
+            this.state.answeredWords.clear();
+            this.state.currentQuizType = null; // Also reset type only when going back fully
         }
 
         this.elements.loader.querySelector('.loader').style.display = 'block';
@@ -1729,12 +1737,13 @@ const quizMode = {
             this.elements.quizSelectionScreen.classList.remove('hidden');
             this.elements.loader.classList.add('hidden');
         } else {
-            this.showLoader(true);
+            this.showLoader(true); // Show loader when entering quiz-play directly
         }
         this.elements.contentContainer.classList.add('hidden');
         this.elements.finishedScreen.classList.add('hidden');
         if (this.elements.modal) this.elements.modal.classList.add('hidden');
 
+        // Update range inputs only when showing the selection screen
         if (showSelection) {
             this.updateRangeInputs();
         }
@@ -1858,8 +1867,10 @@ const quizMode = {
 
         let preloaded = this.state.preloadedQuizzes[type];
 
+        // --- START: Re-validation Logic ---
         if (preloaded) {
             const allWords = app.state.wordList || [];
+            // 1. Check Range
             const startVal = parseInt(this.elements.quizRangeStart.textContent) || 1;
             const endVal = parseInt(this.elements.quizRangeEnd.textContent) || allWords.length;
             const startNum = Math.min(startVal, endVal);
@@ -1873,11 +1884,13 @@ const quizMode = {
                 preloaded = null;
             }
 
+            // 2. Check if already answered in this session (using answeredWords)
             if (preloaded && this.state.answeredWords.has(preloaded.question.word)) {
                  console.log("Preloaded quiz already answered in session, discarding:", preloaded.question.word);
                  preloaded = null;
             }
 
+            // 3. Check 'learned' status (only if NOT in practice mode)
             if (preloaded && !this.state.isPracticeMode) {
                  const status = utils.getWordStatus(preloaded.question.word);
                  if (status === 'learned') {
@@ -1886,6 +1899,7 @@ const quizMode = {
                  }
             }
         }
+        // --- END: Re-validation Logic ---
 
         if (preloaded) {
             nextQuiz = preloaded;
@@ -1903,7 +1917,6 @@ const quizMode = {
 
         if (nextQuiz) {
             this.state.currentQuiz = nextQuiz;
-            this.state.answeredWords.add(nextQuiz.question.word);
             this.showLoader(false);
             this.renderQuiz(nextQuiz);
         } else {
@@ -2024,6 +2037,8 @@ const quizMode = {
         const word = this.state.currentQuiz.question.word;
         const quizType = this.state.currentQuiz.type;
 
+        this.state.answeredWords.add(word);
+
         selectedLi.classList.add(isCorrect ? 'correct' : 'incorrect');
 
         if (isCorrect && !isPass) {
@@ -2079,20 +2094,24 @@ const quizMode = {
         this.elements.modal.classList.add('hidden');
         if (this.elements.modalContinueBtn.textContent === "퀴즈 유형으로") {
              app.syncOfflineData();
-            app.navigateTo('quiz');
+            app.navigateTo('quiz'); // Go back to quiz type selection
             return;
         }
+        // Reset session stats for the next set of 10
         this.state.sessionAnsweredInSet = 0;
         this.state.sessionCorrectInSet = 0;
         this.state.sessionMistakes = [];
-        this.displayNextQuiz();
+        // DO NOT clear answeredWords here, it persists for the entire quiz-play session
+        this.displayNextQuiz(); // Continue with the next quiz
     },
     reviewSessionMistakes() {
         this.elements.modal.classList.add('hidden');
         const mistakes = [...new Set(this.state.sessionMistakes)];
+        // Reset session stats before navigating away
         this.state.sessionAnsweredInSet = 0;
         this.state.sessionCorrectInSet = 0;
         this.state.sessionMistakes = [];
+        // DO NOT clear answeredWords here when going to mistake review
          app.syncOfflineData();
         app.navigateTo('mistakeReview', { mistakeWords: mistakes });
     },
@@ -2148,7 +2167,7 @@ const quizMode = {
         });
 
         if (quizType === 'FILL_IN_THE_BLANK') {
-            candidates = candidates.filter(word => word.sample && word.sample.trim() !== '');
+             candidates = candidates.filter(word => word.sample && word.sample.trim() !== '');
         }
 
         if (candidates.length === 0) return null;
@@ -2681,3 +2700,4 @@ document.addEventListener('firebaseSDKLoaded', () => {
     window.firebaseSDK.writeBatch = writeBatch;
     app.init();
 });
+
