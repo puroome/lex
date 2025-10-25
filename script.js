@@ -1676,7 +1676,7 @@ const quizMode = {
         this.elements.quizRangeEnd.addEventListener('click', (e) => this.promptForRangeValue(e.target));
         this.elements.rangeInputConfirmBtn.addEventListener('click', () => this.confirmRangeInput());
         this.elements.rangeInputCancelBtn.addEventListener('click', () => this.hideRangeInput());
-        this.elements.rangeInputModal.addEventListener('click', () => this.hideRangeInput());
+        this.elements.rangeInputModal.addEventListener('click', (e) => { if (e.target === this.elements.rangeInputModal) this.hideRangeInput(); });
         this.elements.rangeInputField.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') this.confirmRangeInput();
             if (e.key === 'Escape') this.hideRangeInput();
@@ -1866,20 +1866,22 @@ const quizMode = {
             const endNum = Math.max(startVal, endVal);
             const startIndex = Math.max(0, startNum - 1);
             const endIndex = Math.min(allWords.length - 1, endNum - 1);
-
             const wordIndex = allWords.findIndex(w => w.word === preloaded.question.word);
 
             if (wordIndex < startIndex || wordIndex > endIndex) {
+                console.log("Preloaded quiz out of range, discarding:", preloaded.question.word);
                 preloaded = null;
             }
 
             if (preloaded && this.state.answeredWords.has(preloaded.question.word)) {
+                 console.log("Preloaded quiz already answered in session, discarding:", preloaded.question.word);
                  preloaded = null;
             }
 
             if (preloaded && !this.state.isPracticeMode) {
                  const status = utils.getWordStatus(preloaded.question.word);
                  if (status === 'learned') {
+                      console.log("Preloaded quiz is 'learned' (and not practice mode), discarding:", preloaded.question.word);
                       preloaded = null;
                  }
             }
@@ -1892,6 +1894,7 @@ const quizMode = {
         }
 
         if (!nextQuiz) {
+            console.log("No valid preloaded quiz, generating new one...");
             nextQuiz = await this.generateSingleQuiz();
             if (nextQuiz) {
                 this.preloadNextQuiz(type);
@@ -2106,15 +2109,61 @@ const quizMode = {
 
         this.state.isPreloading[quizType] = true;
         try {
-            const quiz = await this.generateSingleQuiz();
+            const quiz = await this._generateSingleQuizForPreload(quizType);
             if (quiz) {
                 this.state.preloadedQuizzes[quizType] = quiz;
+                console.log(`Preloaded quiz for ${quizType}:`, quiz.question.word);
+            } else {
+                 console.log(`Could not preload quiz for ${quizType}, no candidates.`);
             }
         } catch (error) {
             console.warn(`Preloading quiz type ${quizType} failed:`, error);
         } finally {
             this.state.isPreloading[quizType] = false;
         }
+    },
+    async _generateSingleQuizForPreload(quizType) {
+        const allWords = app.state.wordList || [];
+        if (allWords.length === 0) return null;
+
+        const startVal = parseInt(this.elements.quizRangeStart.textContent) || 1;
+        const endVal = parseInt(this.elements.quizRangeEnd.textContent) || allWords.length;
+        const startNum = Math.min(startVal, endVal);
+        const endNum = Math.max(startVal, endVal);
+        const startIndex = Math.max(0, startNum - 1);
+        const endIndex = Math.min(allWords.length - 1, endNum - 1);
+        const wordsInRange = allWords.slice(startIndex, endIndex + 1);
+
+        if (wordsInRange.length === 0) return null;
+
+        let candidates = wordsInRange.filter(wordObj => {
+            if (this.state.answeredWords.has(wordObj.word)) {
+                return false;
+            }
+            if (this.state.isPracticeMode) {
+                return true;
+            }
+            const status = utils.getWordStatus(wordObj.word);
+            return status !== 'learned';
+        });
+
+        if (quizType === 'FILL_IN_THE_BLANK') {
+            candidates = candidates.filter(word => word.sample && word.sample.trim() !== '');
+        }
+
+        if (candidates.length === 0) return null;
+
+        utils.shuffleArray(candidates);
+
+        const usableAllWordsForChoices = allWords.length >= 4 ? allWords : [...allWords, {word: 'dummy1', meaning: '오답1'}, {word: 'dummy2', meaning: '오답2'}, {word: 'dummy3', meaning: '오답3'}];
+
+        const wordData = candidates[0];
+        let quiz = null;
+        if (quizType === 'MULTIPLE_CHOICE_MEANING') quiz = this.createMeaningQuiz(wordData, usableAllWordsForChoices);
+        else if (quizType === 'FILL_IN_THE_BLANK') quiz = this.createBlankQuiz(wordData, usableAllWordsForChoices);
+        else if (quizType === 'MULTIPLE_CHOICE_DEFINITION') quiz = await this.createDefinitionQuiz(wordData, usableAllWordsForChoices);
+
+        return quiz;
     },
     createMeaningQuiz(correctWordData, allWordsData) {
         const wrongAnswers = new Set();
