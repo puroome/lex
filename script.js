@@ -1923,8 +1923,8 @@ const quizMode = {
             if (this.state.sessionAnsweredInSet > 0) {
                  this.showSessionResultModal(true);
             } else {
-                 this.showFinishedScreen("더 만들 퀴즈가 없습니다!");
-                 setTimeout(() => app.navigateTo('quiz'), 1000);
+                 this.showFinishedScreen("No more quizzes!");
+                 setTimeout(() => app.navigateTo('quiz'), 800);
             }
         }
     },
