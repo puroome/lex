@@ -179,7 +179,7 @@ const app = {
         learningMode.init();
         dashboard.init();
 
-        quizMode.preloadAllQuizTypes();
+        quizMode.preloadAllQuizTypesBasedOnSavedRange();
 
         const initialMode = window.location.hash.replace('#', '') || 'selection';
         history.replaceState({ mode: initialMode, options: {} }, '', window.location.href);
@@ -244,10 +244,9 @@ const app = {
             } catch (err) {
                 console.error("Error saving practice mode state:", err);
             }
-            // If currently in quiz-play mode, restart the quiz logic with the new mode
             if (history.state?.mode === 'quiz-play') {
-                 quizMode.reset(false); // Reset session stats but not the type/answeredWords
-                 quizMode.displayNextQuiz(); // Start displaying quizzes with the new mode
+                 quizMode.reset(false);
+                 quizMode.displayNextQuiz();
             }
         });
 
@@ -326,13 +325,12 @@ const app = {
             this.syncOfflineData();
         }
 
-        // Prevent redundant navigation for simple modes or if options haven't changed for complex modes
         if (currentMode === mode && JSON.stringify(currentOptions) === JSON.stringify(options) && !['learning', 'mistakeReview', 'favorites', 'quiz-play'].includes(mode)) return;
 
 
         const newPath = mode === 'selection'
             ? window.location.pathname + window.location.search
-            : `#${mode}`; // Simple hash for word app
+            : `#${mode}`;
 
         history.pushState({ mode, options }, '', newPath);
         this._renderMode(mode, options);
@@ -365,17 +363,17 @@ const app = {
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.quizModeContainer.classList.remove('hidden');
             this.elements.practiceModeControl.classList.remove('hidden');
-            quizMode.reset(); // Reset includes clearing answeredWords when returning here
+            quizMode.reset();
             await quizMode.updateRangeInputs();
         } else if (mode === 'quiz-play') {
             showCommonButtons();
             this.elements.quizModeContainer.classList.remove('hidden');
             this.elements.practiceModeControl.classList.remove('hidden');
-            quizMode.reset(false); // Reset session stats BUT keep answeredWords
+            quizMode.reset(false);
             if (!app.state.isWordListReady) {
-                await api.loadWordList(); // Ensure word list is loaded
+                await api.loadWordList();
             }
-            quizMode.displayNextQuiz(); // Start displaying quizzes
+            quizMode.displayNextQuiz();
         } else if (mode === 'learning') {
             showCommonButtons();
             this.elements.learningModeContainer.classList.remove('hidden');
@@ -401,11 +399,11 @@ const app = {
             this.elements.homeBtn.classList.remove('hidden');
             this.elements.dashboardContainer.classList.remove('hidden');
             dashboard.render();
-        } else { // selection or default
+        } else {
             this.elements.selectionScreen.classList.remove('hidden');
             this.elements.logoutBtn.classList.remove('hidden');
-            quizMode.reset(); // Full reset including answeredWords
-            learningMode.reset(); // Full reset for learning mode
+            quizMode.reset();
+            learningMode.reset();
         }
     },
     async forceReload() {
@@ -1633,7 +1631,7 @@ const quizMode = {
         sessionAnsweredInSet: 0,
         sessionCorrectInSet: 0,
         sessionMistakes: [],
-        answeredWords: new Set(), // Tracks words answered *within the current quiz session*
+        answeredWords: new Set(),
         preloadedQuizzes: {
             'MULTIPLE_CHOICE_MEANING': null,
             'FILL_IN_THE_BLANK': null,
@@ -1718,17 +1716,16 @@ const quizMode = {
     },
     async start(quizType) {
         this.state.currentQuizType = quizType;
-        app.navigateTo('quiz-play'); // Navigate to quiz-play mode
+        app.navigateTo('quiz-play');
     },
     reset(showSelection = true) {
         this.state.currentQuiz = {};
         this.state.sessionAnsweredInSet = 0;
         this.state.sessionCorrectInSet = 0;
         this.state.sessionMistakes = [];
-        // Only clear answeredWords when explicitly returning to the selection screen
         if (showSelection) {
             this.state.answeredWords.clear();
-            this.state.currentQuizType = null; // Also reset type only when going back fully
+            this.state.currentQuizType = null;
         }
 
         this.elements.loader.querySelector('.loader').style.display = 'block';
@@ -1737,13 +1734,12 @@ const quizMode = {
             this.elements.quizSelectionScreen.classList.remove('hidden');
             this.elements.loader.classList.add('hidden');
         } else {
-            this.showLoader(true); // Show loader when entering quiz-play directly
+            this.showLoader(true);
         }
         this.elements.contentContainer.classList.add('hidden');
         this.elements.finishedScreen.classList.add('hidden');
         if (this.elements.modal) this.elements.modal.classList.add('hidden');
 
-        // Update range inputs only when showing the selection screen
         if (showSelection) {
             this.updateRangeInputs();
         }
@@ -1839,6 +1835,7 @@ const quizMode = {
                                    : app.state.LOCAL_STORAGE_KEYS.QUIZ_RANGE_END;
                 try {
                     localStorage.setItem(storageKey, newValue);
+                    this.clearAndPreloadQuizzesForNewRange();
                 } catch (e) {
                     console.error("Error saving quiz range to localStorage", e);
                 }
@@ -1856,9 +1853,18 @@ const quizMode = {
         try {
             localStorage.setItem(app.state.LOCAL_STORAGE_KEYS.QUIZ_RANGE_START, 1);
             localStorage.setItem(app.state.LOCAL_STORAGE_KEYS.QUIZ_RANGE_END, totalWords);
+            this.clearAndPreloadQuizzesForNewRange();
         } catch (e) {
             console.error("Error saving reset quiz range to localStorage", e);
         }
+    },
+    clearAndPreloadQuizzesForNewRange() {
+        const quizTypes = Object.keys(this.state.preloadedQuizzes);
+        quizTypes.forEach(type => {
+            this.state.preloadedQuizzes[type] = null;
+            this.state.isPreloading[type] = false;
+        });
+        this.preloadAllQuizTypesBasedOnSavedRange();
     },
     async displayNextQuiz() {
         this.showLoader(true, "다음 문제 생성 중...");
@@ -1867,10 +1873,8 @@ const quizMode = {
 
         let preloaded = this.state.preloadedQuizzes[type];
 
-        // --- START: Re-validation Logic ---
         if (preloaded) {
             const allWords = app.state.wordList || [];
-            // 1. Check Range
             const startVal = parseInt(this.elements.quizRangeStart.textContent) || 1;
             const endVal = parseInt(this.elements.quizRangeEnd.textContent) || allWords.length;
             const startNum = Math.min(startVal, endVal);
@@ -1880,38 +1884,31 @@ const quizMode = {
             const wordIndex = allWords.findIndex(w => w.word === preloaded.question.word);
 
             if (wordIndex < startIndex || wordIndex > endIndex) {
-                console.log("Preloaded quiz out of range, discarding:", preloaded.question.word);
                 preloaded = null;
             }
 
-            // 2. Check if already answered in this session (using answeredWords)
             if (preloaded && this.state.answeredWords.has(preloaded.question.word)) {
-                 console.log("Preloaded quiz already answered in session, discarding:", preloaded.question.word);
                  preloaded = null;
             }
 
-            // 3. Check 'learned' status (only if NOT in practice mode)
             if (preloaded && !this.state.isPracticeMode) {
                  const status = utils.getWordStatus(preloaded.question.word);
                  if (status === 'learned') {
-                      console.log("Preloaded quiz is 'learned' (and not practice mode), discarding:", preloaded.question.word);
                       preloaded = null;
                  }
             }
         }
-        // --- END: Re-validation Logic ---
 
         if (preloaded) {
             nextQuiz = preloaded;
             this.state.preloadedQuizzes[type] = null;
-            this.preloadNextQuiz(type);
+            this.preloadNextQuiz(type, nextQuiz.question.word);
         }
 
         if (!nextQuiz) {
-            console.log("No valid preloaded quiz, generating new one...");
             nextQuiz = await this.generateSingleQuiz();
             if (nextQuiz) {
-                this.preloadNextQuiz(type);
+                this.preloadNextQuiz(type, nextQuiz.question.word);
             }
         }
 
@@ -1952,26 +1949,22 @@ const quizMode = {
         let candidates = wordsInRange.filter(wordObj => {
             const word = wordObj.word;
             if (this.state.answeredWords.has(word)) {
-                return false; // 1. 현재 세션에서 이미 푼 단어 제외
+                return false;
             }
             if (this.state.isPracticeMode) {
-                return true; // 2. 복습 모드에서는 모든 단어 포함
+                return true;
             }
 
-            // 3. 일반 모드: 현재 퀴즈 유형에 'correct' 기록이 있는지 확인
-            
-            // 로컬(오프라인) 기록 먼저 확인
             if (unsynced[word] && unsynced[word][currentQuizType] === 'correct') {
-                return false; // 이 퀴즈 유형을 맞힌 기록이 로컬에 있으면 제외
+                return false;
             }
-            
-            // 로컬에 없으면 서버(동기화된) 기록 확인
+
             const serverProgress = app.state.currentProgress[word];
             if (!unsynced[word] && serverProgress && serverProgress[currentQuizType] === 'correct') {
-                 return false; // 이 퀴즈 유형을 맞힌 기록이 서버에 있으면 제외
+                 return false;
             }
-            
-            return true; // 이 퀴즈 유형을 맞힌 기록이 없으면 포함
+
+            return true;
         });
         if (this.state.currentQuizType === 'FILL_IN_THE_BLANK') {
             candidates = candidates.filter(word => word.sample && word.sample.trim() !== '');
@@ -2113,46 +2106,60 @@ const quizMode = {
         this.elements.modal.classList.add('hidden');
         if (this.elements.modalContinueBtn.textContent === "퀴즈 유형으로") {
              app.syncOfflineData();
-            app.navigateTo('quiz'); // Go back to quiz type selection
+            app.navigateTo('quiz');
             return;
         }
-        // Reset session stats for the next set of 10
         this.state.sessionAnsweredInSet = 0;
         this.state.sessionCorrectInSet = 0;
         this.state.sessionMistakes = [];
-        // DO NOT clear answeredWords here, it persists for the entire quiz-play session
-        this.displayNextQuiz(); // Continue with the next quiz
+        this.displayNextQuiz();
     },
     reviewSessionMistakes() {
         this.elements.modal.classList.add('hidden');
         const mistakes = [...new Set(this.state.sessionMistakes)];
-        // Reset session stats before navigating away
         this.state.sessionAnsweredInSet = 0;
         this.state.sessionCorrectInSet = 0;
         this.state.sessionMistakes = [];
-        // DO NOT clear answeredWords here when going to mistake review
          app.syncOfflineData();
         app.navigateTo('mistakeReview', { mistakeWords: mistakes });
     },
-    async preloadAllQuizTypes() {
-        const quizTypes = ['MULTIPLE_CHOICE_MEANING', 'FILL_IN_THE_BLANK', 'MULTIPLE_CHOICE_DEFINITION'];
+    async preloadAllQuizTypesBasedOnSavedRange() {
+        if (!app.state.isWordListReady) {
+            try { await api.loadWordList(); } catch (e) { return; }
+        }
+
+        let startValue = 1;
+        let endValue = app.state.wordList.length;
+        try {
+            const savedStart = localStorage.getItem(app.state.LOCAL_STORAGE_KEYS.QUIZ_RANGE_START);
+            const savedEnd = localStorage.getItem(app.state.LOCAL_STORAGE_KEYS.QUIZ_RANGE_END);
+            const totalWords = app.state.wordList.length || 1;
+
+            if (savedStart !== null) {
+                const parsedStart = parseInt(savedStart);
+                if (!isNaN(parsedStart) && parsedStart >= 1 && parsedStart <= totalWords) startValue = parsedStart;
+            }
+            if (savedEnd !== null) {
+                const parsedEnd = parseInt(savedEnd);
+                if (!isNaN(parsedEnd) && parsedEnd >= 1 && parsedEnd <= totalWords) endValue = parsedEnd;
+            }
+        } catch(e) { console.warn("Error reading saved range for initial preload:", e); }
+
+        const quizTypes = Object.keys(this.state.preloadedQuizzes);
         for (const type of quizTypes) {
-            this.preloadNextQuiz(type);
+            this.preloadNextQuiz(type, null, { start: startValue, end: endValue });
         }
     },
-    async preloadNextQuiz(quizType) {
+    async preloadNextQuiz(quizType, wordToExclude = null, rangeOverride = null) {
         if (this.state.isPreloading[quizType] || this.state.preloadedQuizzes[quizType]) {
             return;
         }
 
         this.state.isPreloading[quizType] = true;
         try {
-            const quiz = await this._generateSingleQuizForPreload(quizType);
+            const quiz = await this._generateSingleQuizForPreload(quizType, wordToExclude, rangeOverride);
             if (quiz) {
                 this.state.preloadedQuizzes[quizType] = quiz;
-                console.log(`Preloaded quiz for ${quizType}:`, quiz.question.word);
-            } else {
-                 console.log(`Could not preload quiz for ${quizType}, no candidates.`);
             }
         } catch (error) {
             console.warn(`Preloading quiz type ${quizType} failed:`, error);
@@ -2160,12 +2167,19 @@ const quizMode = {
             this.state.isPreloading[quizType] = false;
         }
     },
-    async _generateSingleQuizForPreload(quizType) {
+    async _generateSingleQuizForPreload(quizType, wordToExclude = null, rangeOverride = null) {
         const allWords = app.state.wordList || [];
         if (allWords.length === 0) return null;
 
-        const startVal = parseInt(this.elements.quizRangeStart.textContent) || 1;
-        const endVal = parseInt(this.elements.quizRangeEnd.textContent) || allWords.length;
+        let startVal, endVal;
+        if (rangeOverride) {
+            startVal = rangeOverride.start;
+            endVal = rangeOverride.end;
+        } else {
+            startVal = parseInt(this.elements.quizRangeStart.textContent) || 1;
+            endVal = parseInt(this.elements.quizRangeEnd.textContent) || allWords.length;
+        }
+
         const startNum = Math.min(startVal, endVal);
         const endNum = Math.max(startVal, endVal);
         const startIndex = Math.max(0, startNum - 1);
@@ -2182,27 +2196,15 @@ const quizMode = {
 
         let candidates = wordsInRange.filter(wordObj => {
             const word = wordObj.word;
-            if (this.state.answeredWords.has(word)) {
-                return false; // 1. 현재 세션에서 이미 푼 단어 제외
-            }
-            if (this.state.isPracticeMode) {
-                return true; // 2. 복습 모드에서는 모든 단어 포함
-            }
+            if (word === wordToExclude) return false;
+            if (this.state.answeredWords.has(word)) return false;
+            if (this.state.isPracticeMode) return true;
 
-            // 3. 일반 모드: 인자로 받은 quizType에 'correct' 기록이 있는지 확인
-            
-            // 로컬(오프라인) 기록 먼저 확인
-            if (unsynced[word] && unsynced[word][quizType] === 'correct') {
-                return false;
-            }
-            
-            // 로컬에 없으면 서버(동기화된) 기록 확인
+            if (unsynced[word] && unsynced[word][quizType] === 'correct') return false;
             const serverProgress = app.state.currentProgress[word];
-            if (!unsynced[word] && serverProgress && serverProgress[quizType] === 'correct') {
-                 return false;
-            }
+            if (!unsynced[word] && serverProgress && serverProgress[quizType] === 'correct') return false;
 
-            return true; // 이 퀴즈 유형을 맞힌 기록이 없으면 포함
+            return true;
         });
 
         if (quizType === 'FILL_IN_THE_BLANK') {
@@ -2739,4 +2741,3 @@ document.addEventListener('firebaseSDKLoaded', () => {
     window.firebaseSDK.writeBatch = writeBatch;
     app.init();
 });
-
