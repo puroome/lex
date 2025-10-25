@@ -2035,7 +2035,7 @@ const quizMode = {
         this.elements.choices.innerHTML = '';
         choices.forEach((choice, index) => {
             const li = document.createElement('li');
-            li.className = 'choice-item border-2 border-gray-300 py-3 px-4 rounded-lg cursor-pointer flex items-start transition-all text-lg hover:border-blue-500 hover:bg-blue-50';
+            li.className = 'choice-item border-2 border-gray-300 py-2 px-4 rounded-lg cursor-pointer flex items-start transition-all text-2xl hover:border-blue-500 hover:bg-blue-50';
             li.innerHTML = `<span class="font-bold mr-3 text-blue-600">${index + 1}.</span> <span>${choice}</span>`;
             li.onclick = () => this.checkAnswer(li, choice);
             this.elements.choices.appendChild(li);
